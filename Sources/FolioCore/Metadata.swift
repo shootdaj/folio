@@ -16,7 +16,8 @@ public enum MetadataReader {
         m.created = v?.creationDate
         m.accessed = v?.contentAccessDate
         m.added = v?.addedToDirectoryDate
-        m.tags = v?.tagNames ?? []
+        // Straight from Finder's attribute: URL resource values are cached per URL and miss our own edits.
+        m.tags = FileTags.read(url).map(\.name)
         m.isLocked = v?.isUserImmutable ?? false
         m.isHidden = v?.isHidden ?? false
         let type = v?.contentType
@@ -126,8 +127,9 @@ public enum MetadataReader {
 
 /// The Details pane's edits: Tags and Comments.
 public enum MetadataWriter {
+    /// Tags typed as names keep the colours they had (FileTags), so Finder's labels survive the edit.
     public static func setTags(_ tags: [String], of url: URL) throws {
-        try (url as NSURL).setResourceValue(tags, forKey: .tagNamesKey)
+        try FileTags.setNames(tags, of: url)
     }
 
     /// An empty comment removes it.

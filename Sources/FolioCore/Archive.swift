@@ -420,8 +420,8 @@ public final class ArchiveJob: ProgressJob, @unchecked Sendable {
 
     static func now() -> Double { ProcessInfo.processInfo.systemUptime }
 
-    /// A tool's standard output (listing an archive).
-    static func capture(_ command: [String]) -> String {
+    /// A tool's standard output (listing an archive, `sharing -l`).
+    public static func capture(_ command: [String]) -> String {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: command[0])
         p.arguments = Array(command.dropFirst())

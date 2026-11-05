@@ -36,6 +36,15 @@ final class ChassisView: NSView {
     /// The navigation pane's width, dragged at its right edge and kept in the defaults.
     var sideWidth: CGFloat = ChassisView.sideW { didSet { if sideWidth != oldValue { needsLayout = true } } }
     var sidebarShown = true { didSet { if sidebarShown != oldValue { needsLayout = true } } }
+    /// Folder Options > Show status bar.
+    var statusShown = true {
+        didSet {
+            guard statusShown != oldValue else { return }
+            status.isHidden = !statusShown
+            needsLayout = true
+        }
+    }
+    private var statusHeight: CGFloat { statusShown ? Self.statusH : 0 }
     var sidePaneKind: ListOptions.SidePane = .none {
         didSet {
             guard sidePaneKind != oldValue else { return }
@@ -91,7 +100,7 @@ final class ChassisView: NSView {
         toolbar.frame = NSRect(x: 0, y: Self.titleH + Self.tabH, width: w, height: Self.toolH)
         hud.frame = NSRect(x: 0, y: Self.titleH + Self.tabH + Self.toolH, width: w, height: Self.hudH)
         let top = Self.bodyTop
-        let bodyH = max(0, h - top - Self.statusH)
+        let bodyH = max(0, h - top - statusHeight)
         let side = sidebarShown ? sideWidth : 0
         sidebar.isHidden = !sidebarShown
         handle.isHidden = !sidebarShown

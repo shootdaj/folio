@@ -117,7 +117,12 @@ final class SidePaneView: NSView, NSTextFieldDelegate {
         switch kind {
         case .none: return
         case .preview:
-            if selection.count == 1, let one = selection.first, !one.isFolder {
+            if selection.count == 1, let one = selection.first, !one.isFolder, !ListOptions.folder.showPreviewHandlers {
+                // Folder Options > Show preview handlers in preview pane, off: no file is rendered.
+                quickLook.show(nil, message: "No preview available (preview handlers are off in Folder Options)")
+            } else if selection.count == 1, let one = selection.first, !one.isFolder, ZipPath.split(one.url) != nil {
+                quickLook.show(nil, message: "Copy it out of the zip to preview it")
+            } else if selection.count == 1, let one = selection.first, !one.isFolder {
                 quickLook.show(one.url, message: "")
             } else {
                 quickLook.show(nil, message: selection.isEmpty ? "Select a file to preview" :

@@ -20,6 +20,7 @@ extension BrowserWindowController {
     }
 
     func updateTabStrip() {
+        updateWatches()
         let items = tabs.tabs.map { tab in
             TabItem(id: tab.id, title: tab.history.search.map { s in
                         "Search Results in " + (s.everywhere ? "This PC" : displayName(tab.current))
@@ -271,6 +272,7 @@ extension BrowserWindowController {
         if !history.isHome, ListOptions.expandToCurrent { revealCurrentFolder(select: false) }
         updateTabStrip()
         sessionChanged()
+        updateWatches()
     }
 }
 
@@ -293,6 +295,8 @@ extension BrowserWindowController {
             if let target = ServerAddress.parse("smb://" + host) { _ = self?.connect(to: target) }
         }
         pane.onRenameVolume = { [weak self] v in VolumeCenter.shared.rename(v, window: self?.window) }
+        pane.onDevice = { [weak self] in self?.openImageCapture(nil) }
+        pane.setDevices(DeviceCenter.shared.names)
         pane.onTrash = { [weak self] urls in OperationCenter.shared.trash(urls, window: self?.window) }
         pane.setCloud(CloudFolders.locations(home: FileManager.default.homeDirectoryForCurrentUser))
         pane.menuProvider = { [weak self] node in self?.nodeMenu(node) }
@@ -406,6 +410,9 @@ extension BrowserWindowController {
             add("Open", #selector(goHome(_:)))
             add("Open in new tab", #selector(nodeOpenHomeTab(_:)))
             return menu
+        case .device:
+            add("Import pictures and videos", #selector(openImageCapture(_:)))
+            return menu
         case .connect, .browse, .server:
             add("Connect to server...", #selector(connectToServer(_:)))
             if case .server = node.kind { add("Browse network again", #selector(nodeBrowse(_:))) }
@@ -440,6 +447,9 @@ extension BrowserWindowController {
             } else {
                 if v.canEject { add("Eject", #selector(nodeEject(_:)), v.path) }
                 if !v.isRoot { add("Rename...", #selector(nodeRename(_:)), v.path) }
+                // Explorer's drive menu and Properties > Tools: Format and Check (diskutil).
+                add("Check for errors", #selector(checkDrive(_:)), v.path)
+                if !v.isRoot { add("Format...", #selector(formatDrive(_:)), v.path) }
             }
         }
         menu.addItem(.separator())
@@ -527,10 +537,13 @@ enum HomeData {
         let recent = RecentFiles.merged(own: own, system: system).filter { fm.fileExists(atPath: $0) }
         let favorites = FavoritesStore(defaults: defaults).paths.filter { fm.fileExists(atPath: $0) }
         let locations = AddressHistory(defaults: defaults).paths.filter { fm.fileExists(atPath: $0) }
+        // Folder Options > Privacy: Show recently used files, Show frequently used folders.
+        let privacy = ListOptions.folder
         return HomeContent(pins: pins.places,
                            favorites: favorites.map { URL(fileURLWithPath: $0) },
-                           recentFiles: recent.map { URL(fileURLWithPath: $0) },
-                           recentLocations: locations.prefix(12).map { URL(fileURLWithPath: $0, isDirectory: true) })
+                           recentFiles: privacy.showRecentFiles ? recent.map { URL(fileURLWithPath: $0) } : [],
+                           recentLocations: privacy.showFrequentFolders
+                               ? locations.prefix(12).map { URL(fileURLWithPath: $0, isDirectory: true) } : [])
     }
 }
 

@@ -154,7 +154,7 @@ public enum ItemFlags {
     }
 
     public static func setTags(_ tags: [String], _ url: URL) throws {
-        try (URL(fileURLWithPath: url.path) as NSURL).setResourceValue(tags, forKey: .tagNamesKey)
+        try FileTags.setNames(tags, of: url)
     }
 }
 

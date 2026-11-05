@@ -273,7 +273,9 @@ extension BrowserWindowController: GridHost {
             OperationCenter.shared.present(error, window: window)
         }
         MetadataCache.shared.invalidate(url)
+        ItemDecorCache.shared.forget(url)
         if let e = entries.first(where: { $0.url == url }) { requestMetadata(e) }
+        reloadVisibleItems()
     }
 
     // MARK: The grid's cells
@@ -291,6 +293,7 @@ extension BrowserWindowController: GridHost {
         cell.isFocusItem = selection.focus == i
         cell.isCut = dimmed.contains(entryKeys[i])
         cell.isDropTarget = dropTargetRow == i
+        decorate(cell, e)
         switch mode {
         case .tiles:
             cell.details = [("Type", e.kind), ("Size", e.size.map(ByteText.kilobytes) ?? "")].filter { !$0.1.isEmpty }
@@ -310,7 +313,7 @@ extension BrowserWindowController: GridHost {
             cell.details = []
         }
         let size = CGFloat(mode.iconSize)
-        if mode.showsThumbnails, ListOptions.thumbnails, ThumbnailCache.wants(e) {
+        if mode.showsThumbnails, ListOptions.thumbnails, !isInZip, ThumbnailCache.wants(e) {
             cell.thumbnail = ThumbnailCache.shared.image(for: e, size: size) { [weak cell] image in
                 guard let cell, cell.entry?.url == e.url else { return }
                 cell.thumbnail = image

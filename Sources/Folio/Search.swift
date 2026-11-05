@@ -3,6 +3,7 @@ import FolioCore
 
 /// Search options' persistent toggles (Explorer's Folder Options > Search behind them) and the Recent
 /// searches setting.
+@MainActor
 enum SearchSettings {
     static let fileContentsKey = "searchFileContents"
     static let systemFilesKey = "searchSystemFiles"
@@ -11,13 +12,20 @@ enum SearchSettings {
     /// Advanced options > File contents: the walk reads files in places Spotlight does not index.
     static var fileContents: Bool {
         get { UserDefaults.standard.bool(forKey: fileContentsKey) }
-        set { UserDefaults.standard.set(newValue, forKey: fileContentsKey) }
+        set { UserDefaults.standard.set(newValue, forKey: fileContentsKey); ListOptions.reload() }
     }
 
     /// Advanced options > System files: the walk goes into system folders.
     static var systemFiles: Bool {
         get { UserDefaults.standard.bool(forKey: systemFilesKey) }
-        set { UserDefaults.standard.set(newValue, forKey: systemFilesKey) }
+        set { UserDefaults.standard.set(newValue, forKey: systemFilesKey); ListOptions.reload() }
+    }
+
+    /// Advanced options > Zipped (compressed) folders, Folder Options' Include compressed files: the
+    /// walk looks inside zips.
+    static var zippedFolders: Bool {
+        get { UserDefaults.standard.bool(forKey: "searchZippedFolders") }
+        set { UserDefaults.standard.set(newValue, forKey: "searchZippedFolders"); ListOptions.reload() }
     }
 
     /// Windows 11 dropped the Recent searches dropdown when live results came; here it is a setting, on.
@@ -220,6 +228,8 @@ extension BrowserWindowController {
         request.includeHidden = ListOptions.showHidden
         request.fileContents = SearchSettings.fileContents
         request.systemFiles = SearchSettings.systemFiles
+        request.zippedFolders = SearchSettings.zippedFolders
+        request.dontUseIndex = ListOptions.folder.dontUseIndex
         let engine = SearchEngine(request) { [weak self] update in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated { self?.searchUpdated(update, run: run) }
@@ -355,10 +365,7 @@ extension BrowserWindowController {
         } else if chip === bar.advanced {
             pick(menu, "File contents", #selector(toggleSearchFileContents(_:)), nil, on: SearchSettings.fileContents)
             pick(menu, "System files", #selector(toggleSearchSystemFiles(_:)), nil, on: SearchSettings.systemFiles)
-            let zip = NSMenuItem(title: "Zipped (compressed) folders", action: nil, keyEquivalent: "")
-            zip.toolTip = "Arrives with milestone 8"
-            zip.isEnabled = false
-            menu.addItem(zip)
+            pick(menu, "Zipped (compressed) folders", #selector(toggleSearchZippedFolders(_:)), nil, on: SearchSettings.zippedFolders)
             menu.addItem(.separator())
             pick(menu, "Recent searches list", #selector(toggleRecentSearchesList(_:)), nil, on: SearchSettings.recentDropdown)
             pick(menu, "Clear search history", #selector(clearSearchHistory(_:)), nil, enabled: !recentSearches.items.isEmpty)
@@ -391,6 +398,11 @@ extension BrowserWindowController {
 
     @objc func toggleSearchSystemFiles(_ sender: Any?) {
         SearchSettings.systemFiles.toggle()
+        if isSearching { runSearch(keepingState: true) }
+    }
+
+    @objc func toggleSearchZippedFolders(_ sender: Any?) {
+        SearchSettings.zippedFolders.toggle()
         if isSearching { runSearch(keepingState: true) }
     }
 

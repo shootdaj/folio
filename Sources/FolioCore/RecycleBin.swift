@@ -57,6 +57,11 @@ public enum RecycleBin {
 public struct CloudPlace: Sendable, Equatable {
     public let name: String
     public let path: String
+
+    public init(name: String, path: String) {
+        self.name = name
+        self.path = path
+    }
 }
 
 /// iCloud Drive and the File Provider folders (Dropbox, Google Drive, OneDrive, Box) under

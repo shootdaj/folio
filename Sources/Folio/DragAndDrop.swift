@@ -126,13 +126,20 @@ extension BrowserWindowController: NSDraggingSource, DropHost {
     func list(_ list: NSView, beginDragWith event: NSEvent, rightButton: Bool) {
         let rows = selection.rows
         guard !rows.isEmpty else { return }
+        // Out of a zip: the entries are copied out to a temp folder first, and those files are dragged.
+        var staged: [Int: URL] = [:]
+        if isInZip {
+            let picked = rows.filter { entries.indices.contains($0) }
+            let urls = stagedFromZip(picked.map { entries[$0].url })
+            for (i, url) in zip(picked, urls) { staged[i] = url }
+        }
         let items: [NSDraggingItem]
         let source: NSView
         if list === grid {
             source = grid
             items = rows.compactMap { i -> NSDraggingItem? in
                 guard entries.indices.contains(i) else { return nil }
-                let item = NSDraggingItem(pasteboardWriter: FileDragProvider(url: entries[i].url))
+                let item = NSDraggingItem(pasteboardWriter: FileDragProvider(url: staged[i] ?? entries[i].url))
                 let frame = grid.frame(ofItem: i) ?? NSRect(x: 0, y: 0, width: 64, height: 64)
                 item.setDraggingFrame(frame, contents: gridDragImage(i, size: frame.size))
                 return item
@@ -143,7 +150,7 @@ extension BrowserWindowController: NSDraggingSource, DropHost {
             items = rows.compactMap { i -> NSDraggingItem? in
                 guard entries.indices.contains(i) else { return nil }
                 let row = tableRow(ofItem: i)
-                let item = NSDraggingItem(pasteboardWriter: FileDragProvider(url: entries[i].url))
+                let item = NSDraggingItem(pasteboardWriter: FileDragProvider(url: staged[i] ?? entries[i].url))
                 var frame = tableView.frameOfCell(atColumn: nameColumn, row: row)
                 frame.size.width = min(frame.width, 320)
                 item.setDraggingFrame(frame, contents: dragImage(row: row, column: nameColumn, size: frame.size))
@@ -280,6 +287,8 @@ extension BrowserWindowController: NSDraggingSource, DropHost {
     }
 
     func dropAction(_ info: NSDraggingInfo, onto target: URL) -> DropAction {
+        // A zip browsed as a folder is read-only here.
+        if ZipPath.split(target) != nil { return .none }
         let urls = draggedURLs(info)
         let keys = heldKeys
         let fromFolio = info.draggingSource is BrowserWindowController

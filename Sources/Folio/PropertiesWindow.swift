@@ -9,13 +9,15 @@ import UniformTypeIdentifiers
 final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NSTextFieldDelegate {
     private static var open: [PropertiesWindowController] = []
 
-    static func show(_ urls: [URL], near anchor: NSWindow?) {
+    static func show(_ urls: [URL], near anchor: NSWindow?, tab: Tab? = nil) {
         let keys = urls.map(FilePaths.itemKey)
         if let existing = open.first(where: { $0.urls.map(FilePaths.itemKey) == keys }) {
+            if let tab, existing.tabs.contains(tab) { existing.select(tab) }
             existing.window?.makeKeyAndOrderFront(nil)
             return
         }
         let controller = PropertiesWindowController(urls: urls)
+        if let tab, controller.tabs.contains(tab) { controller.select(tab) }
         open.append(controller)
         if let w = controller.window {
             if let anchor {
@@ -31,7 +33,8 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
     }
 
     enum Tab: String, CaseIterable { case general = "General", permissions = "Permissions", details = "Details",
-                                         openWith = "Open with", shortcut = "Shortcut" }
+                                         openWith = "Open with", customize = "Customize", shortcut = "Shortcut",
+                                         versions = "Previous Versions" }
 
     private(set) var urls: [URL]
     private var infos: [ItemInfo] = []
@@ -45,11 +48,14 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
     private var counting = false
     private var cancel = CancelFlag()
     private var duration: Double?
+    private var versionLines: [PropertySheet.Line]?
     private var tabs: [Tab] {
         guard infos.count == 1, let info = infos.first else { return [.general, .details] }
         var out: [Tab] = [.general, .permissions, .details]
         if !info.isFolder { out.append(.openWith) }
+        if info.isFolder && driveVolume == nil { out.append(.customize) }
         if info.link != nil { out.append(.shortcut) }
+        out.append(.versions)
         return out
     }
 
@@ -170,7 +176,7 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
         content.needsDisplay = true
     }
 
-    private func select(_ t: Tab) {
+    fileprivate func select(_ t: Tab) {
         tab = t
         layout()
         build()
@@ -195,6 +201,114 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
         case .details: sheet.lines = details()
         case .openWith: sheet.lines = infos.first.map(openWith) ?? []
         case .shortcut: sheet.lines = infos.first.map(shortcut) ?? []
+        case .customize: sheet.lines = infos.first.map(customize) ?? []
+        case .versions: sheet.lines = infos.first.map(versions) ?? []
+        }
+    }
+
+    // MARK: Customize (folders): columns per kind, and the folder's icon
+
+    private func customize(_ info: ItemInfo) -> [PropertySheet.Line] {
+        let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+        popup.font = Typeface.mono(13)
+        for preset in ColumnPreset.allCases {
+            popup.addItem(withTitle: preset.title)
+            popup.lastItem?.representedObject = preset.rawValue
+        }
+        if let now = ColumnPreset.matching(ColumnCenter.shared.set), let i = ColumnPreset.allCases.firstIndex(of: now) {
+            popup.selectItem(at: i)
+        }
+        popup.setAccessibilityLabel("Optimize this folder for")
+        let applyColumns = D1Button("Apply columns") {
+            guard let raw = popup.selectedItem?.representedObject as? String, let preset = ColumnPreset(rawValue: raw) else { return }
+            ColumnCenter.shared.update { $0 = preset.applied(to: $0) }
+        }
+        let custom = FolderIcon.hasCustomIcon(info.url)
+        let change = D1Button("Change Icon...", glyph: .pics) { [weak self] in self?.chooseIcon(for: info.url) }
+        let restore = D1Button("Restore Default") { [weak self] in self?.apply { try FolderIcon.clear($0) } }
+        restore.isEnabled = custom
+        let columns = ColumnPreset.matching(ColumnCenter.shared.set).map { $0.title } ?? "Your own columns"
+        return [
+            .init("Optimize for", "", control: popup, controlWidth: 220),
+            .init("", "", control: applyColumns, controlWidth: applyColumns.fit(minimum: 140)),
+            .init("", "Folio has one view for every folder, so this picks the Details columns for that kind of folder "
+                  + "everywhere. Now: " + columns + ".", mono: false, wraps: true),
+            .separator,
+            .init("Folder icon", custom ? "Custom icon" : "Default folder icon", mono: false),
+            .init("", "", control: change, controlWidth: change.fit(minimum: 150)),
+            .init("", "", control: restore, controlWidth: restore.fit(minimum: 150)),
+        ]
+    }
+
+    private func chooseIcon(for folder: URL) {
+        guard let window else { return }
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.prompt = "Use as Icon"
+        panel.message = "Choose a picture for \u{201C}\(folder.lastPathComponent)\u{201D}"
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let image = panel.url else { return }
+            MainActor.assumeIsolated { self?.apply { try FolderIcon.set(imageAt: image, on: $0) } }
+        }
+    }
+
+    // MARK: Previous Versions: saved document versions and Time Machine's local snapshots
+
+    private func versions(_ info: ItemInfo) -> [PropertySheet.Line] {
+        if let versionLines { return versionLines }
+        var lines: [PropertySheet.Line] = []
+        let docs = DocumentVersions.list(info.url)
+        let snaps = TimeMachineSnapshots.list()
+        for v in docs {
+            let copy = D1Button("Copy...") { [weak self] in self?.copyVersion(from: v.url, name: info.name) }
+            lines.append(.init(date(v.date), "Saved version, " + v.source, mono: false, control: copy, controlWidth: copy.fit(minimum: 90)))
+        }
+        for snap in snaps {
+            let copy = D1Button("Copy...") { [weak self] in self?.copyFromSnapshot(snap, item: info.url) }
+            lines.append(.init(date(snap.date), "Time Machine snapshot", mono: false, control: copy, controlWidth: copy.fit(minimum: 90)))
+        }
+        if lines.isEmpty {
+            lines = [.init("", "There are no previous versions available.", mono: false),
+                     .init("", "Versions apps save (Versions) and Time Machine's local snapshots show here.", mono: false, wraps: true)]
+        }
+        versionLines = lines
+        return lines
+    }
+
+    private func copyVersion(from source: URL, name: String) {
+        guard let window else { return }
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = name
+        panel.beginSheetModal(for: window) { response in
+            guard response == .OK, let dest = panel.url else { return }
+            MainActor.assumeIsolated {
+                do { try FileManager.default.copyItem(at: source, to: dest) } catch {
+                    OperationCenter.shared.present(error, window: window)
+                }
+                OperationCenter.shared.postChanged(select: [dest])
+            }
+        }
+    }
+
+    /// A snapshot is mounted read-only (an administrator's password), the file copied out, unmounted.
+    private func copyFromSnapshot(_ snap: LocalSnapshot, item: URL) {
+        guard let window else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.prompt = "Copy Here"
+        panel.message = "Copy \u{201C}\(item.lastPathComponent)\u{201D} as it was " + date(snap.date)
+        panel.beginSheetModal(for: window) { response in
+            guard response == .OK, let dest = panel.url else { return }
+            let mount = "/private/tmp/folio-snapshot-\(UUID().uuidString)"
+            let inside = TimeMachineSnapshots.pathInSnapshot(FilePaths.itemKey(item), mountPoint: mount)
+            func q(_ s: String) -> String { "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+            let args = TimeMachineSnapshots.mountArguments(snapshot: snap.name, mountPoint: mount).map(q).joined(separator: " ")
+            let shell = "mkdir -p \(q(mount)) && /sbin/mount_apfs \(args) && cp -Rp \(q(inside)) \(q(dest.path)); "
+                + "/sbin/umount \(q(mount)); rmdir \(q(mount))"
+            MainActor.assumeIsolated {
+                AdminTool.run("/bin/sh", ["-c", shell], window: window, done: "Copied the version from " + snap.name + ".")
+            }
         }
     }
 
@@ -332,6 +446,10 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
             self?.apply { try ItemFlags.setTags(list, $0) }
         }
         lines.append(.init("Tags", "", control: tags, controlWidth: 320))
+        if infos.count == 1, let info = infos.first, !info.isFolder {
+            let remove = D1Button("Remove properties and personal information") { [weak self] in self?.removeProperties(info.url) }
+            lines.append(.init("", "", control: remove, controlWidth: remove.fit()))
+        }
         if infos.count == 1, let info = infos.first {
             lines.append(.separator)
             let attrs = ExtendedAttributes.list(info.url)
@@ -381,6 +499,54 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
             .init("", "", control: open, controlWidth: open.fit(minimum: 160)),
         ]
     }
+
+    /// Explorer's Remove Properties: a clean copy, or the properties taken out of this file.
+    private func removeProperties(_ url: URL) {
+        guard let window else { return }
+        let found = PersonalInfo.properties(of: url)
+        let alert = NSAlert()
+        alert.messageText = "Remove Properties"
+        alert.informativeText = found.isEmpty ? "This file has no personal properties Folio can remove."
+            : "Found: " + found.map { $0.name + " (" + $0.value + ")" }.joined(separator: "; ")
+        let copy = NSButton(radioButtonWithTitle: "Create a copy with all possible properties removed", target: nil, action: nil)
+        let here = NSButton(radioButtonWithTitle: "Remove the properties from this file", target: nil, action: nil)
+        copy.state = .on
+        let box = NSView(frame: NSRect(x: 0, y: 0, width: 380, height: 48))
+        copy.frame = NSRect(x: 0, y: 26, width: 380, height: 20)
+        here.frame = NSRect(x: 0, y: 2, width: 380, height: 20)
+        // Same target and action: AppKit keeps the two radios to one choice.
+        for b in [copy, here] {
+            b.target = self
+            b.action = #selector(radioPicked(_:))
+        }
+        box.addSubview(copy)
+        box.addSubview(here)
+        alert.accessoryView = box
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            let clean = copy.state == .on
+            MainActor.assumeIsolated {
+                do {
+                    if clean {
+                        let made = try PersonalInfo.cleanCopy(of: url)
+                        OperationCenter.shared.record(.created([made], title: "Remove Properties"))
+                        OperationCenter.shared.postChanged(select: [made])
+                    } else {
+                        try PersonalInfo.remove(from: url)
+                        MetadataCache.shared.invalidate(url)
+                        OperationCenter.shared.postChanged(select: [url])
+                    }
+                } catch {
+                    OperationCenter.shared.present(error, window: window)
+                }
+                self?.reload()
+            }
+        }
+    }
+
+    @objc private func radioPicked(_ sender: Any?) {}
 
     // MARK: Changes
 
