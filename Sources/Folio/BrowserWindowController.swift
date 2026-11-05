@@ -1126,7 +1126,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         case (114, .control) where !editingText: copy(nil)                     // Ctrl+Insert
         case (114, .shift) where !editingText: paste(nil)                      // Shift+Insert
         case (103, []): toggleFullScreenWindow(nil)             // F11, when it reaches the app
-        case (96, []), (15, .control): refresh(nil)             // F5, Ctrl+R
+        case (96, []), (15, .control), (15, .command): refresh(nil) // F5, Ctrl+R, Cmd+R (Explorer's Ctrl+R as Fn+R)
         case (118, []): showAddressHistory(nil)                 // F4
         case (118, .option): window?.performClose(nil)          // Option+F4 (Cmd+F4 after Karabiner)
         case (97, []): cycleFocus(forward: true)                // F6

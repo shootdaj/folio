@@ -22,6 +22,7 @@
 #   m9-8-default-handler.png  Options > General > Open folders in Folio instead of Finder: what macOS kept
 #   m9-9-open-folder.png      `open <work>` from the shell: the app macOS chose
 #   m9-10-dock.png            the Dock, Folio's icon in it
+#   m9-10b-dock-icon.png      Folio's Dock tile close up (light on a light Mac, dark on a dark one)
 # Prints one line per step and exits non-zero if any step fails.
 set -u
 
@@ -223,9 +224,16 @@ wait_windows() {
     return 1
 }
 
+# The pointer out of the way (no tooltips in the shots): the empty middle of the menu bar.
+park() { "$MOUSE" move 700 11 >/dev/null; }
+
+# macOS banners (a Login Item Added left from step 12 of an earlier run) off the screen.
+clear_banners() { killall NotificationCenter >/dev/null 2>&1; sleep 1; }
+
 shot() {
     local f="$SHOTS/$1.png"
     rm -f "$f"
+    park
     screencapture -x "$f" 2>/dev/null
     if [ -s "$f" ]; then echo "$f"; fi
 }
@@ -527,6 +535,7 @@ done)
 quit_folio
 clean_defaults
 clear_session
+clear_banners
 defaults write com.anshul.folio theme dark
 "$LSREGISTER" -f "$APP"
 echo "  Launch Services: $("$LSREGISTER" -dump 2>/dev/null | grep -c 'path: *.*Folio.app') Folio.app path(s) known; folders open with $("$LSH" get public.folder)"
@@ -616,10 +625,18 @@ keys 'key code 36'
 wait_window work 6
 wait_row work alpha.txt 6
 sleep 1
-# The tree: Ctrl+Shift+E puts the keys on work; Right opens it, Right goes to docs, Right opens docs.
+# The tree: Ctrl+Shift+E puts the keys on work; Right opens it (when it is not open yet), Right goes to
+# docs (the tree's selection opens the folder, as in Explorer), Right opens docs; Back returns to work and
+# docs stays open in the tree.
 keys 'keystroke "e" using {control down, shift down}'
 sleep 0.8
-for k in 1 2 3; do keys 'key code 124'; sleep 0.5; done
+n=3
+tree_rows work | tr '|' '\n' | grep -Fxq docs && n=2
+for k in $(seq 1 $n); do keys 'key code 124'; sleep 0.6; done
+wait_window docs 5
+keys 'key code 123 using option down'
+wait_window work 5
+sleep 0.8
 tree_b=$(tree_rows work)
 # Network folds.
 click_at "$(tree_point work Network)"
@@ -655,6 +672,8 @@ if wait_windows 2 20 && wait_window work 5 && wait_window other 5; then
     tree_b2=$(tree_rows work)
     collapsed2=$(defaults read com.anshul.folio navPaneCollapsed 2>/dev/null | tr -d ' \n()"')
     accent2=$(defaults read com.anshul.folio accent 2>/dev/null)
+    tree_point work deep >/dev/null   # scrolls the tree so docs and deep are in the shot
+    sleep 0.6
     f=$(shot m9-6-restored)
     raise other
     sleep 1
@@ -765,10 +784,15 @@ if [ -n "${dh:-}" ]; then
 else
     screencapture -x "$SHOTS/m9-10-dock.png" 2>/dev/null
 fi
+# Folio's own tile, close up.
+tile=$(osascript -e 'tell application "System Events" to tell process "Dock" to get {position, size} of UI element "Folio" of list 1' 2>/dev/null | tr -d ' ')
+IFS=, read -r tx ty tw th <<< "$tile"
+rm -f "$SHOTS/m9-10b-dock-icon.png"
+[ -n "${th:-}" ] && screencapture -x -R"$((tx - 8)),$((ty - 8)),$((tw + 16)),$((th + 16))" "$SHOTS/m9-10b-dock-icon.png" 2>/dev/null
 icon=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIconFile" "$APP/Contents/Info.plist" 2>/dev/null)
 icns=$(stat -f %z "$APP/Contents/Resources/Folio.icns" 2>/dev/null)
 if echo "$dock" | tr ',' '\n' | sed 's/^ *//' | grep -Fxq Folio && [ -s "$SHOTS/m9-10-dock.png" ]; then
-    pass 10 dock "Dock items [$dock]; region [$geom]; CFBundleIconFile [$icon], Folio.icns $icns bytes; $SHOTS/m9-10-dock.png"
+    pass 10 dock "Dock items [$dock]; region [$geom]; Folio's tile [$tile]; CFBundleIconFile [$icon], Folio.icns $icns bytes; system appearance [$(defaults read -g AppleInterfaceStyle 2>/dev/null || echo Light)]; $SHOTS/m9-10-dock.png $SHOTS/m9-10b-dock-icon.png"
 else
     fail 10 dock "Dock items [$dock], region [$geom]"
 fi
@@ -805,6 +829,7 @@ if [ "$now" = "on" ]; then
     else
         fail 12 login-item "[$was] -> [$now] -> [$back]"
     fi
+    clear_banners
 else
     osascript -e 'tell application "System Events" to key code 36' >/dev/null 2>&1
     fail 12 login-item "the tick stayed [$now]; macOS said [$alert]"
