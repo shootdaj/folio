@@ -773,12 +773,14 @@ final class SidebarOutlineView: NSOutlineView {
         if let cell = view(atColumn: 0, row: row, makeIfNecessary: false) as? SideCellView, let button = cell.ejectButton,
            button.frame.contains(cell.convert(point, from: self)) {
             button.highlight(true)
-            var inside = true
+            var inside: Bool?
             while let next = MouseTracking.next(window, [.leftMouseUp, .leftMouseDragged]) {
                 if next.type == .leftMouseUp { inside = button.bounds.contains(button.convert(next.locationInWindow, from: nil)); break }
             }
+            // No up event: a release that was not delivered counts; a press that timed out does not.
+            let clicked = inside ?? (NSEvent.pressedMouseButtons & 1 == 0)
             button.highlight(false)
-            if inside { button.performClick(nil) }
+            if clicked { button.performClick(nil) }
             return
         }
         window.makeFirstResponder(self)
@@ -1168,15 +1170,18 @@ final class SideCellView: NSTableCellView {
 }
 
 /// Following a press without trusting that its button-up event arrives: the next drag or up event, or
-/// nil once the mouse button is no longer down (the press then ends where it is).
+/// nil once the mouse button is no longer down, or when nothing has happened for `idle` seconds (a
+/// release that never reached the app must not leave the window stuck in the press).
 @MainActor
 enum MouseTracking {
-    static func next(_ window: NSWindow, _ mask: NSEvent.EventTypeMask) -> NSEvent? {
-        while true {
+    static func next(_ window: NSWindow, _ mask: NSEvent.EventTypeMask, idle: TimeInterval = 3) -> NSEvent? {
+        let giveUp = Date(timeIntervalSinceNow: idle)
+        while Date() < giveUp {
             if let e = window.nextEvent(matching: mask, until: Date(timeIntervalSinceNow: 0.1), inMode: .eventTracking, dequeue: true) {
                 return e
             }
             if NSEvent.pressedMouseButtons & 1 == 0 { return nil }
         }
+        return nil
     }
 }
