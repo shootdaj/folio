@@ -33,6 +33,8 @@ public enum OperationRecord: Sendable, Equatable {
     case trash([TrashedItem])
     case newFolder(URL)
     case newFile(URL)
+    /// Compress to and Extract all: the archive or folder they made (undo sends it to the Trash).
+    case created([URL], title: String)
     /// Create alias, Create symbolic link, Paste shortcut, Send to Desktop, a link drop.
     case links([LinkItem])
 
@@ -45,6 +47,7 @@ public enum OperationRecord: Sendable, Equatable {
         case .trash: "Delete"
         case .newFolder: "New Folder"
         case .newFile: "New Text Document"
+        case .created(_, let title): title
         case .links(let items): items.first?.kind == .symlink ? "Create Symbolic Link" : "Create Alias"
         }
     }

@@ -21,6 +21,10 @@ public struct SearchRequest: Sendable {
     public var fileContents = false
     /// Search options > System files: the walk goes into system folders.
     public var systemFiles = false
+    /// Search options > Zipped (compressed) folders: the walk looks inside zips (Spotlight never does).
+    public var zippedFolders = false
+    /// Folder Options > Search > Don't use the index: Spotlight is left out and the walk covers everything.
+    public var dontUseIndex = false
 
     public init(query: QueryNode, location: SearchLocation) {
         self.query = query
@@ -134,26 +138,28 @@ public final class SearchEngine: @unchecked Sendable {
         case .folder(let url):
             scopes = [url]
             scopeKey = FilePaths.folderKey(url)
-            if SearchPlan.needsWalk(url.path, volumeIndexed: VolumeIndexing.isIndexed(url), includeHidden: request.includeHidden) {
+            if request.dontUseIndex || request.zippedFolders
+                || SearchPlan.needsWalk(url.path, volumeIndexed: VolumeIndexing.isIndexed(url), includeHidden: request.includeHidden) {
                 roots = [url]
             }
         case .home:
             scopes = [NSMetadataQueryUserHomeScope, NSMetadataQueryLocalComputerScope]
             // The home folder is walked only where Spotlight has no index of it.
             let home = FileManager.default.homeDirectoryForCurrentUser
-            if !VolumeIndexing.isIndexed(home) || request.includeHidden { roots = [home] }
+            if request.dontUseIndex || !VolumeIndexing.isIndexed(home) || request.includeHidden { roots = [home] }
         case .thisPC:
             scopes = [NSMetadataQueryLocalComputerScope]
             let volumes = FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: [.volumeIsLocalKey],
                                                                 options: [.skipHiddenVolumes]) ?? []
             roots = volumes.filter { v in
-                (try? v.resourceValues(forKeys: [.volumeIsLocalKey]))?.volumeIsLocal != false && !VolumeIndexing.isIndexed(v)
+                (try? v.resourceValues(forKeys: [.volumeIsLocalKey]))?.volumeIsLocal != false
+                    && (request.dontUseIndex || !VolumeIndexing.isIndexed(v))
             }
         }
         walks = !roots.isEmpty
         if !walks { walkDone = true }
 
-        if let predicate = SpotlightPredicate.compile(request.query) {
+        if !request.dontUseIndex, let predicate = SpotlightPredicate.compile(request.query) {
             let runner = SpotlightRunner(predicate: predicate, scopes: scopes, matcher: matcher,
                                          currentFolder: request.recursive ? nil : scopeKey,
                                          includeHidden: request.includeHidden,
@@ -172,6 +178,7 @@ public final class SearchEngine: @unchecked Sendable {
             options.includeHidden = request.includeHidden
             options.fileContents = request.fileContents
             options.systemFiles = request.systemFiles
+            options.zippedFolders = request.zippedFolders
             let walk = SearchWalk(roots: roots, matcher: matcher, options: options)
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                 walk.run(isCancelled: { self?.isCancelled ?? true }) { hits, progress in

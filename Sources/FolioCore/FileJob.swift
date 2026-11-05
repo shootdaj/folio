@@ -1,7 +1,8 @@
 import Darwin
 import Foundation
 
-public enum JobKind: String, Sendable { case copy, move }
+/// Copy and move (FileJob); Compress to and Extract all (ArchiveJob).
+public enum JobKind: String, Sendable { case copy, move, compress, extract }
 
 public enum JobState: String, Sendable, Equatable {
     case preparing, running, paused, waitingOnConflict, waitingOnProblem, done, cancelled
@@ -45,6 +46,10 @@ public struct FileConflict: Sendable, Equatable, Identifiable {
     public var sizeDelta: Int64 { (incoming.size ?? 0) - (existing.size ?? 0) }
 
     /// Two files with the same size and date (to within 2 s): Explorer's "skip identical files".
+    /// Hide folder merge conflicts off: two same-named folders, asking before they are merged.
+    /// Replace merges them, Skip leaves the folder out, Keep both makes "name (1)".
+    public var isFolderMerge: Bool { existing.isFolder && incoming.isFolder }
+
     public var isIdentical: Bool {
         guard !existing.isFolder, !incoming.isFolder, existing.size == incoming.size,
               let a = existing.modified, let b = incoming.modified else { return false }
@@ -78,6 +83,9 @@ public struct JobOptions: Sendable {
     public var allowRename = true
     /// APFS clones make same-volume copies instant. Off with a throttle.
     public var allowClone = true
+    /// Folder Options > Hide folder merge conflicts off: a same-named folder waits for an answer
+    /// (Replace merges) instead of being merged at once.
+    public var askBeforeMerge = false
 
     public init() {}
 
@@ -133,7 +141,7 @@ public struct JobResult: Sendable, Equatable {
 /// One copy or move, run on its own thread: it measures the sources, moves everything that has no
 /// clash, merges same-named folders, then asks about each clash (Explorer defers them to the end),
 /// and can be paused, resumed and cancelled. A cancelled job leaves only whole files behind.
-public final class FileJob: @unchecked Sendable {
+public final class FileJob: ProgressJob, @unchecked Sendable {
     public let id: Int
     public let kind: JobKind
     public let sources: [URL]
@@ -144,7 +152,7 @@ public final class FileJob: @unchecked Sendable {
     public var onChange: (@Sendable (FileJob) -> Void)?
 
     private struct Cancelled: Error {}
-    private struct Pending { let src: URL; let dst: URL; let top: Bool }
+    private struct Pending { let src: URL; let dst: URL; let top: Bool; var merge = false }
 
     private let cond = NSCondition()
     // Guarded by `cond`.
@@ -177,20 +185,18 @@ public final class FileJob: @unchecked Sendable {
     private var queue: [Pending] = []
     private var nextID = 1
 
-    private static let idLock = NSLock()
-    nonisolated(unsafe) private static var lastID = 0
-
     public init(kind: JobKind, sources: [URL], into destination: URL, options: JobOptions = JobOptions()) {
-        Self.idLock.lock()
-        Self.lastID += 1
-        id = Self.lastID
-        Self.idLock.unlock()
+        id = JobIDs.next()
         self.kind = kind
         self.sources = sources
         self.destination = destination
         self.options = options
         skipIdentical = options.skipIdentical
     }
+
+    public var errorMessage: String? { nil }
+
+    public func observe(_ handler: @escaping @Sendable () -> Void) { onChange = { _ in handler() } }
 
     // MARK: Control
 
@@ -363,23 +369,32 @@ public final class FileJob: @unchecked Sendable {
             return
         }
         if Self.kind(src) == .folder, dk == .folder {
-            add(items: 1, bytes: 0)
-            if top { placed.append(dst) }
-            if kind == .move { mergedSources.append(src) }
-            for child in Self.children(src) {
-                try checkpoint()
-                try place(child, at: dst.appendingPathComponent(child.lastPathComponent), top: false)
+            if options.askBeforeMerge {
+                queue.append(Pending(src: src, dst: dst, top: top, merge: true))
+                return
             }
+            try merge(src, into: dst, top: top)
             return
         }
         queue.append(Pending(src: src, dst: dst, top: top))
+    }
+
+    /// Same-named folders: the incoming one's items go into the existing one, each placed in turn.
+    private func merge(_ src: URL, into dst: URL, top: Bool) throws {
+        add(items: 1, bytes: 0)
+        if top { placed.append(dst) }
+        if kind == .move { mergedSources.append(src) }
+        for child in Self.children(src) {
+            try checkpoint()
+            try place(child, at: dst.appendingPathComponent(child.lastPathComponent), top: false)
+        }
     }
 
     /// Copies or moves `src` to `dst`, which must not exist yet.
     private func transfer(_ src: URL, to dst: URL, top: Bool) throws {
         let done: Bool
         switch kind {
-        case .copy:
+        case .copy, .compress, .extract:
             copied.append(Pair(from: src, to: dst))
             do {
                 done = try attempt(src) {
@@ -413,6 +428,8 @@ public final class FileJob: @unchecked Sendable {
             switch try decide(c, left: queue.count - i + 1) {
             case .skip:
                 skip(p.src)
+            case .replace where p.merge:
+                try merge(p.src, into: p.dst, top: p.top)
             case .replace:
                 let trashed = try attempt(p.dst) {
                     let t = try self.options.trash.trash(p.dst)
@@ -629,7 +646,7 @@ public final class FileJob: @unchecked Sendable {
     private func finish(_ end: JobState) {
         let record: OperationRecord?
         switch kind {
-        case .copy:
+        case .copy, .compress, .extract:
             record = copied.isEmpty && replaced.isEmpty ? nil : .copy(copied: copied, replaced: replaced)
         case .move:
             record = moved.isEmpty && replaced.isEmpty && createdFolders.isEmpty ? nil

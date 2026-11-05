@@ -267,7 +267,8 @@ public enum MediaInfo {
               let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
               let w = props[kCGImagePropertyPixelWidth] as? Int, let h = props[kCGImagePropertyPixelHeight] as? Int
         else { return nil }
-        return PixelSize(width: w, height: h)
+        let o = (props[kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1
+        return (5...8).contains(o) ? PixelSize(width: h, height: w) : PixelSize(width: w, height: h)
     }
 
     /// The camera, lens and taken date an image carries, when it has them.
