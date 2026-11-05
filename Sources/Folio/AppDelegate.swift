@@ -1,7 +1,7 @@
 import AppKit
 import os
 
-let perfLog = Logger(subsystem: "com.anshul.fuckfinder", category: "perf")
+let perfLog = Logger(subsystem: "com.anshul.folio", category: "perf")
 
 /// Wall-clock time this process was started, read from the kernel, for launch-to-rows timing.
 let processStartDate: Date = {

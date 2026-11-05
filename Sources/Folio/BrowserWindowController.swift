@@ -1,5 +1,5 @@
 import AppKit
-import FuckFinderCore
+import FolioCore
 
 /// Sees key presses before the table does, so Option+arrows work wherever focus is.
 final class BrowserWindow: NSWindow {

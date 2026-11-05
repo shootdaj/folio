@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import FuckFinderCore
+@testable import FolioCore
 
 /// Fixture: two folders and four files with known dates, sizes and kinds.
 private let day: TimeInterval = 86_400

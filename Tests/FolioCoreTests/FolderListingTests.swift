@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import FuckFinderCore
+@testable import FolioCore
 
 /// Builds a throwaway folder and moves it to the Trash afterwards (never deletes).
 private func makeTempFolder() throws -> URL {

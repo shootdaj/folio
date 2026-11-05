@@ -4,7 +4,7 @@ import AppKit
 @MainActor
 enum MainMenu {
     static func build() -> NSMenu {
-        let name = "FuckFinder"
+        let name = "Folio"
         let main = NSMenu()
 
         let services = NSMenu(title: "Services")

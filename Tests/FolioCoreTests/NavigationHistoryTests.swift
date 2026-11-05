@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import FuckFinderCore
+@testable import FolioCore
 
 private func dir(_ path: String) -> URL { URL(fileURLWithPath: path, isDirectory: true) }
 

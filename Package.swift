@@ -2,13 +2,13 @@
 import PackageDescription
 
 let package = Package(
-    name: "FuckFinder",
+    name: "Folio",
     platforms: [.macOS(.v14)],
     targets: [
         // Pure Swift model (no AppKit), testable with `swift test`.
-        .target(name: "FuckFinderCore"),
-        // The AppKit app. `make app` wraps this binary in build/FuckFinder.app.
-        .executableTarget(name: "FuckFinder", dependencies: ["FuckFinderCore"]),
-        .testTarget(name: "FuckFinderCoreTests", dependencies: ["FuckFinderCore"]),
+        .target(name: "FolioCore"),
+        // The AppKit app. `make app` wraps this binary in build/Folio.app.
+        .executableTarget(name: "Folio", dependencies: ["FolioCore"]),
+        .testTarget(name: "FolioCoreTests", dependencies: ["FolioCore"]),
     ]
 )
