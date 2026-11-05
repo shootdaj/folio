@@ -249,6 +249,10 @@ final class FolioTableView: NSTableView {
 /// instead. Resizing and reordering stay NSTableHeaderView's own.
 final class FolioHeaderView: NSTableHeaderView {
     var sort = SortSpec.standard { didSet { needsDisplay = true; if sort != oldValue { rebuildAccessibility() } } }
+    /// Off for search results in relevance order: no column carries the sort arrow.
+    var showsSort = true { didSet { if showsSort != oldValue { needsDisplay = true; axKey = ""; rebuildAccessibility() } } }
+
+    private func rank(of key: ColumnID) -> Int? { showsSort ? sort.rank(of: key) : nil }
     /// Columns with a header filter on: a tick where the chevron goes.
     var filtered: Set<ColumnID> = [] { didSet { if filtered != oldValue { needsDisplay = true; rebuildAccessibility() } } }
     /// The header box: nil hides it; otherwise none, some (mixed) or all rows selected.
@@ -352,7 +356,7 @@ final class FolioHeaderView: NSTableHeaderView {
     }
 
     private func drawHeader(_ title: String, key: SortKey, in rect: NSRect, hovered: Bool, _ p: Palette) {
-        let rank = sort.rank(of: key)
+        let rank = rank(of: key)
         let primary = rank == 1
         let multi = sort.terms.count > 1
         let color = primary ? p.accent : (rank != nil ? p.txt : p.txt2)
@@ -432,7 +436,7 @@ final class FolioHeaderView: NSTableHeaderView {
             h.setAccessibilityRole(.button)
             h.setAccessibilityLabel(column.title + " header")
             // "sort 2 ascending": the key's number among the sort keys and its direction.
-            if let rank = sort.rank(of: id) {
+            if let rank = rank(of: id) {
                 h.setAccessibilityValue("sort \(rank) " + ((sort.isAscending(id) ?? true) ? "ascending" : "descending"))
             }
             h.setAccessibilityParent(self)
@@ -614,6 +618,8 @@ final class NameCellView: NSTableCellView, RowCellView, ThemeAware {
     }
     private var selected = false
     private let light = LedView(diameter: 6)
+    /// Search results: the parts of the name that matched (UTF-16 ranges of the name shown), lit.
+    var highlights: [NSRange] = [] { didSet { if highlights != oldValue { needsDisplay = true } } }
 
     /// Where the item check box sits in the cell, and how far it pushes the icon and name.
     static let boxX: CGFloat = ListMetrics.rowLead - 1
@@ -664,9 +670,21 @@ final class NameCellView: NSTableCellView, RowCellView, ThemeAware {
             textX = iconX + 15 + 8
         }
         if entry.isLink { ItemIcon.drawLinkBadge(in: NSRect(x: iconX - 2, y: mid + 1, width: 9, height: 9), palette: p) }
-        let nameW = drawLine(entry.displayName(extensions: showsExtension), font: Typeface.ui(13, weight: selected ? 600 : 400),
-                             color: selected ? p.accent : p.txt, x: textX, midY: mid,
-                             maxWidth: max(0, bounds.width - textX - (entry.isCloudOnly ? 22 : 0)))
+        let shown = entry.displayName(extensions: showsExtension)
+        let font = Typeface.ui(13, weight: selected ? 600 : 400)
+        let maxW = max(0, bounds.width - textX - (entry.isCloudOnly ? 22 : 0))
+        if !highlights.isEmpty {
+            // A soft accent mark behind each matched word start, as Explorer lights search terms.
+            let ns = shown as NSString
+            for r in highlights where r.location + r.length <= ns.length {
+                let x0 = textWidth(ns.substring(to: r.location), font: font)
+                let w = textWidth(ns.substring(with: r), font: font)
+                guard x0 < maxW else { continue }
+                let rect = NSRect(x: textX + x0 - 1, y: mid - 9, width: min(w + 2, maxW - x0 + 1), height: 18)
+                fillRounded(rect, radius: 3, p.accent.withAlpha(0.22))
+            }
+        }
+        let nameW = drawLine(shown, font: font, color: selected ? p.accent : p.txt, x: textX, midY: mid, maxWidth: maxW)
         if entry.isCloudOnly {
             // Online only: a cloud after the name, as Explorer marks OneDrive files.
             Glyph.cloud.draw(in: NSRect(x: textX + nameW + 6, y: mid - 7, width: 14, height: 14), color: p.txt3.ns, lineWidth: 1.6)
@@ -728,6 +746,17 @@ final class ListPaneView: NSView {
         }
     }
     private let overlay = BracketOverlay()
+    /// Search results: "Search again in" under the list, and the empty or working text over it.
+    let searchFooter = SearchFooterView(frame: .zero)
+    let searchEmpty = SearchEmptyView(frame: .zero)
+    var showsSearchFooter = false {
+        didSet {
+            guard showsSearchFooter != oldValue else { return }
+            searchFooter.isHidden = !showsSearchFooter
+            if !showsSearchFooter { searchEmpty.isHidden = true }
+            needsLayout = true
+        }
+    }
     /// A drag over the list background: the whole pane is the target (the current folder).
     var isDropTarget = false {
         didSet {
@@ -768,6 +797,10 @@ final class ListPaneView: NSView {
         addSubview(gridScroll)
         gallery.isHidden = true
         addSubview(gallery)
+        searchFooter.isHidden = true
+        searchEmpty.isHidden = true
+        addSubview(searchEmpty)
+        addSubview(searchFooter)
         addSubview(overlay)
     }
 
@@ -778,7 +811,13 @@ final class ListPaneView: NSView {
     override func layout() {
         super.layout()
         guard bounds.width > 4, bounds.height > 4 else { return }
-        let inner = bounds.insetBy(dx: 1, dy: 1)
+        var inner = bounds.insetBy(dx: 1, dy: 1)
+        if showsSearchFooter {
+            searchFooter.frame = NSRect(x: inner.minX, y: inner.maxY - SearchFooterView.height, width: inner.width, height: SearchFooterView.height)
+            inner.size.height -= SearchFooterView.height
+            let top = ListMetrics.headerHeight + ListMetrics.listTopPad
+            searchEmpty.frame = NSRect(x: inner.minX, y: inner.minY + top, width: inner.width, height: max(0, min(120, inner.height - top)))
+        }
         scrollView.frame = inner
         if mode == .gallery {
             let strip = min(Self.galleryStripH, inner.height / 2)

@@ -74,8 +74,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     let options: Options
     /// The row to bring back to the top once a tab's listing lands (switching back to a tab).
     var restoreRow: Int?
-    /// The folder as listed, before filters, sort and groups.
-    private(set) var listing: [FileEntry] = []
+    /// The folder as listed (or the search results), before filters, sort and groups.
+    var listing: [FileEntry] = []
     /// Header filters: transient, dropped on navigating away and never saved.
     var filters = FilterSet()
     /// Group by groups folded shut (bucket ids), until the folder changes.
@@ -83,7 +83,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     /// What the list shows: the shown items in order and, when grouped, the header rows between them.
     private(set) var layout = ListLayout(items: [])
     /// The inputs `layout` was arranged from, to tell when it must be arranged again.
-    private var arrangedWith: ArrangeKey?
+    var arrangedWith: ArrangeKey?
     /// The shown items in order (collapsed groups' items left out); selection indexes these.
     private(set) var entries: [FileEntry] = []
     /// `FilePaths.itemKey` of each entry: selection, dimming and refreshes match on these.
@@ -102,10 +102,38 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     /// Several selected and F2: the items Enter renames to "Name (1)", "Name (2)".
     var renameBatch: [URL]?
     private var refreshAfterRename = false
+    /// The tab's sort, or while searching the results' own (nil `searchSort` is relevance order).
     var sortSpec: SortSpec {
-        get { tabs.active.sort }
-        set { tabs.active.sort = newValue }
+        get { isSearching ? (searchSort ?? tabs.active.sort) : tabs.active.sort }
+        set { if isSearching { searchSort = newValue } else { tabs.active.sort = newValue } }
     }
+
+    // MARK: Search state (Search.swift)
+
+    var searchEngine: SearchEngine?
+    /// Bumped per run; updates from an older run are dropped.
+    var searchRun = 0
+    var searchHits: [SearchHit] = []
+    var searchStarted = Date()
+    var searchFinished = false
+    var searchEngineProgress = 0.0
+    var searchDebounce: Timer?
+    var searchTicker: Timer?
+    var searchError: String?
+    /// A header clicked in the results; nil keeps relevance order.
+    var searchSort: SortSpec?
+    /// A view picked while results show (they open in Details).
+    var searchView: ViewMode?
+    var searchUIShown = false
+    /// The bare and name: terms, for highlighting names.
+    var searchTerms: [TextMatch] = []
+    var searchReplacePending = false
+    var searchLoggedFirst = false
+    /// Each searching tab's Group by from before its results showed (results start ungrouped; leaving
+    /// the search puts it back).
+    var groupsBeforeSearch: [UUID: GroupSpec?] = [:]
+    /// The tab the results' own sort and view belong to.
+    var searchTabID: UUID?
     /// Group by of the shown tab; nil is (None).
     var group: GroupSpec? {
         get { tabs.active.group }
@@ -165,7 +193,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     let grid = FileGridView()
     /// The list the keyboard and menus act on: the table in Details, the grid otherwise.
     var listView: NSView { viewMode.usesTable ? tableView : grid }
-    var viewMode: ViewMode { ViewCenter.shared.mode }
+    var viewMode: ViewMode { isSearching ? (searchView ?? .details) : ViewCenter.shared.mode }
     /// The Recycle Bin's Date and Type columns read Date deleted and Original location.
     func columnTitle(_ key: SortKey) -> String {
         guard isTrashView else { return key.title }
@@ -182,7 +210,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     let header = FolioHeaderView(frame: NSRect(x: 0, y: 0, width: 100,
                                                        height: ListMetrics.headerHeight + ListMetrics.listTopPad))
     private(set) var chassis: ChassisView!
-    private var titleBar: TitleBarView { chassis.titleBar }
+    var titleBar: TitleBarView { chassis.titleBar }
     var toolbar: ToolbarView { chassis.toolbar }
 
     static let nameMinWidth: CGFloat = 120
@@ -272,6 +300,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         wireNavigationPane()
         wireTabStrip()
         wireHome()
+        wireSearch()
         address.dropHost = self
         address.onMiddleClick = { [weak self] url in self?.openInNewTab(url, activate: false) }
         address.onServer = { [weak self] target in self?.connect(to: target) ?? false }
@@ -460,6 +489,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         case #selector(goBack(_:)): history.canGoBack
         case #selector(goForward(_:)): history.canGoForward
         case #selector(goUp(_:)): history.canGoUp
+        case #selector(saveSearch(_:)): isSearching
+        case #selector(openFileLocation(_:)): isSearching && !selectedEntries.isEmpty
         default: validateFileItem(item)
         }
     }
@@ -470,6 +501,25 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     /// edit stay as they are.
     /// `restoring` puts a tab's selection and scroll place back once its folder is listed.
     func load(keepingState: Bool = false, restoring: (select: Set<String>, row: Int)? = nil) {
+        // A search is a place in the history: its results instead of the folder.
+        if isSearching {
+            if !keepingState {
+                statusMessage = nil
+                loadError = nil
+                renamer.cancel()
+                dropdown.close()
+            }
+            enterSearchMode()
+            updateChrome()
+            runSearch(keepingState: keepingState)
+            if !keepingState { didNavigate() }
+            return
+        }
+        if let saved = groupsBeforeSearch.removeValue(forKey: tabs.active.id) {
+            group = saved
+            collapsedGroups = []
+        }
+        if searchUIShown { leaveSearchMode() }
         if history.isHome {
             if !keepingState { showHome() }
             return
@@ -613,9 +663,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         var sort: SortSpec
         var group: GroupSpec?
         var collapsed: Set<String>
+        /// Search results in relevance order: the order they are listed in.
+        var relevance = false
     }
 
-    var arrangeKey: ArrangeKey { ArrangeKey(filters: filters, sort: sortSpec, group: group, collapsed: collapsedGroups) }
+    var arrangeKey: ArrangeKey {
+        ArrangeKey(filters: filters, sort: sortSpec, group: group, collapsed: collapsedGroups, relevance: isRelevanceOrder)
+    }
 
     /// Filters, then groups (sorted inside) or a plain sort. Columns that need metadata (Dimensions,
     /// Tags...) read it for every item first, through the shared cache.
@@ -630,6 +684,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             return ListLayout(groups: GroupBuilder.build(shown, by: group, sort: key.sort, context: context, metadata: meta),
                               collapsed: key.collapsed)
         }
+        if key.relevance { return ListLayout(items: shown) }
         return ListLayout(items: SortEngine.sort(shown, by: key.sort, metadata: meta))
     }
 
@@ -667,7 +722,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     /// The selected items' keys, in list order.
     var selectedKeys: [String] { selection.rows.compactMap { entryKeys.indices.contains($0) ? entryKeys[$0] : nil } }
 
-    private func show(_ arranged: ListLayout, selecting selected: Set<String>) {
+    func show(_ arranged: ListLayout, selecting selected: Set<String>) {
         layout = arranged
         entries = arranged.items
         entryKeys = entries.map { FilePaths.itemKey($0.url) }
@@ -727,6 +782,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     func updateChrome() {
         let folder = history.current
         let name = displayName(folder)
+        defer { updateSearchChrome() }
         window?.title = name
         titleBar.folderName = name
         titleBar.folderPath = history.isHome ? "Quick access, Favorites, Recent" : folder.path
@@ -735,6 +791,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         toolbar.up.isEnabled = history.canGoUp
         toolbar.address.show(folder)
         toolbar.search.folderName = name
+        if !isSearching {
+            toolbar.address.searchTitle = nil
+            if !toolbar.search.isEditing { toolbar.search.text = "" }
+        }
         chassis.sidebar.pane.isHome = history.isHome
         chassis.sidebar.pane.currentPath = history.isHome ? "" : FilePaths.folderKey(folder)
         updateTabStrip()
@@ -752,6 +812,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             chassis.status.countText = statusMessage
         } else if let loadError {
             chassis.status.countText = loadError
+        } else if let searching = searchStatusText {
+            chassis.status.countText = searching
+        } else if isSearching {
+            chassis.status.countText = StatusText.count(items: shownCount, selection: selection,
+                                                        total: filters.isEmpty ? nil : listing.count)
         } else if history.isHome {
             chassis.status.countText = homeStatusText
         } else if isLoading {
@@ -760,14 +825,25 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             chassis.status.countText = StatusText.count(items: shownCount, selection: selection,
                                                         total: filters.isEmpty ? nil : listing.count)
         }
-        chassis.status.ticker.items = Ticker.items(volume: volume, selection: selection, sort: sortSpec, path: path)
+        var ticker = Ticker.items(volume: volume, selection: selection, sort: sortSpec, path: path)
+        if isRelevanceOrder {
+            ticker = ticker.map { $0.plain == SortLabel.sentence(sortSpec) ? TickerItem([TickerSegment("Sorted by relevance")]) : $0 }
+        }
+        chassis.status.ticker.items = ticker
+        if searchUIShown { updateSearchEmpty() }
         let address = toolbar.address
-        chassis.hud.segments = address.isEditing
-            ? Hud.editingSegments(shown: address.matchCount.shown, total: address.matchCount.total, path: path, selection: selection)
-            : Hud.segments(path: path, entries: shownItems, sort: sortSpec, selection: selection, view: viewMode.title)
+        if address.isEditing {
+            chassis.hud.segments = Hud.editingSegments(shown: address.matchCount.shown, total: address.matchCount.total, path: path, selection: selection)
+        } else if let s = history.search {
+            chassis.hud.segments = Hud.searchSegments(query: s.text, scope: searchScopeName, results: shownCount, searching: !searchFinished,
+                                                      sort: isRelevanceOrder ? nil : sortSpec, selection: selection)
+        } else {
+            chassis.hud.segments = Hud.segments(path: path, entries: shownItems, sort: sortSpec, selection: selection, view: viewMode.title)
+        }
         chassis.rail.rowCount = entries.count
         chassis.rail.selected = self.selection.rows
         header.sort = sortSpec
+        header.showsSort = !isRelevanceOrder
         let n = self.selection.rows.count
         header.checkState = ListOptions.checkboxes ? (all: n > 0 && n == entries.count, some: n > 0) : nil
         chassis.status.chipText = OperationCenter.shared.chipText
@@ -793,6 +869,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
 
     @objc private func filesChanged(_ note: Notification) {
         refreshTree(note)
+        if isSearching {
+            searchFilesChanged(note.userInfo?["folders"] as? Set<String>)
+            return
+        }
         guard !history.isHome else { return }
         // A periodic refresh while a job runs only concerns windows on its destination.
         let here = FilePaths.folderKey(history.current)
@@ -818,7 +898,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     @objc private func listOptionsChanged(_ note: Notification) {
         if chassis.sidebar.pane.tree.showHidden != ListOptions.showHidden {
             chassis.sidebar.pane.setShowHidden(ListOptions.showHidden)
-            if !history.isHome { reloadContents() }
+            if isSearching { runSearch(keepingState: true) } else if !history.isHome { reloadContents() }
         }
         applyNavigationPaneOptions()
         tableView.showsCheckboxes = ListOptions.checkboxes
@@ -883,7 +963,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     /// One folder: go into it. Otherwise open files with their apps and folders in new windows.
     func open(rows: IndexSet) {
         let items = rows.map { entries[$0] }
+        if let s = history.search, !items.isEmpty { recentSearches.record(s.text) }
         if items.count == 1, let folder = items.first, folder.isFolder {
+            if isSearching { window?.makeFirstResponder(listView) }
             navigate(to: folder.url)
             return
         }
@@ -933,6 +1015,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         case (123, .option) where !editingText: goBack(nil)     // Option+Left
         case (124, .option) where !editingText: goForward(nil)  // Option+Right
         case (2, .option): focusAddressBar(nil)                 // Option+D (Cmd+D after Karabiner)
+        case (14, .command), (3, .command), (99, []): focusSearch(nil) // Explorer's Ctrl+E, Ctrl+F (Cmd after Karabiner), F3
         case (51, []) where !editingText: goBack(nil)           // Backspace, even with files selected
         case (36, []) where tableFocused, (76, []) where tableFocused:
             open(rows: selection.rows)                          // Return, Enter
@@ -1063,6 +1146,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             cell.entry = entry
             cell.isCut = faded
             cell.showsExtension = ListOptions.showExtensions
+            cell.highlights = searchHighlights(entry.displayName(extensions: ListOptions.showExtensions))
             cell.showsCheckbox = self.tableView.showsCheckboxes
             cell.themeDidChange()
             return cell
@@ -1091,12 +1175,14 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     func tableView(_ tableView: NSTableView, didClick tableColumn: NSTableColumn) {
         guard let key = SortKey(rawValue: tableColumn.identifier.rawValue) else { return }
         let shift = NSApp.currentEvent?.modifierFlags.contains(.shift) == true
+        // From relevance order the first click sorts on that column in its usual direction.
+        if isRelevanceOrder { applySort(SortSpec(key: key, ascending: key.defaultAscending)); return }
         applySort(shift ? sortSpec.shiftClicking(key) : sortSpec.clicking(key))
     }
 
     /// Every sort change lands here: the header, the menus, the session.
     func applySort(_ spec: SortSpec) {
-        guard spec != sortSpec else { return }
+        guard spec != sortSpec || isRelevanceOrder else { return }
         sortSpec = spec
         header.sort = spec
         rearrange()
@@ -1129,7 +1215,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     /// A header dragged to a new place: the order is kept for every folder.
     func tableViewColumnDidMove(_ notification: Notification) {
         guard !isRebuildingColumns else { return }
+        // The search's own Folder column is not part of the saved set.
         let order = tableView.tableColumns.compactMap { ColumnID(rawValue: $0.identifier.rawValue) }
+            .filter { ColumnCenter.shared.set.isVisible($0) }
         ColumnCenter.shared.update({ set in for (i, c) in order.enumerated() { set.move(c, to: i) } }, post: false)
         header.needsDisplay = true
     }
@@ -1144,10 +1232,17 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     // MARK: Columns
 
     /// Makes the table's columns match the shared column set (order, which are shown, widths).
+    /// The shared columns, plus Folder while search results show (Explorer adds it to results).
+    var shownColumns: [ColumnID] {
+        let visible = ColumnCenter.shared.set.visible
+        return isSearching && !visible.contains(.folder) ? visible + [.folder] : visible
+    }
+
     func rebuildColumns(windowWidth: CGFloat? = nil) {
         let set = ColumnCenter.shared.set
+        let shown = shownColumns
         let now = tableView.tableColumns.compactMap { ColumnID(rawValue: $0.identifier.rawValue) }
-        if now == set.visible {
+        if now == shown {
             for column in tableView.tableColumns {
                 guard let key = ColumnID(rawValue: column.identifier.rawValue), key != .name else { continue }
                 let w = CGFloat(set.width(of: key))
@@ -1158,7 +1253,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         }
         isRebuildingColumns = true
         for column in tableView.tableColumns { tableView.removeTableColumn(column) }
-        for key in set.visible {
+        for key in shown {
             let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(key.rawValue))
             column.title = columnTitle(key)
             column.width = key == .name ? CGFloat(set.width(of: .name)) : CGFloat(set.width(of: key))
@@ -1168,7 +1263,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         }
         isRebuildingColumns = false
         if let windowWidth, let name = tableView.tableColumn(withIdentifier: NSUserInterfaceItemIdentifier(ColumnID.name.rawValue)) {
-            let others = set.visible.filter { $0 != .name }.map { set.width(of: $0) }
+            let others = shown.filter { $0 != .name }.map { set.width(of: $0) }
             name.width = CGFloat(ColumnFit.nameWidth(clipWidth: Double(ChassisView.listWidth(windowWidth: windowWidth)), otherWidths: others,
                                                      gap: Double(ListMetrics.columnGap), minimum: Double(Self.nameMinWidth)))
         }

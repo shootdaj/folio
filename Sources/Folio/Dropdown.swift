@@ -25,6 +25,8 @@ struct DropdownContent: Equatable {
     var title: String
     var rows: [DropdownRow]
     var empty: String
+    /// Recent searches under the search box: a magnifier per row and "Enter runs, Esc closes".
+    var isSearchList = false
 }
 
 /// The one dropdown a browser window shows at a time: the typeahead, the address history, a crumb's
@@ -271,7 +273,9 @@ final class DropdownView: NSView {
         let lineMid = footTop + 1 + 9 + 13
         var x: CGFloat = 13
         let body = Typeface.ui(13)
-        for (key, words, tall) in [("Tab", " fills, ", false), ("Enter", " opens, ", false), ("Esc", " cancels", true)] {
+        let keys = content.isSearchList ? [("Enter", " runs, ", false), ("Esc", " closes", true)]
+            : [("Tab", " fills, ", false), ("Enter", " opens, ", false), ("Esc", " cancels", true)]
+        for (key, words, tall) in keys {
             x += drawKey(key, x: x, midY: lineMid, height: tall ? 24 : 20, p) + 2
             x += drawLine(words, font: body, color: p.txt2, x: x, midY: lineMid)
         }
@@ -364,7 +368,11 @@ final class DropdownRowsView: NSView {
             p.accent.ns.setFill()
             NSBezierPath(ovalIn: dot).fill()
         }
-        ItemIcon.drawFolder(in: NSRect(x: r.minX + 26, y: r.midY - 7.5, width: 18, height: 15), palette: p, lit: hi)
+        if owner?.content.isSearchList == true {
+            Glyph.search.draw(in: NSRect(x: r.minX + 27, y: r.midY - 8, width: 16, height: 16), color: (hi ? p.accent : p.txt2).ns)
+        } else {
+            ItemIcon.drawFolder(in: NSRect(x: r.minX + 26, y: r.midY - 7.5, width: 18, height: 15), palette: p, lit: hi)
+        }
         let textX = r.minX + 26 + 18 + 10
         let room = r.maxX - 10 - textX
         let slash = row.text.lastIndex(of: "/").map { row.text.index(after: $0) } ?? row.text.startIndex

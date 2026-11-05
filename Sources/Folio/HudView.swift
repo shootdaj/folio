@@ -29,7 +29,7 @@ final class HudView: NSView, ThemeAware {
         super.layout()
         let mid = (bounds.height - 1) / 2
         light.isLit = segments.first?.hasLight ?? false
-        light.pulsing = segments.first?.key == "Mode"
+        light.pulsing = segments.first?.key == "Mode" || segments.first?.pulses == true
         light.place(dotAt: NSPoint(x: 14, y: (mid - 3.5).rounded()))
     }
 

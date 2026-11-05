@@ -21,7 +21,9 @@ extension BrowserWindowController {
 
     func updateTabStrip() {
         let items = tabs.tabs.map { tab in
-            TabItem(id: tab.id, title: displayName(tab.current), isHome: tab.history.isHome,
+            TabItem(id: tab.id, title: tab.history.search.map { s in
+                        "Search Results in " + (s.everywhere ? "This PC" : displayName(tab.current))
+                    } ?? displayName(tab.current), isHome: tab.history.isHome,
                     folder: tab.history.isHome ? nil : tab.current)
         }
         chassis.tabStrip.items = items

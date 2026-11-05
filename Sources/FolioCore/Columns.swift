@@ -9,6 +9,8 @@ public enum ColumnID: String, CaseIterable, Sendable, Codable {
     case album, artist, title
     case owner, permissions, attributes, tags, comments
     case uti, folderPath, linkTarget, ext
+    /// Search results: the item's folder as name (parent path), Explorer's System.ItemFolderPathDisplayNarrow.
+    case folder
 }
 
 /// Sorting, filtering and grouping all work on columns.
@@ -59,6 +61,7 @@ extension ColumnID {
         case .folderPath: "Folder path"
         case .linkTarget: "Link target"
         case .ext: "Extension"
+        case .folder: "Folder"
         }
     }
 
@@ -78,6 +81,7 @@ extension ColumnID {
         case .comments: 180
         case .uti: 190
         case .folderPath, .linkTarget: 240
+        case .folder: 300
         }
     }
 
@@ -107,7 +111,7 @@ extension ColumnID {
     /// Read from file attributes, Spotlight, ImageIO or AVFoundation (MetadataReader), not the listing.
     public var needsMetadata: Bool {
         switch self {
-        case .name, .modified, .kind, .size, .folderPath, .ext: false
+        case .name, .modified, .kind, .size, .folderPath, .ext, .folder: false
         default: true
         }
     }
@@ -269,8 +273,23 @@ public enum ColumnValues {
         case .ext:
             let ext = entry.url.pathExtension
             return entry.isFolder || ext.isEmpty ? "" : "." + ext.lowercased()
+        case .folder: return folderText(entry.url)
         default: return ""
         }
+    }
+
+    /// The Folder column of search results: the folder's name first, then its parent path in brackets,
+    /// with the home folder as ~ ("invoices (~/Documents/2026)").
+    public static func folderText(_ url: URL, home: String = FileManager.default.homeDirectoryForCurrentUser.path) -> String {
+        let folder = url.deletingLastPathComponent().standardizedFileURL
+        let path = folder.path
+        if path == "/" { return FileManager.default.displayName(atPath: "/") }
+        if path == home { return "~" }
+        let parent = (path as NSString).deletingLastPathComponent
+        func tilde(_ p: String) -> String {
+            p == home ? "~" : (p.hasPrefix(home + "/") ? "~" + p.dropFirst(home.count) : p)
+        }
+        return folder.lastPathComponent + " (" + tilde(parent) + ")"
     }
 
     /// Explorer's Length: 00:03:07.

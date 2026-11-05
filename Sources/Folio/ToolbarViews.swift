@@ -38,6 +38,18 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
     }
     var onClearToken: ((ColumnID) -> Void)?
     private var dropCrumb: Int? { didSet { if dropCrumb != oldValue { needsDisplay = true } } }
+    /// A search is shown: "Search Results in <folder>" replaces the crumbs (D1 step 3).
+    var searchTitle: String? {
+        didSet {
+            guard searchTitle != oldValue else { return }
+            rebuildAccessibility()
+            needsDisplay = true
+        }
+    }
+    /// The bar that fills the address bar while results gather; `searchDone` fades it.
+    var searchProgress: Double = 0 { didSet { if searchProgress != oldValue { needsDisplay = true; updateSearchAccessibility() } } }
+    var searchDone = false { didSet { if searchDone != oldValue { needsDisplay = true; updateSearchAccessibility() } } }
+    private var searchElement: AddressPart?
 
     private(set) var folder = URL(fileURLWithPath: "/")
     private(set) var crumbs: [Crumb] = []
@@ -140,6 +152,10 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
     /// The «, crumbs and arrows from the left, the filter tokens, then the empty area and the history arrow.
     private func slots() -> [Slot] {
         let h = bounds.height - 2
+        if searchTitle != nil {
+            return [Slot(rect: NSRect(x: Self.iconWidth, y: 1, width: max(0, historyRect.minX - Self.iconWidth), height: h), part: .empty),
+                    Slot(rect: historyRect, part: .history)]
+        }
         let tokenWidths = tokens.map(tokenWidth)
         let tokensTotal = tokens.isEmpty ? 0 : tokenWidths.reduce(0, +) + CGFloat(tokens.count) * 6 + 4
         let end = historyRect.minX - min(tokensTotal, max(0, historyRect.minX - Self.iconWidth - 160))
@@ -189,6 +205,11 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
         let p = Palette.current
         let box = bounds
         fillRounded(box, radius: 5, p.s2)
+        if let title = searchTitle, !isEditing {
+            drawSearchMode(title, p)
+            drawArrow(historyRect, open: dropdown?.isOpen("history") == true, down: true, hot: hovered == .history, p)
+            return
+        }
         let border: RGBA = isInvalid ? p.miss : isEditing ? p.accent : (isHovered ? p.line3 : p.line2)
         strokeRounded(box, radius: 5, border)
         ItemIcon.drawFolder(in: NSRect(x: 11, y: box.midY - 7.5, width: 18, height: 15), palette: p, lit: false)
@@ -233,6 +254,37 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
             }
         }
         NSGraphicsContext.restoreGraphicsState()
+    }
+
+    /// D1's search address (`.sfill`, `.sprog`): a 10% accent fill and a 2 pt accent line with a lit dot
+    /// at its head grow left to right while results gather; when done the fill fades and the line dims.
+    private func drawSearchMode(_ title: String, _ p: Palette) {
+        let box = bounds
+        let progress = CGFloat(max(0, min(1, searchProgress)))
+        NSGraphicsContext.saveGraphicsState()
+        NSBezierPath(roundedRect: box.insetBy(dx: 1, dy: 1), xRadius: 4, yRadius: 4).addClip()
+        if !searchDone {
+            fillRect(NSRect(x: 0, y: 0, width: box.width * progress, height: box.height), p.accent.withAlpha(0.10))
+        }
+        let line = NSRect(x: 1, y: box.height - 3, width: (box.width - 2) * (searchDone ? 1 : progress), height: 2)
+        fillRect(line, searchDone ? p.accent.withAlpha(0.45) : p.accent)
+        NSGraphicsContext.restoreGraphicsState()
+        strokeRounded(box, radius: 5, isHovered ? p.line3 : p.line2)
+        if !searchDone, progress > 0, let ctx = NSGraphicsContext.current?.cgContext {
+            ctx.saveGState()
+            if p.glows { ctx.setShadow(offset: .zero, blur: 8, color: p.accent.withAlpha(0.8).cg) }
+            p.accent.ns.setFill()
+            NSBezierPath(ovalIn: NSRect(x: line.maxX - 3, y: line.minY - 2, width: 6, height: 6)).fill()
+            ctx.restoreGState()
+        }
+        Glyph.search.draw(in: NSRect(x: 12, y: box.midY - 8, width: 16, height: 16), color: p.accent.ns)
+        drawLine(title, font: Typeface.ui(13, weight: 600, width: 112), color: p.txt, x: Self.iconWidth, midY: box.midY,
+                 maxWidth: historyRect.minX - Self.iconWidth - 12)
+    }
+
+    /// The search label as an element a test can read: its value says how far the search got.
+    private func updateSearchAccessibility() {
+        searchElement?.setAccessibilityValue(searchDone ? "done" : "searching \(Int(searchProgress * 100))%")
     }
 
     /// `.cr-arrow`: a 14 pt chevron in txt3; open, it turns to point down in the accent.
@@ -604,6 +656,16 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
             e.press = { [weak self] in if let self { press(self) } }
             parts.append(e)
         }
+        if let title = searchTitle, !isEditing {
+            let e = AddressPart()
+            e.setAccessibilityRole(.staticText)
+            e.setAccessibilityLabel(title)
+            e.setAccessibilityParent(self)
+            e.setAccessibilityFrameInParentSpace(NSRect(x: Self.iconWidth, y: 1, width: historyRect.minX - Self.iconWidth, height: bounds.height - 2))
+            e.setAccessibilityValue(searchDone ? "done" : "searching \(Int(searchProgress * 100))%")
+            key.append("search|\(title)")
+            parts.append(e)
+        }
         if !isEditing {
             for slot in slots() {
                 switch slot.part {
@@ -626,6 +688,7 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
         guard key != axKey else { return }
         axKey = key
         axParts = parts
+        searchElement = searchTitle == nil ? nil : parts.first { $0.accessibilityRole() == .staticText }
     }
 
     override func accessibilityChildren() -> [Any]? {
@@ -638,22 +701,6 @@ final class AddressPart: NSAccessibilityElement {
     override func accessibilityPerformPress() -> Bool { press?(); return true }
 }
 
-/// The search box, top right (`.search`): "Search <folder>". It does nothing until milestone 7.
-final class SearchBoxView: NSView {
-    var folderName = "" { didSet { needsDisplay = true; setAccessibilityLabel("Search " + folderName) } }
-
-    override var isFlipped: Bool { true }
-
-    override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
-        fillRounded(bounds, radius: 5, p.s2)
-        strokeRounded(bounds, radius: 5, p.line2)
-        Glyph.search.draw(in: NSRect(x: 12, y: bounds.midY - 9, width: 18, height: 18), color: p.txt2.ns)
-        drawLine("Search " + folderName, font: Typeface.ui(13), color: p.txt3, x: 38, midY: bounds.midY,
-                 maxWidth: bounds.width - 38 - 8)
-    }
-}
-
 /// The 56 pt toolbar (`.toolbar`): Back, Forward, Up, the address bar, the command bar (Explorer's New,
 /// Cut, Copy, Paste, Rename, Share, Delete, Sort, View and See more, as D1 toolbar buttons), Refresh
 /// and the search box. Commands that do not fit fold into See more, which always lists everything.
@@ -664,6 +711,13 @@ final class ToolbarView: NSView {
     let refresh: ChromeButton
     let address = AddressBarView(frame: .zero)
     let search = SearchBoxView(frame: .zero)
+    /// The search box's left edge: drag it to widen the box (the address bar gives up the room).
+    private let searchEdge = SearchEdgeHandle(frame: .zero)
+    static let searchWidthKey = "searchBoxWidth"
+    /// The width dragged to, kept for every window; nil is the default for the window's width.
+    var searchWidth: CGFloat? = UserDefaults.standard.object(forKey: ToolbarView.searchWidthKey) as? CGFloat {
+        didSet { needsLayout = true }
+    }
     /// Left to right; the last one is See more. Groups end after the indexes in `groupEnds`.
     var commands: [ChromeButton] = [] {
         didSet {
@@ -683,8 +737,14 @@ final class ToolbarView: NSView {
         self.up = ChromeButton(glyph: .up, label: "Up (Cmd+Up)", target: target, action: up)
         self.refresh = ChromeButton(glyph: .refresh, label: "Refresh", target: target, action: refresh)
         super.init(frame: .zero)
-        for view in [self.back, self.forward, self.up, address, self.refresh, search] as [NSView] { addSubview(view) }
+        for view in [self.back, self.forward, self.up, address, self.refresh, search, searchEdge] as [NSView] { addSubview(view) }
         address.onEditingChanged = { [weak self] in self?.needsDisplay = true }
+        searchEdge.onDrag = { [weak self] x in
+            guard let self else { return }
+            let w = min(max(180, self.search.frame.maxX - x), max(180, self.bounds.width - 154 - Self.addressMin - 120))
+            self.searchWidth = w
+            UserDefaults.standard.set(Double(w), forKey: Self.searchWidthKey)
+        }
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
@@ -698,9 +758,13 @@ final class ToolbarView: NSView {
         forward.frame = NSRect(x: 56, y: y, width: 44, height: 44)
         up.frame = NSRect(x: 102, y: y, width: 44, height: 44)
         // Narrow windows (two side by side) give the search box's room to the address bar.
-        let searchW: CGFloat = bounds.width < 720 ? 0 : bounds.width < 1180 ? 220 : 280
+        let standard: CGFloat = bounds.width < 1180 ? 220 : 280
+        let searchW: CGFloat = bounds.width < 720 ? 0
+            : min(searchWidth ?? standard, max(standard, bounds.width - 154 - Self.addressMin - 120))
         search.isHidden = searchW == 0
         search.frame = NSRect(x: bounds.width - 10 - searchW, y: y, width: searchW, height: 44)
+        searchEdge.isHidden = search.isHidden
+        searchEdge.frame = NSRect(x: search.frame.minX - 4, y: y, width: 8, height: 44)
         refresh.frame = NSRect(x: (searchW == 0 ? bounds.width - 2 : search.frame.minX) - 8 - 44, y: y, width: 44, height: 44)
         // The command bar takes what the address bar can spare; See more is always there.
         var right = refresh.frame.minX - 8
@@ -745,6 +809,21 @@ final class ToolbarView: NSView {
         }
         for x in separators {
             fillRect(NSRect(x: x, y: (bounds.height - 1) / 2 - 11, width: 1, height: 22), p.line)
+        }
+    }
+}
+
+/// The search box's left edge, a resize cursor and a drag that moves it (Explorer since 1909).
+final class SearchEdgeHandle: NSView {
+    var onDrag: ((CGFloat) -> Void)?
+
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .resizeLeftRight) }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let window, let host = superview else { return }
+        while let next = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
+            if next.type == .leftMouseUp { break }
+            onDrag?(host.convert(next.locationInWindow, from: nil).x)
         }
     }
 }

@@ -138,6 +138,8 @@ public struct HudSegment: Sendable, Equatable {
     public let hasLight: Bool
     /// Pushed to the right edge (Selected).
     public let trailing: Bool
+    /// The light pulses (a search gathering results) instead of breathing.
+    public var pulses = false
 }
 
 public enum Hud {
@@ -162,6 +164,21 @@ public enum Hud {
             HudSegment(key: "Matches", value: ByteText.grouped(shown) + " of " + ByteText.grouped(total), hasLight: false, trailing: false),
             HudSegment(key: "Path depth", value: "\(depth(path))", hasLight: false, trailing: false),
             HudSegment(key: "Keys", value: "Tab, Enter, Esc", hasLight: false, trailing: false),
+            HudSegment(key: "Selected", value: selectedText(selection), hasLight: false, trailing: true),
+        ]
+    }
+
+    /// While a search is shown (D1 step 3): Query (its light pulsing while results gather), Scope,
+    /// Results ("Scanning" until the first come), Sort (Relevance until a header is clicked), Selected.
+    public static func searchSegments(query: String, scope: String, results: Int, searching: Bool, sort: SortSpec?,
+                                      selection: SelectionSummary) -> [HudSegment] {
+        var q = HudSegment(key: "Query", value: query.isEmpty ? "Empty" : query, hasLight: true, trailing: false)
+        q.pulses = searching
+        return [
+            q,
+            HudSegment(key: "Scope", value: scope, hasLight: false, trailing: false),
+            HudSegment(key: "Results", value: searching && results == 0 ? "Scanning" : ByteText.grouped(results), hasLight: false, trailing: false),
+            HudSegment(key: "Sort", value: sort.map(SortLabel.short) ?? "Relevance", hasLight: false, trailing: false),
             HudSegment(key: "Selected", value: selectedText(selection), hasLight: false, trailing: true),
         ]
     }

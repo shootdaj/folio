@@ -34,13 +34,24 @@ extension BrowserWindowController: GridHost {
 
     @objc func setViewMode(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String, let mode = ViewMode(rawValue: raw) else { return }
-        ViewCenter.shared.set(mode)
+        chooseView(mode)
+    }
+
+    /// The one view for every window, or while results show, theirs alone (they open in Details).
+    func chooseView(_ mode: ViewMode) {
+        if isSearching {
+            guard mode != viewMode else { return }
+            searchView = mode
+            applyViewMode()
+        } else {
+            ViewCenter.shared.set(mode)
+        }
     }
 
     /// View > Make this the default view: the only view setting there is; every launch starts in it.
     @objc func makeDefaultView(_ sender: Any?) { ViewCenter.shared.makeDefault() }
 
-    func gridZoom(_ steps: Int) { ViewCenter.shared.set(viewMode.zoomed(by: steps)) }
+    func gridZoom(_ steps: Int) { chooseView(viewMode.zoomed(by: steps)) }
 
     /// A trackpad pinch: out to larger icons, in to smaller.
     func pinch(_ event: NSEvent) {
@@ -58,7 +69,7 @@ extension BrowserWindowController: GridHost {
         let numbers: [UInt16: Int] = [18: 1, 19: 2, 20: 3, 21: 4, 23: 5, 22: 6, 26: 7, 28: 8]
         switch (event.keyCode, modifiers) {
         case (let code, [.control, .shift]) where numbers[code] != nil:
-            if let mode = ViewMode.forShortcut(numbers[code]!) { ViewCenter.shared.set(mode) }
+            if let mode = ViewMode.forShortcut(numbers[code]!) { chooseView(mode) }
         case (35, .option) where !editingText: togglePreviewPane(nil)
         case (35, [.option, .shift]) where !editingText: toggleDetailsPane(nil)
         case (24, .command) where !editingText, (69, .command) where !editingText: sizeAllColumnsToFit(nil)

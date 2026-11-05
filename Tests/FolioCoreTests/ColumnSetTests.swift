@@ -13,7 +13,7 @@ private func suite() -> UserDefaults {
     @Test func startsWithExplorersGeneralItemsColumns() {
         #expect(ColumnSet.standard.visible == [.name, .modified, .kind, .size])
         #expect(ColumnSet.standard.width(of: .name) == 320)
-        #expect(ColumnID.allCases.count == 25)
+        #expect(ColumnID.allCases.count == 26)
     }
 
     @Test func headerTicksShowAtTheRightEndAndNameCannotBeHidden() {
@@ -32,7 +32,7 @@ private func suite() -> UserDefaults {
         set.move(.size, to: 1)
         let order = set.chooserOrder
         #expect(Array(order.prefix(4)) == [.name, .size, .modified, .kind])
-        #expect(order.count == 25)
+        #expect(order.count == 26)
         #expect(order[4] == .album)
         #expect(order[5] == .artist)
         #expect(order.last == .title)
