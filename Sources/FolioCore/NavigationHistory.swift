@@ -1,5 +1,21 @@
 import Foundation
 
+/// A search shown at a place in the history: Back from a result's folder returns to the results with the
+/// query restored, as Explorer keeps a search-ms location in the tab's history.
+public struct HistorySearch: Sendable, Equatable {
+    public var text: String
+    /// All subfolders, or Current folder only.
+    public var recursive: Bool
+    /// Search again in This PC: the whole Mac, from the startup disk.
+    public var everywhere: Bool
+
+    public init(text: String, recursive: Bool = true, everywhere: Bool = false) {
+        self.text = text
+        self.recursive = recursive
+        self.everywhere = everywhere
+    }
+}
+
 /// Back/Forward/Up history for one tab, like Windows Explorer: Up is a normal step you can go Back from.
 /// Home (`NavigationHistory.home`) is a place in the history like any folder, with no Up.
 public struct NavigationHistory: Sendable, Equatable {
@@ -10,6 +26,10 @@ public struct NavigationHistory: Sendable, Equatable {
     public private(set) var current: URL
     private var backStack: [URL] = []
     private var forwardStack: [URL] = []
+    /// The search shown at `current`, nil for the plain folder.
+    public private(set) var search: HistorySearch?
+    private var backSearches: [HistorySearch?] = []
+    private var forwardSearches: [HistorySearch?] = []
 
     public init(start: URL) {
         current = Self.clean(start)
@@ -20,6 +40,8 @@ public struct NavigationHistory: Sendable, Equatable {
         self.current = Self.clean(current)
         backStack = back.map(Self.clean)
         forwardStack = forward.map(Self.clean)
+        backSearches = back.map { _ in nil }
+        forwardSearches = forward.map { _ in nil }
     }
 
     /// The stacks as saved (see `init(current:back:forward:)`).
@@ -39,26 +61,50 @@ public struct NavigationHistory: Sendable, Equatable {
     public var canGoForward: Bool { !forwardStack.isEmpty }
     public var canGoUp: Bool { Self.parent(of: current) != nil }
 
-    /// Goes to a new folder and drops the forward stack. Pushing the current folder does nothing.
-    public mutating func push(_ url: URL) {
+    /// Goes to a new folder (or a search in one) and drops the forward stack. Pushing the place shown
+    /// does nothing.
+    public mutating func push(_ url: URL, search: HistorySearch? = nil) {
         let url = Self.clean(url)
-        guard !Self.same(url, current) else { return }
+        guard !Self.same(url, current) || search != self.search else { return }
         backStack.append(current)
+        backSearches.append(self.search)
         forwardStack.removeAll()
+        forwardSearches.removeAll()
         current = url
+        self.search = search
+    }
+
+    /// Typing on in the box: the search shown here changes in place (no new step per keystroke).
+    public mutating func updateSearch(_ search: HistorySearch) {
+        self.search = search
+    }
+
+    /// Esc or an empty box: back to the plain folder. When the step before is that folder, the search
+    /// step goes away; otherwise the search is dropped from this step.
+    public mutating func closeSearch() {
+        guard search != nil else { return }
+        if let previous = backStack.last, Self.same(previous, current), backSearches.last == .some(nil) {
+            backStack.removeLast()
+            backSearches.removeLast()
+        }
+        search = nil
     }
 
     public mutating func goBack() -> URL? {
         guard let previous = backStack.popLast() else { return nil }
         forwardStack.append(current)
+        forwardSearches.append(search)
         current = previous
+        search = backSearches.popLast() ?? nil
         return current
     }
 
     public mutating func goForward() -> URL? {
         guard let next = forwardStack.popLast() else { return nil }
         backStack.append(current)
+        backSearches.append(search)
         current = next
+        search = forwardSearches.popLast() ?? nil
         return current
     }
 
