@@ -26,15 +26,16 @@ final class BrowserWindow: NSWindow {
               let close = standardWindowButton(.closeButton),
               let container = close.superview?.superview else { return }
         let bar = ChassisView.titleH
-        let buttonH = close.frame.height
-        let top = (bar - buttonH) / 2
         var frame = container.frame
-        frame.size.height = top + buttonH
-        frame.origin.y = self.frame.height - frame.size.height
+        frame.size.height = bar
+        frame.origin.y = self.frame.height - bar
         if container.frame != frame { container.frame = frame }
         for (i, kind) in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].enumerated() {
-            guard let button = standardWindowButton(kind) else { continue }
-            let origin = NSPoint(x: 14 - (button.frame.width - 12) / 2 + CGFloat(i) * 20, y: 0)
+            guard let button = standardWindowButton(kind), let holder = button.superview else { continue }
+            // Centred on the bar whichever way the holder is flipped.
+            let midY = holder.convert(NSPoint(x: 0, y: frame.height / 2), from: container).y
+            let origin = NSPoint(x: 14 - (button.frame.width - 12) / 2 + CGFloat(i) * 20,
+                                 y: (midY - button.frame.height / 2).rounded())
             if button.frame.origin != origin { button.setFrameOrigin(origin) }
         }
     }
@@ -92,6 +93,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         window.isReleasedWhenClosed = false
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
+        window.titlebarSeparatorStyle = .none
         window.minSize = NSSize(width: 760, height: 480)
         window.backgroundColor = Palette.current.bg.ns
         window.allowsOffscreen = options.uitest

@@ -8,7 +8,8 @@ import FolioCore
 ///   1. writes `<shot>-1-open.png` (its own window, via CGWindowListCreateImage of its window number),
 ///   2. clicks the Name header with a synthesized mouse down and up, writes `<shot>-2-name-sorted.png`,
 ///   3. clicks row index 3 the same way, writes `<shot>-3-row-selected.png`,
-/// prints what it saw, and exits 0 when every step worked (1 otherwise, 2 for bad arguments).
+/// prints what it saw, and exits 0 when every step worked (1 otherwise, 2 for bad arguments, 3 on a
+/// 90 s timeout).
 /// `new` makes /private/tmp/folio-tests/<run id>/Code (40 folders, 8 files) and trashes it afterwards.
 struct UITestConfig {
     var folder: URL
@@ -76,8 +77,14 @@ enum UITestRunner {
     static func run(_ config: UITestConfig, controller c: BrowserWindowController) async -> Int32 {
         var problems: [String] = []
         guard let window = c.window as? BrowserWindow else { return 1 }
+        // If a synthesized click ever blocks the main thread, still end the run.
+        DispatchQueue.global().asyncAfter(deadline: .now() + 90) {
+            print("uitest: timed out after 90 s")
+            fflush(stdout)
+            exit(3)
+        }
         // Off every screen: nothing appears on the desktop and nothing takes focus.
-        window.setFrameOrigin(NSPoint(x: -30000, y: -30000))
+        window.setFrameOrigin(NSPoint(x: -20000, y: -20000))
         window.orderFrontRegardless()
 
         let fontsOK = Typeface.ui(13).familyName == "Archivo" && Typeface.mono(12).familyName == "Chivo Mono"
@@ -127,7 +134,11 @@ enum UITestRunner {
 
     private static func finish(_ config: UITestConfig, _ code: Int32) -> Int32 {
         if config.madeFixture {
-            try? FileManager.default.trashItem(at: config.folder, resultingItemURL: nil)
+            // The whole run folder goes to the Trash unless the shots were written inside it.
+            let run = config.folder.deletingLastPathComponent()
+            let keepRun = config.shotBase.hasPrefix(run.path + "/")
+                || config.shotBase.hasPrefix("/private" + run.path + "/")
+            try? FileManager.default.trashItem(at: keepRun ? config.folder : run, resultingItemURL: nil)
         }
         return code
     }
