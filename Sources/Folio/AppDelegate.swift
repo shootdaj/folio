@@ -1,4 +1,5 @@
 import AppKit
+import FolioCore
 import os
 
 let perfLog = Logger(subsystem: "com.anshul.folio", category: "perf")
@@ -14,12 +15,14 @@ let processStartDate: Date = {
 }()
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var windows: [BrowserWindowController] = []
     private var cascadePoint = NSPoint.zero
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         _ = processStartDate
+        Fonts.registerBundled()
+        ThemeController.shared.start(defaults: .standard)
         NSApp.mainMenu = MainMenu.build()
     }
 
@@ -27,6 +30,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Folders passed with `open -a` or dropped on the Dock icon arrive in application(_:open:) first.
         if windows.isEmpty { openWindow(at: FileManager.default.homeDirectoryForCurrentUser) }
         NSApp.activate()
+    }
+
+    // MARK: View > Theme, View > Accent
+
+    @objc func selectTheme(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let choice = ThemeChoice(rawValue: raw) else { return }
+        ThemeController.shared.theme = choice
+    }
+
+    @objc func selectAccent(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let choice = AccentChoice(rawValue: raw) else { return }
+        ThemeController.shared.accent = choice
+    }
+
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        let raw = item.representedObject as? String
+        switch item.action {
+        case #selector(selectTheme(_:)): item.state = raw == ThemeController.shared.theme.rawValue ? .on : .off
+        case #selector(selectAccent(_:)): item.state = raw == ThemeController.shared.accent.rawValue ? .on : .off
+        default: break
+        }
+        return true
     }
 
     func application(_ sender: NSApplication, open urls: [URL]) {
