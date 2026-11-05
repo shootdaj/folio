@@ -64,4 +64,36 @@ private func dir(_ path: String) -> URL { URL(fileURLWithPath: path, isDirectory
         #expect(history.current.path == "/")
         #expect(!history.canGoBack)
     }
+
+    @Test func backListIsNewestFirstAndForwardListIsNextFirst() {
+        var history = NavigationHistory(start: dir("/a"))
+        for path in ["/b", "/c", "/d"] { history.push(dir(path)) }
+        #expect(history.backList.map(\.path) == ["/c", "/b", "/a"])
+        #expect(history.forwardList.isEmpty)
+        _ = history.goBack()
+        #expect(history.backList.map(\.path) == ["/b", "/a"])
+        #expect(history.forwardList.map(\.path) == ["/d"])
+    }
+
+    @Test func pickingFromTheBackListJumpsSeveralSteps() {
+        var history = NavigationHistory(start: dir("/a"))
+        for path in ["/b", "/c", "/d"] { history.push(dir(path)) }
+        // The third entry of the right-click list on Back.
+        #expect(history.goBack(steps: 3)?.path == "/a")
+        #expect(history.backList.isEmpty)
+        #expect(history.forwardList.map(\.path) == ["/b", "/c", "/d"])
+        #expect(history.goForward(steps: 2)?.path == "/c")
+        #expect(history.backList.map(\.path) == ["/b", "/a"])
+        #expect(history.forwardList.map(\.path) == ["/d"])
+    }
+
+    @Test func stepsPastEitherEndDoNothing() {
+        var history = NavigationHistory(start: dir("/a"))
+        history.push(dir("/b"))
+        #expect(history.goBack(steps: 2) == nil)
+        #expect(history.goForward(steps: 1) == nil)
+        #expect(history.goBack(steps: 0) == nil)
+        #expect(history.current.path == "/b")
+        #expect(history.backList.map(\.path) == ["/a"])
+    }
 }

@@ -47,6 +47,9 @@ public enum SortLabel {
 }
 
 public enum StatusText {
+    /// The status bar after Enter on an address that is not a folder.
+    public static let noSuchFolder = "No such folder"
+
     /// The left of the status bar: "28 items, 1 selected", plus the selected files' size when there is one.
     public static func count(items: Int, selection: SelectionSummary) -> String {
         var text = ByteText.grouped(items) + (items == 1 ? " item" : " items")
@@ -127,22 +130,39 @@ public struct HudSegment: Sendable, Equatable {
 public enum Hud {
     public static func segments(path: String, entries: [FileEntry], sort: SortSpec,
                                 selection: SelectionSummary) -> [HudSegment] {
-        let depth = path.split(separator: "/", omittingEmptySubsequences: true).count
         let folders = entries.reduce(0) { $0 + ($1.isFolder ? 1 : 0) }
-        let selected: String = switch selection.count {
-        case 0: "Nothing"
-        case 1: selection.firstName ?? ""
-        default: ByteText.grouped(selection.count) + " items"
-        }
         return [
-            HudSegment(key: "Path depth", value: "\(depth)", hasLight: true, trailing: false),
+            HudSegment(key: "Path depth", value: "\(depth(path))", hasLight: true, trailing: false),
             HudSegment(key: "Items", value: ByteText.grouped(entries.count), hasLight: false, trailing: false),
             HudSegment(key: "Folders", value: ByteText.grouped(folders), hasLight: false, trailing: false),
             HudSegment(key: "Files", value: ByteText.grouped(entries.count - folders), hasLight: false, trailing: false),
             HudSegment(key: "Sort", value: SortLabel.label(sort), hasLight: false, trailing: false),
             HudSegment(key: "View", value: "Details", hasLight: false, trailing: false),
-            HudSegment(key: "Selected", value: selected, hasLight: false, trailing: true),
+            HudSegment(key: "Selected", value: selectedText(selection), hasLight: false, trailing: true),
         ]
+    }
+
+    /// While the address bar is being edited (D1 step 2): Mode, Matches, Path depth, Keys, Selected.
+    public static func editingSegments(shown: Int, total: Int, path: String, selection: SelectionSummary) -> [HudSegment] {
+        [
+            HudSegment(key: "Mode", value: "Edit address", hasLight: true, trailing: false),
+            HudSegment(key: "Matches", value: ByteText.grouped(shown) + " of " + ByteText.grouped(total), hasLight: false, trailing: false),
+            HudSegment(key: "Path depth", value: "\(depth(path))", hasLight: false, trailing: false),
+            HudSegment(key: "Keys", value: "Tab, Enter, Esc", hasLight: false, trailing: false),
+            HudSegment(key: "Selected", value: selectedText(selection), hasLight: false, trailing: true),
+        ]
+    }
+
+    static func depth(_ path: String) -> Int {
+        path.split(separator: "/", omittingEmptySubsequences: true).count
+    }
+
+    static func selectedText(_ selection: SelectionSummary) -> String {
+        switch selection.count {
+        case 0: "Nothing"
+        case 1: selection.firstName ?? ""
+        default: ByteText.grouped(selection.count) + " items"
+        }
     }
 }
 

@@ -101,3 +101,17 @@ private func entry(_ name: String, folder: Bool = false, size: Int64? = nil) -> 
         #expect(FileTypeCategory(name: "Makefile") == .data)
     }
 }
+
+@Suite struct HudEditingTests {
+    @Test func editingTheAddressShowsModeMatchesDepthAndKeys() {
+        let segs = Hud.editingSegments(shown: 5, total: 12, path: "/Users/anshul/Anshul/Code", selection: SelectionSummary([]))
+        #expect(segs.map(\.key) == ["Mode", "Matches", "Path depth", "Keys", "Selected"])
+        #expect(segs.map(\.value) == ["Edit address", "5 of 12", "4", "Tab, Enter, Esc", "Nothing"])
+        #expect(segs.first?.hasLight == true)
+        #expect(segs.last?.trailing == true)
+    }
+
+    @Test func aMissingFolderReadsNoSuchFolder() {
+        #expect(StatusText.noSuchFolder == "No such folder")
+    }
+}

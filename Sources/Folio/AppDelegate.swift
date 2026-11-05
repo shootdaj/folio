@@ -41,7 +41,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func applicationDidFinishLaunching(_ notification: Notification) {
         if let uitest {
             let controller = BrowserWindowController(
-                folder: uitest.folder, options: .init(size: UITestRunner.windowSize, uitest: true))
+                folder: uitest.folder,
+                options: .init(size: UITestRunner.windowSize, uitest: true, historyDefaults: uitest.defaults))
             windows.append(controller)
             Task { @MainActor in
                 let code = await UITestRunner.run(uitest, controller: controller)

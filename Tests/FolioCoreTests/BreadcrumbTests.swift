@@ -5,9 +5,9 @@ import Testing
 @Suite struct BreadcrumbTests {
     @Test func pathBecomesOneCrumbPerFolderWithTheLastCurrent() {
         let crumbs = Breadcrumbs.crumbs(for: URL(fileURLWithPath: "/Users/anshul/Anshul/Code"))
-        #expect(crumbs.map(\.title) == ["Users", "anshul", "Anshul", "Code"])
-        #expect(crumbs.map(\.path) == ["/Users", "/Users/anshul", "/Users/anshul/Anshul", "/Users/anshul/Anshul/Code"])
-        #expect(crumbs.map(\.isCurrent) == [false, false, false, true])
+        #expect(crumbs.map(\.title) == ["Macintosh HD", "Users", "anshul", "Anshul", "Code"])
+        #expect(crumbs.map(\.path) == ["/", "/Users", "/Users/anshul", "/Users/anshul/Anshul", "/Users/anshul/Anshul/Code"])
+        #expect(crumbs.map(\.isCurrent) == [false, false, false, false, true])
     }
 
     @Test func crumbsLeadBackToTheSamePath() {
@@ -21,12 +21,12 @@ import Testing
 
     @Test func rootIsTheStartupDiskByName() {
         let crumbs = Breadcrumbs.crumbs(for: URL(fileURLWithPath: "/"))
-        #expect(crumbs == [Crumb(title: "Macintosh HD", path: "/", isCurrent: true)])
+        #expect(crumbs == [Crumb(title: "Macintosh HD", path: "/", isCurrent: true, isVolume: true)])
     }
 
     @Test func trailingSlashesAndDotsAreStandardized() {
         let crumbs = Breadcrumbs.crumbs(for: URL(fileURLWithPath: "/private/tmp/./x/../y/"))
-        #expect(crumbs.map(\.title) == ["private", "tmp", "y"])
+        #expect(crumbs.map(\.title) == ["Macintosh HD", "private", "tmp", "y"])
     }
 
     @Test func typedPathsResolveAgainstHomeAndTheCurrentFolder() {
@@ -38,5 +38,27 @@ import Testing
         #expect(Breadcrumbs.resolve(typed: "sub/inner", current: current, home: home)?.path == "/private/tmp/run/sub/inner")
         #expect(Breadcrumbs.resolve(typed: "..", current: current, home: home)?.path == "/private/tmp")
         #expect(Breadcrumbs.resolve(typed: "   ", current: current, home: home) == nil)
+    }
+
+    private let volumes = [
+        VolumeCapacity(name: "Startup", path: "/", total: 0, free: 0),
+        VolumeCapacity(name: "FolioScratch", path: "/Volumes/FolioScratch", total: 0, free: 0),
+    ]
+
+    @Test func theRootCrumbShowsTheVolume() {
+        let crumbs = Breadcrumbs.crumbs(for: URL(fileURLWithPath: "/Users/someone"), volumes: volumes)
+        #expect(crumbs.map(\.title) == ["Startup", "Users", "someone"])
+        #expect(crumbs.map(\.isVolume) == [true, false, false])
+    }
+
+    @Test func aPathOnAnotherVolumeStartsAtThatVolume() {
+        let crumbs = Breadcrumbs.crumbs(for: URL(fileURLWithPath: "/Volumes/FolioScratch/a b/c"), volumes: volumes)
+        #expect(crumbs.map(\.title) == ["FolioScratch", "a b", "c"])
+        #expect(crumbs.map(\.path) == ["/Volumes/FolioScratch", "/Volumes/FolioScratch/a b", "/Volumes/FolioScratch/a b/c"])
+        let top = Breadcrumbs.crumbs(for: URL(fileURLWithPath: "/Volumes/FolioScratch"), volumes: volumes)
+        #expect(top == [Crumb(title: "FolioScratch", path: "/Volumes/FolioScratch", isCurrent: true, isVolume: true)])
+        // A name that only starts like a volume is not on it.
+        let other = Breadcrumbs.crumbs(for: URL(fileURLWithPath: "/Volumes/FolioScratch2/x"), volumes: volumes)
+        #expect(other.map(\.title) == ["Startup", "Volumes", "FolioScratch2", "x"])
     }
 }

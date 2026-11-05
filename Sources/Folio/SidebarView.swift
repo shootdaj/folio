@@ -54,6 +54,9 @@ final class SidebarContentView: NSView {
 
     private var hovered: Int?
     private let light = LedView(diameter: 6)
+    /// The row F6 or Tab lands on; Up and Down move it, Return opens it.
+    private var focusRow = 0
+    private var takingFocus = false
 
     private struct Row { let rect: NSRect; let path: String; let kind: Kind }
     private enum Kind { case place(QuickAccessPlace), volume(VolumeCapacity) }
@@ -136,6 +139,10 @@ final class SidebarContentView: NSView {
             case .place(let place): drawPlace(place, in: row.rect, on: on, p)
             case .volume(let volume): drawVolume(volume, in: row.rect, p)
             }
+            // D1's `:focus-visible`: a 2 pt accent outline, drawn inside the row.
+            if i == focusRow, window?.firstResponder === self {
+                strokeRounded(row.rect.insetBy(dx: 1, dy: 1), radius: 3, p.accent, width: 2)
+            }
         }
     }
 
@@ -216,6 +223,40 @@ final class SidebarContentView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         guard let i = rowIndex(at: event) else { return }
+        focusRow = i
         onNavigate?(URL(fileURLWithPath: geometry().1[i].path, isDirectory: true))
+    }
+
+    // MARK: Keyboard focus (F6, Tab): until milestone 5's tree, the sidebar's rows are the tree.
+
+    /// Only F6 and Tab focus the sidebar; a click navigates and leaves focus where it was.
+    override var acceptsFirstResponder: Bool { takingFocus }
+
+    func takeKeyboardFocus() {
+        let rows = geometry().1
+        focusRow = rows.firstIndex { $0.path == currentPath } ?? min(focusRow, max(0, rows.count - 1))
+        takingFocus = true
+        window?.makeFirstResponder(self)
+        takingFocus = false
+        needsDisplay = true
+    }
+
+    override func becomeFirstResponder() -> Bool { needsDisplay = true; return true }
+    override func resignFirstResponder() -> Bool { needsDisplay = true; return true }
+
+    override func keyDown(with event: NSEvent) {
+        let rows = geometry().1
+        guard !rows.isEmpty else { return super.keyDown(with: event) }
+        switch event.keyCode {
+        case 125: focusRow = min(rows.count - 1, focusRow + 1)                 // Down
+        case 126: focusRow = max(0, focusRow - 1)                              // Up
+        case 115: focusRow = 0                                                 // Home
+        case 119: focusRow = rows.count - 1                                    // End
+        case 36, 76, 49:                                                       // Return, Enter, Space
+            onNavigate?(URL(fileURLWithPath: rows[min(focusRow, rows.count - 1)].path, isDirectory: true))
+        default: return super.keyDown(with: event)
+        }
+        needsDisplay = true
+        scrollToVisible(rows[min(focusRow, rows.count - 1)].rect.insetBy(dx: 0, dy: -8))
     }
 }
