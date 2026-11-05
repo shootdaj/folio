@@ -8,6 +8,8 @@ final class LedView: NSView, ThemeAware {
     let diameter: CGFloat
     var tone: (Palette) -> RGBA = { $0.accent } { didSet { themeDidChange() } }
     var breathing = false { didSet { updateAnimation() } }
+    /// D1's `pulse2`: two quick flashes every 1.6 s (the HUD while the address is being edited).
+    var pulsing = false { didSet { if pulsing != oldValue { updateAnimation() } } }
     var isLit = true { didSet { isHidden = !isLit; updateAnimation() } }
 
     private let ring = CALayer()
@@ -58,8 +60,17 @@ final class LedView: NSView, ThemeAware {
     private func updateAnimation() {
         guard let layer else { return }
         layer.removeAnimation(forKey: "breathe")
-        guard breathing, isLit, window != nil,
+        guard breathing || pulsing, isLit, window != nil,
               !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+        if pulsing {
+            let k = CAKeyframeAnimation(keyPath: "opacity")
+            k.values = [0.3, 1, 0.3, 1, 0.3, 0.3]
+            k.keyTimes = [0, 0.07, 0.14, 0.21, 0.34, 1]
+            k.duration = 1.6
+            k.repeatCount = .infinity
+            layer.add(k, forKey: "breathe")
+            return
+        }
         let a = CABasicAnimation(keyPath: "opacity")
         a.fromValue = 0.42
         a.toValue = 1
@@ -107,6 +118,33 @@ final class ChromeButton: NSButton {
 
     override func mouseEntered(with event: NSEvent) { isHovered = true; needsDisplay = true }
     override func mouseExited(with event: NSEvent) { isHovered = false; needsDisplay = true }
+
+    /// Back and Forward: holding the button 0.45 s, or right-clicking it, shows the history list.
+    var onHold: (() -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        guard let onHold, isEnabled, let window else { return super.mouseDown(with: event) }
+        isHighlighted = true
+        let deadline = Date().addingTimeInterval(0.45)
+        while true {
+            guard let next = window.nextEvent(matching: [.leftMouseUp, .leftMouseDragged], until: deadline,
+                                              inMode: .eventTracking, dequeue: true) else {
+                isHighlighted = false
+                onHold()
+                return
+            }
+            if next.type == .leftMouseUp {
+                isHighlighted = false
+                if bounds.contains(convert(next.locationInWindow, from: nil)) { sendAction(action, to: target) }
+                return
+            }
+        }
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        guard let onHold else { return super.rightMouseDown(with: event) }
+        if isEnabled { onHold() }
+    }
 }
 
 final class ChromeButtonCell: NSButtonCell {

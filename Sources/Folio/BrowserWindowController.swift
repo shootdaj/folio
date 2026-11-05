@@ -7,10 +7,11 @@ final class BrowserWindow: NSWindow {
     var allowsOffscreen = false
 
     override func sendEvent(_ event: NSEvent) {
-        if event.type == .keyDown,
-           let controller = windowController as? BrowserWindowController,
-           controller.handleKeyDown(event) {
-            return
+        if let controller = windowController as? BrowserWindowController {
+            if event.type == .keyDown, controller.handleKeyDown(event) { return }
+            // Mouse buttons 4 and 5 go back and forward.
+            if event.type == .otherMouseDown, event.buttonNumber == 3 { controller.goBack(nil); return }
+            if event.type == .otherMouseDown, event.buttonNumber == 4 { controller.goForward(nil); return }
         }
         super.sendEvent(event)
     }
@@ -50,6 +51,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         var size = NSSize(width: 1280, height: 800)
         /// `--uitest`: no column autosave, no window restoration, placed off-screen.
         var uitest = false
+        /// Where the address history lives: the app's defaults, or a temp store under `--uitest`.
+        var historyDefaults: UserDefaults = .standard
     }
 
     private var history: NavigationHistory
@@ -62,6 +65,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     /// Bumped on every load or re-sort; results for an older value are dropped.
     private var requestID = 0
     private var isFittingColumns = false
+    /// The one dropdown this window shows at a time (typeahead, history, crumb folders, Back list).
+    let dropdown = Dropdown()
+    private let addressHistory: AddressHistory
+    /// "No such folder" after Enter on a bad address, until the next edit or navigation.
+    private var statusMessage: String?
 
     let tableView = FolioTableView()
     private let header = FolioHeaderView(frame: NSRect(x: 0, y: 0, width: 100,
@@ -88,6 +96,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
 
     init(folder: URL, options: Options = Options()) {
         history = NavigationHistory(start: folder)
+        addressHistory = AddressHistory(defaults: options.historyDefaults)
         let window = BrowserWindow(
             contentRect: NSRect(origin: .zero, size: options.size),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -119,11 +128,29 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         let toolbar = ToolbarView(target: self, back: #selector(goBack(_:)), forward: #selector(goForward(_:)),
                                   up: #selector(goUp(_:)), refresh: #selector(refresh(_:)))
         chassis = ChassisView(titleBar: titleBar, toolbar: toolbar)
-        toolbar.address.onNavigate = { [weak self] url in self?.navigate(to: url) }
-        toolbar.address.onEndEditing = { [weak self] in
-            guard let self else { return }
-            self.window?.makeFirstResponder(self.tableView)
+        let address = toolbar.address
+        address.dropdown = dropdown
+        address.onNavigate = { [weak self] url in self?.navigate(to: url) }
+        address.onEndEditing = { [weak self] move in
+            switch move {
+            case .list, .previous: self?.focus(.list)
+            case .next: self?.focus(.sidebar)
+            case .stay: break
+            }
         }
+        address.onEditingChanged = { [weak self] in
+            self?.toolbar.needsDisplay = true
+            self?.updateStatus()
+        }
+        address.onStatus = { [weak self] message in
+            self?.statusMessage = message
+            self?.toolbar.needsDisplay = true
+            self?.updateStatus()
+        }
+        address.historyPaths = { [weak self] in self?.addressHistory.paths ?? [] }
+        dropdown.onClose = { [weak self] in self?.toolbar.address.needsDisplay = true }
+        toolbar.back.onHold = { [weak self] in self?.showHistoryList(back: true) }
+        toolbar.forward.onHold = { [weak self] in self?.showHistoryList(back: false) }
         chassis.sidebar.content.onNavigate = { [weak self] url in self?.navigate(to: url) }
         chassis.sidebar.content.places = QuickAccess.places(home: FileManager.default.homeDirectoryForCurrentUser)
         chassis.rail.onJump = { [weak self] fraction in self?.jump(to: fraction) }
@@ -203,6 +230,71 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     /// Cmd+L, and Option+D (Anshul's Cmd+D): the crumbs become an editable path.
     @objc func focusAddressBar(_ sender: Any?) { toolbar.address.beginEditing() }
 
+    /// F4, or the arrow at the right end of the address bar: recent locations.
+    @objc func showAddressHistory(_ sender: Any?) { toolbar.address.toggleHistory() }
+
+    /// Right-click the address bar > Copy Address: the folder as a file object and as text.
+    @objc func copyAddress(_ sender: Any?) {
+        let url = history.current
+        let item = NSPasteboardItem()
+        item.setString(url.absoluteString, forType: .fileURL)
+        item.setString(url.path, forType: .string)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.writeObjects([item])
+    }
+
+    /// Copy Address as Text: the plain path, no quotes.
+    @objc func copyAddressAsText(_ sender: Any?) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(history.current.path, forType: .string)
+    }
+
+    /// Right-click or hold Back or Forward: the folders that way, nearest first; picking one jumps there.
+    private func showHistoryList(back: Bool) {
+        let id = back ? "back" : "forward"
+        if let event = NSApp.currentEvent, dropdown.wasJustClosed(id, by: event) { return }
+        if dropdown.isOpen(id) { dropdown.close(); return }
+        let list = back ? history.backList : history.forwardList
+        guard !list.isEmpty else { return }
+        let rows = list.enumerated().map { i, url in DropdownRow(text: displayName(url), value: String(i + 1)) }
+        let button = back ? toolbar.back : toolbar.forward
+        let content = DropdownContent(style: .menu, title: back ? "Back history" : "Forward history", rows: rows, empty: "")
+        dropdown.show(content, id: id, below: button.bounds, in: button) { [weak self] row in
+            guard let self, let steps = Int(row.value) else { return }
+            let moved = back ? self.history.goBack(steps: steps) : self.history.goForward(steps: steps)
+            if moved != nil { self.load() }
+        }
+    }
+
+    private func displayName(_ url: URL) -> String {
+        url.path == "/" ? (toolbar.address.volumes.first { $0.path == "/" }?.name ?? Breadcrumbs.rootTitle)
+            : FileManager.default.displayName(atPath: url.path)
+    }
+
+    // MARK: Focus (F6, Tab, Shift+Tab): the address bar, the sidebar, the file list
+
+    enum Pane: CaseIterable { case address, sidebar, list }
+
+    private var focusedPane: Pane {
+        if toolbar.address.isEditing { return .address }
+        return window?.firstResponder === chassis.sidebar.content ? .sidebar : .list
+    }
+
+    private func cycleFocus(forward: Bool) {
+        let order = Pane.allCases
+        let i = order.firstIndex(of: focusedPane) ?? 0
+        focus(order[(i + (forward ? 1 : order.count - 1)) % order.count])
+    }
+
+    func focus(_ pane: Pane) {
+        if pane != .address, toolbar.address.isEditing { toolbar.address.endEditing(focus: .stay) }
+        switch pane {
+        case .address: toolbar.address.beginEditing()
+        case .sidebar: chassis.sidebar.content.takeKeyboardFocus()
+        case .list: window?.makeFirstResponder(tableView)
+        }
+    }
+
     @objc func chooseAccent(_ sender: Any?) {
         guard let swatch = sender as? AccentSwatch else { return }
         ThemeController.shared.accent = swatch.accent
@@ -231,6 +323,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         let id = requestID
         isLoading = true
         loadError = nil
+        statusMessage = nil
+        dropdown.close()
         updateChrome()
         let started = Date()
         Task.detached(priority: .userInitiated) { [weak self] in
@@ -249,6 +343,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
 
     private func showVolumes(_ volumes: [VolumeCapacity]) {
         chassis.sidebar.content.volumes = volumes
+        toolbar.address.volumes = volumes
         chassis.sidebar.needsLayout = true
     }
 
@@ -260,6 +355,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         switch result {
         case .success(let list):
             show(list, selecting: [])
+            addressHistory.record(folder.path)
         case .failure(let error):
             loadError = error.localizedDescription
             show([], selecting: [])
@@ -310,7 +406,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
 
     private func updateChrome() {
         let folder = history.current
-        let name = folder.path == "/" ? Breadcrumbs.rootTitle : FileManager.default.displayName(atPath: folder.path)
+        let name = displayName(folder)
         window?.title = name
         titleBar.folderName = name
         titleBar.folderPath = folder.path
@@ -330,7 +426,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     private func updateStatus() {
         let selection = SelectionSummary(selectedEntries)
         let path = history.current.path
-        if let loadError {
+        if let statusMessage {
+            chassis.status.countText = statusMessage
+        } else if let loadError {
             chassis.status.countText = loadError
         } else if isLoading {
             chassis.status.countText = "Loading " + (path as NSString).lastPathComponent
@@ -338,7 +436,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             chassis.status.countText = StatusText.count(items: entries.count, selection: selection)
         }
         chassis.status.ticker.items = Ticker.items(volume: volume, selection: selection, sort: sortSpec, path: path)
-        chassis.hud.segments = Hud.segments(path: path, entries: entries, sort: sortSpec, selection: selection)
+        let address = toolbar.address
+        chassis.hud.segments = address.isEditing
+            ? Hud.editingSegments(shown: address.matchCount.shown, total: address.matchCount.total, path: path, selection: selection)
+            : Hud.segments(path: path, entries: entries, sort: sortSpec, selection: selection)
         chassis.rail.rowCount = entries.count
         chassis.rail.selected = tableView.selectedRowIndexes
         header.sort = sortSpec
@@ -412,21 +513,39 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
 
     // MARK: Keyboard
 
-    /// Window-level shortcuts. Returns true when the key was handled.
+    /// Window-level shortcuts, as macOS sees them after Anshul's Karabiner swap (docs/plan/MILESTONES.md
+    /// key map). Returns true when the key was handled.
     func handleKeyDown(_ event: NSEvent) -> Bool {
         let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
         let tableFocused = window?.firstResponder === tableView
         let editingText = window?.firstResponder is NSTextView
+        // An open crumb, « or Back list takes the arrows, Return and Esc (the address field drives its own).
+        if dropdown.isOpen, !editingText {
+            switch (event.keyCode, modifiers) {
+            case (125, []): dropdown.moveHighlight(1); return true                  // Down
+            case (126, []): dropdown.moveHighlight(-1); return true                 // Up
+            case (36, []), (76, []): if !dropdown.pickHighlighted() { dropdown.close() }; return true
+            case (53, []): dropdown.close(); return true                            // Esc
+            default: break
+            }
+        }
         switch (event.keyCode, modifiers) {
-        case (126, .option): goUp(nil)                          // Option+Up
+        case (126, .option): goUp(nil)                          // Option+Up (Cmd+Up after Karabiner)
         case (123, .option) where !editingText: goBack(nil)     // Option+Left
         case (124, .option) where !editingText: goForward(nil)  // Option+Right
         case (2, .option): focusAddressBar(nil)                 // Option+D (Cmd+D after Karabiner)
-        case (51, []) where tableFocused: goBack(nil)           // Backspace
+        case (51, []) where !editingText: goBack(nil)           // Backspace, even with files selected
         case (36, []) where tableFocused, (76, []) where tableFocused:
             open(rows: tableView.selectedRowIndexes)            // Return, Enter
         case (115, []) where tableFocused: selectRow(0)         // Home
         case (119, []) where tableFocused: selectRow(entries.count - 1) // End
+        case (96, []), (15, .control): refresh(nil)             // F5, Ctrl+R
+        case (118, []): showAddressHistory(nil)                 // F4
+        case (118, .option): window?.performClose(nil)          // Option+F4 (Cmd+F4 after Karabiner)
+        case (97, []): cycleFocus(forward: true)                // F6
+        case (97, .shift): cycleFocus(forward: false)
+        case (48, []) where !editingText: cycleFocus(forward: true)    // Tab
+        case (48, .shift) where !editingText: cycleFocus(forward: false)
         default: return false
         }
         return true
@@ -506,6 +625,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
 
     func windowDidResize(_ notification: Notification) {
         (window as? BrowserWindow)?.placeTrafficLights()
+        dropdown.close()
+    }
+
+    func windowDidResignKey(_ notification: Notification) {
+        dropdown.close()
     }
 
     func windowDidExitFullScreen(_ notification: Notification) {
@@ -513,6 +637,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     }
 
     func windowWillClose(_ notification: Notification) {
+        dropdown.close()
         NotificationCenter.default.removeObserver(self)
         (NSApp.delegate as? AppDelegate)?.windowClosed(self)
     }

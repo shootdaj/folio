@@ -54,9 +54,13 @@ enum MainMenu {
             item("Forward", #selector(BrowserWindowController.goForward(_:)), "]"),
             item("Up", #selector(BrowserWindowController.goUp(_:)), key(NSUpArrowFunctionKey)),
             item("Home", #selector(BrowserWindowController.goHome(_:)), "h", [.command, .shift]),
+            item("Refresh", #selector(BrowserWindowController.refresh(_:)), key(NSF5FunctionKey), []),
             .separator(),
             // Anshul's Cmd+D reaches the app as Option+D (bound in BrowserWindow) or, via BTT, as Cmd+L.
             item("Edit Address", #selector(BrowserWindowController.focusAddressBar(_:)), "l"),
+            item("Address History", #selector(BrowserWindowController.showAddressHistory(_:)), key(NSF4FunctionKey), []),
+            item("Copy Address", #selector(BrowserWindowController.copyAddress(_:))),
+            item("Copy Address as Text", #selector(BrowserWindowController.copyAddressAsText(_:))),
         ])
         let window = add("Window", to: main, [
             item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m"),
