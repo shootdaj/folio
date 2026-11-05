@@ -96,4 +96,27 @@ private func dir(_ path: String) -> URL { URL(fileURLWithPath: path, isDirectory
         #expect(history.current.path == "/b")
         #expect(history.backList.map(\.path) == ["/a"])
     }
+
+    @Test func homeIsAPlaceInTheHistoryWithNoUp() {
+        var h = NavigationHistory(start: URL(fileURLWithPath: "/tmp/a"))
+        h.push(NavigationHistory.home)
+        #expect(h.isHome)
+        #expect(!h.canGoUp)
+        #expect(h.goUp() == nil)
+        h.push(NavigationHistory.home)
+        #expect(h.backList.count == 1, "Home twice in a row is one step")
+        #expect(h.goBack()?.path == "/tmp/a")
+        #expect(!h.isHome)
+        #expect(h.goForward().map(NavigationHistory.isHome) == true)
+    }
+
+    @Test func aSavedHistoryComesBackWithItsStacks() {
+        let a = URL(fileURLWithPath: "/tmp/a"), b = URL(fileURLWithPath: "/tmp/b"), c = URL(fileURLWithPath: "/tmp/c")
+        let h = NavigationHistory(current: b, back: [a], forward: [c])
+        #expect(h.current.path == "/tmp/b")
+        #expect(h.backStackURLs == [a])
+        #expect(h.forwardStackURLs == [c])
+        var moved = h
+        #expect(moved.goForward()?.path == "/tmp/c")
+    }
 }

@@ -1,18 +1,40 @@
 import Foundation
 
-/// One mounted volume for the This PC list: name, size and free space, and the 24-segment bar.
+/// One mounted volume for the This PC list: name, size and free space, the 24-segment bar, and what
+/// kind of volume it is (the startup disk, removable, a disk image, a network share).
 public struct VolumeCapacity: Sendable, Equatable {
     public let name: String
     public let path: String
     public let total: Int64
     public let free: Int64
+    public let isRoot: Bool
+    public let isRemovable: Bool
+    /// Disk images, USB sticks and discs: macOS can eject them.
+    public let isEjectable: Bool
+    /// False for network shares (SMB, AFP, NFS, WebDAV, FTP).
+    public let isLocal: Bool
+    public let isInternal: Bool
 
-    public init(name: String, path: String, total: Int64, free: Int64) {
+    public init(name: String, path: String, total: Int64, free: Int64, isRoot: Bool = false,
+                isRemovable: Bool = false, isEjectable: Bool = false, isLocal: Bool = true, isInternal: Bool = false) {
         self.name = name
         self.path = path
         self.total = total
         self.free = free
+        self.isRoot = isRoot
+        self.isRemovable = isRemovable
+        self.isEjectable = isEjectable
+        self.isLocal = isLocal
+        self.isInternal = isInternal
     }
+
+    public var isNetwork: Bool { !isLocal }
+
+    /// The Eject button (Disconnect for a share): never on the startup disk.
+    public var canEject: Bool { !isRoot && (isEjectable || isRemovable || isNetwork) }
+
+    /// Explorer turns the bar red from 90% used.
+    public var isNearlyFull: Bool { total > 0 && usedFraction >= 0.9 }
 
     public var used: Int64 { max(0, total - free) }
 
@@ -32,6 +54,8 @@ public struct VolumeCapacity: Sendable, Equatable {
     public static let resourceKeys: Set<URLResourceKey> = [
         .volumeNameKey, .volumeLocalizedNameKey, .volumeTotalCapacityKey,
         .volumeAvailableCapacityForImportantUsageKey, .volumeAvailableCapacityKey, .volumeURLKey,
+        .volumeIsRootFileSystemKey, .volumeIsRemovableKey, .volumeIsEjectableKey, .volumeIsLocalKey,
+        .volumeIsInternalKey,
     ]
 
     /// The volume that holds `url`. Reads only volume attributes, never the folder's contents.
@@ -41,7 +65,13 @@ public struct VolumeCapacity: Sendable, Equatable {
         let total = Int64(values.volumeTotalCapacity ?? 0)
         let free = values.volumeAvailableCapacityForImportantUsage ?? Int64(values.volumeAvailableCapacity ?? 0)
         let name = values.volumeLocalizedName ?? values.volumeName ?? root.lastPathComponent
-        return VolumeCapacity(name: name, path: root.standardizedFileURL.path, total: total, free: free)
+        let path = root.standardizedFileURL.path
+        return VolumeCapacity(name: name, path: path, total: total, free: free,
+                              isRoot: values.volumeIsRootFileSystem ?? (path == "/"),
+                              isRemovable: values.volumeIsRemovable ?? false,
+                              isEjectable: values.volumeIsEjectable ?? false,
+                              isLocal: values.volumeIsLocal ?? true,
+                              isInternal: values.volumeIsInternal ?? false)
     }
 
     /// Every mounted, visible volume: the startup disk first, then /Volumes.
@@ -49,6 +79,19 @@ public struct VolumeCapacity: Sendable, Equatable {
         let urls = FileManager.default.mountedVolumeURLs(
             includingResourceValuesForKeys: Array(resourceKeys), options: [.skipHiddenVolumes]) ?? []
         return urls.compactMap(read)
+    }
+}
+
+/// This PC and Network: the local volumes (the startup disk first, then internal ones, then the rest
+/// by name) and the mounted network shares by name.
+public enum VolumeList {
+    public static func arrange(_ volumes: [VolumeCapacity]) -> (drives: [VolumeCapacity], network: [VolumeCapacity]) {
+        func rank(_ v: VolumeCapacity) -> Int { v.isRoot ? 0 : v.isInternal ? 1 : 2 }
+        let drives = volumes.filter(\.isLocal).sorted {
+            rank($0) != rank($1) ? rank($0) < rank($1) : $0.name.localizedStandardCompare($1.name) == .orderedAscending
+        }
+        let network = volumes.filter(\.isNetwork).sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        return (drives, network)
     }
 }
 

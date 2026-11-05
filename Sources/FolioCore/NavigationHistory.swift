@@ -1,13 +1,38 @@
 import Foundation
 
-/// Back/Forward/Up history for one window, like Windows Explorer: Up is a normal step you can go Back from.
-public struct NavigationHistory: Sendable {
+/// Back/Forward/Up history for one tab, like Windows Explorer: Up is a normal step you can go Back from.
+/// Home (`NavigationHistory.home`) is a place in the history like any folder, with no Up.
+public struct NavigationHistory: Sendable, Equatable {
+    /// Home, Explorer's start page: Quick access, Favorites and Recent instead of a folder.
+    public static let home = URL(string: "folio:home")!
+    public static let homePath = "folio:home"
+
     public private(set) var current: URL
     private var backStack: [URL] = []
     private var forwardStack: [URL] = []
 
     public init(start: URL) {
-        current = start.standardizedFileURL
+        current = Self.clean(start)
+    }
+
+    /// A history as it was saved: `back` oldest first, `forward` nearest last (as the stacks hold them).
+    public init(current: URL, back: [URL], forward: [URL]) {
+        self.current = Self.clean(current)
+        backStack = back.map(Self.clean)
+        forwardStack = forward.map(Self.clean)
+    }
+
+    /// The stacks as saved (see `init(current:back:forward:)`).
+    public var backStackURLs: [URL] { backStack }
+    public var forwardStackURLs: [URL] { forwardStack }
+
+    public var isHome: Bool { Self.isHome(current) }
+    public static func isHome(_ url: URL) -> Bool { url.scheme == "folio" }
+
+    private static func clean(_ url: URL) -> URL { isHome(url) ? home : url.standardizedFileURL }
+
+    private static func same(_ a: URL, _ b: URL) -> Bool {
+        isHome(a) || isHome(b) ? isHome(a) && isHome(b) : a.path == b.path
     }
 
     public var canGoBack: Bool { !backStack.isEmpty }
@@ -16,8 +41,8 @@ public struct NavigationHistory: Sendable {
 
     /// Goes to a new folder and drops the forward stack. Pushing the current folder does nothing.
     public mutating func push(_ url: URL) {
-        let url = url.standardizedFileURL
-        guard url.path != current.path else { return }
+        let url = Self.clean(url)
+        guard !Self.same(url, current) else { return }
         backStack.append(current)
         forwardStack.removeAll()
         current = url
@@ -64,6 +89,7 @@ public struct NavigationHistory: Sendable {
     }
 
     public static func parent(of url: URL) -> URL? {
+        guard !isHome(url) else { return nil }
         let url = url.standardizedFileURL
         guard url.path != "/" else { return nil }
         return url.deletingLastPathComponent().standardizedFileURL
