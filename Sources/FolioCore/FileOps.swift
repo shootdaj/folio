@@ -111,6 +111,9 @@ public enum FileOps {
         case .newFolder(let url), .newFile(let url):
             if FileJob.kind(url) != .missing { _ = try trasher.trash(url) }
             return []
+        case .links(let items):
+            for item in items.reversed() where FileJob.kind(item.url) != .missing { _ = try trasher.trash(item.url) }
+            return []
         }
     }
 
@@ -142,6 +145,9 @@ public enum FileOps {
         case .newFile(let url):
             try createEmptyFile(url)
             return (record, [url])
+        case .links(let items):
+            for item in items { try Aliases.write(item.kind, to: item.target, at: item.url) }
+            return (record, items.map(\.url))
         }
     }
 
