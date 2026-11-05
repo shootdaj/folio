@@ -176,14 +176,18 @@ final class GridCellView: NSView {
             } else {
                 // Content: Type under the name; Date modified and Size in the rightmost column, Explorer's
                 // place for them; dimensions or duration in the column before it when there is room.
-                if let kind = details.first {
-                    drawLine(kind.value, font: Typeface.ui(12), color: p.txt2, x: nr.minX, midY: nr.maxY + 9, maxWidth: nr.width * 0.4)
-                }
                 let rest = Array(details.dropFirst())
                 let main = rest.filter { $0.key == "Date modified" || $0.key == "Size" }
                 let media = rest.filter { $0.key != "Date modified" && $0.key != "Size" }
                 let colW: CGFloat = 240
                 let right = bounds.width - 16
+                let mediaFits = right - 2 * colW > nr.minX + min(220, nr.width * 0.4)
+                if let kind = details.first {
+                    // Too narrow for a column of their own: dimensions or duration follow the type.
+                    let line = ([kind.value] + (mediaFits ? [] : media.map(\.value))).joined(separator: "  \u{00B7}  ")
+                    drawLine(line, font: Typeface.ui(12), color: p.txt2, x: nr.minX, midY: nr.maxY + 9,
+                             maxWidth: max(nr.width * 0.4, right - colW - nr.minX - 12))
+                }
                 for (col, list) in [(1, main), (0, media)] {
                     let x = right - CGFloat(2 - col) * colW
                     guard x > nr.minX + min(220, nr.width * 0.4) else { continue }
