@@ -10,16 +10,25 @@ public enum FolderListing {
         .contentModificationDateKey, .fileSizeKey, .contentTypeKey,
     ]
 
-    public static func list(_ folder: URL) throws -> [FileEntry] {
+    /// `includeHidden` is View > Hidden items: dot files and items with the hidden flag too.
+    /// `cloud` (a folder in iCloud Drive or ~/Library/CloudStorage) also reads which files are online only.
+    public static func list(_ folder: URL, includeHidden: Bool = false, cloud: Bool = false) throws -> [FileEntry] {
         let urls = try FileManager.default.contentsOfDirectory(
-            at: folder, includingPropertiesForKeys: resourceKeys, options: [.skipsHiddenFiles])
+            at: folder, includingPropertiesForKeys: resourceKeys, options: includeHidden ? [] : [.skipsHiddenFiles])
         var kinds: [String: String] = [:]
-        return urls.map { entry(for: $0, kinds: &kinds) }
+        let entries = urls.map { entry(for: $0, kinds: &kinds) }
+        guard cloud else { return entries }
+        return entries.map { e in
+            let status = (try? e.url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey]))?.ubiquitousItemDownloadingStatus
+            guard let status, status != .current, status != .downloaded else { return e }
+            return FileEntry(url: e.url, name: e.name, isFolder: e.isFolder, modified: e.modified, size: e.size, kind: e.kind,
+                             isCloudOnly: true)
+        }
     }
 
     /// What a window shows: the listing in display order. `Folio --selftest` uses the same call.
-    public static func list(_ folder: URL, sortedBy spec: SortSpec) throws -> [FileEntry] {
-        SortEngine.sort(try list(folder), by: spec)
+    public static func list(_ folder: URL, sortedBy spec: SortSpec, includeHidden: Bool = false, cloud: Bool = false) throws -> [FileEntry] {
+        SortEngine.sort(try list(folder, includeHidden: includeHidden, cloud: cloud), by: spec)
     }
 
     static func entry(for url: URL, kinds: inout [String: String]) -> FileEntry {

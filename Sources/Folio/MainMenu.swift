@@ -25,14 +25,24 @@ enum MainMenu {
             item("Quit \(name)", #selector(NSApplication.terminate(_:)), "q"),
         ])
         add("File", to: main, [
+            // Explorer's Ctrl+T, Ctrl+N and Ctrl+W, as Cmd after Anshul's Karabiner swap.
+            item("New Tab", #selector(BrowserWindowController.newTab(_:)), "t"),
             item("New Window", #selector(AppDelegate.newWindow(_:)), "n"),
+            item("Reopen Closed Tab", #selector(BrowserWindowController.reopenClosedTab(_:)), "t", [.command, .shift]),
+            item("Open in New Tab", #selector(BrowserWindowController.openSelectionInNewTab(_:))),
+            item("Open in New Window", #selector(BrowserWindowController.openInNewWindow(_:))),
             item("Open in Terminal", #selector(BrowserWindowController.openInTerminal(_:))),
+            .separator(),
+            item("Connect to Server...", #selector(BrowserWindowController.connectToServer(_:)), "k"),
+            item("Eject", #selector(BrowserWindowController.ejectCurrentVolume(_:)), "e"),
             .separator(),
             // Explorer's Alt+Enter is Option+Return (bound in BrowserWindow); Cmd+I is Finder's.
             item("Properties", #selector(BrowserWindowController.showProperties(_:)), "i"),
             item("Quick Look", #selector(BrowserWindowController.toggleQuickLook(_:)), "y"),
+            item("Add to Favorites", #selector(BrowserWindowController.toggleFavorite(_:))),
             .separator(),
-            item("Close Window", #selector(NSWindow.performClose(_:)), "w"),
+            item("Close Tab", #selector(BrowserWindowController.closeTab(_:)), "w"),
+            item("Close Window", #selector(NSWindow.performClose(_:)), "w", [.command, .shift]),
         ])
         // File commands go to the window controller; while a name or the address is being edited the
         // text field takes Cut, Copy, Paste and Select All, and Undo and Redo undo the typing.
@@ -70,6 +80,12 @@ enum MainMenu {
                 choice($0.title, #selector(AppDelegate.selectAccent(_:)), $0.rawValue)
             }),
             .separator(),
+            submenu("Navigation Pane", [
+                item("Navigation Pane", #selector(BrowserWindowController.toggleNavigationPane(_:))),
+                item("Expand to Current Folder", #selector(BrowserWindowController.expandToCurrentFolder(_:)), "e", [.control, .shift]),
+                item("Always Expand to Current Folder", #selector(BrowserWindowController.toggleExpandToCurrent(_:))),
+            ]),
+            item("Hidden Items", #selector(BrowserWindowController.toggleHiddenItems(_:)), ".", [.command, .shift]),
             item("Item Check Boxes", #selector(BrowserWindowController.toggleItemCheckBoxes(_:))),
             submenu("Sort By", sortItems()),
             .separator(),
@@ -81,6 +97,7 @@ enum MainMenu {
             item("Forward", #selector(BrowserWindowController.goForward(_:)), "]"),
             item("Up", #selector(BrowserWindowController.goUp(_:)), key(NSUpArrowFunctionKey)),
             item("Home", #selector(BrowserWindowController.goHome(_:)), "h", [.command, .shift]),
+            item("Home Folder", #selector(BrowserWindowController.goHomeFolder(_:))),
             item("Refresh", #selector(BrowserWindowController.refresh(_:)), key(NSF5FunctionKey), []),
             .separator(),
             // Anshul's Cmd+D reaches the app as Option+D (bound in BrowserWindow) or, via BTT, as Cmd+L.
@@ -92,6 +109,15 @@ enum MainMenu {
         let window = add("Window", to: main, [
             item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m"),
             item("Zoom", #selector(NSWindow.performZoom(_:))),
+            .separator(),
+            // Ctrl+Tab and Ctrl+Shift+Tab (Anshul's Fn+Tab arrives as Ctrl+Tab); Cmd+1 to 9 pick a tab.
+            item("Show Next Tab", #selector(BrowserWindowController.nextTab(_:)), "\t", .control),
+            item("Show Previous Tab", #selector(BrowserWindowController.previousTab(_:)), "\t", [.control, .shift]),
+            item("Move Tab to New Window", #selector(BrowserWindowController.moveTabToNewWindow(_:))),
+            item("Merge All Windows", #selector(BrowserWindowController.mergeAllWindows(_:))),
+            .separator(),
+            // Two locations side by side (Explorer's Win+Left and Win+Right on two windows).
+            item("Tile Left and Right", #selector(AppDelegate.tileWindows(_:))),
             .separator(),
             item("Bring All to Front", #selector(NSApplication.arrangeInFront(_:))),
         ])

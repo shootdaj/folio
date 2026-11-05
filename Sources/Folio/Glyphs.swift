@@ -8,6 +8,8 @@ enum Glyph: Hashable {
     // Milestone 3: D1's copy window icons, and the command bar's (Lucide, like the rest of D1's set).
     case copy, pause, play, check, arrow, replace, skip, both, compare, minus
     case cut, paste, rename, trash, newFolder, share, more, sortLines, view
+    // Milestone 5: tabs, the navigation pane's places and Home.
+    case plus, home, eject, globe, server, link, cloud, clock, mapPin, tabs
 
     fileprivate enum Part {
         case path(String)
@@ -72,6 +74,17 @@ enum Glyph: Hashable {
         case .more: [.circle(5, 12, 1), .circle(12, 12, 1), .circle(19, 12, 1)]
         case .sortLines: [.path("m21 16-4 4-4-4"), .path("M17 20V4"), .path("m3 8 4-4 4 4"), .path("M7 4v16")]
         case .view: [.path("M3 6h.01M3 12h.01M3 18h.01"), .path("M8 6h13M8 12h13M8 18h13")]
+        case .plus: [.path("M12 5v14M5 12h14")]
+        case .home: [.path("M3 10.5 12 3l9 7.5"), .path("M5 9v11a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9")]
+        case .eject: [.path("m12 5 7 9H5z"), .path("M5 18.5h14")]
+        case .globe: [.circle(12, 12, 9), .path("M3 12h18"), .path("M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18")]
+        case .server: [.rect(3, 4, 18, 7, 1.5), .rect(3, 13, 18, 7, 1.5), .path("M7 7.5h.01M7 16.5h.01")]
+        case .link: [.path("M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"),
+                     .path("M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71")]
+        case .cloud: [.path("M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z")]
+        case .clock: [.circle(12, 12, 9), .path("M12 7v5l3 2")]
+        case .mapPin: [.path("M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 0 1 16 0Z"), .circle(12, 10, 3)]
+        case .tabs: [.rect(3, 6, 18, 14, 1.5), .path("M3 10h18M9 6v4")]
         }
     }
 

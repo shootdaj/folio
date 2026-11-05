@@ -8,7 +8,7 @@ let package = Package(
         // Pure Swift model (no AppKit), testable with `swift test`.
         .target(name: "FolioCore"),
         // The AppKit app. `make app` wraps this binary in build/Folio.app.
-        .executableTarget(name: "Folio", dependencies: ["FolioCore"]),
+        .executableTarget(name: "Folio", dependencies: ["FolioCore"], linkerSettings: [.linkedFramework("NetFS")]),
         .testTarget(name: "FolioCoreTests", dependencies: ["FolioCore"]),
     ]
 )

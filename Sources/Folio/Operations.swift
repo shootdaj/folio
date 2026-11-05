@@ -203,9 +203,11 @@ final class OperationCenter {
                 switch result {
                 case .success(let items):
                     self.history.record(.trash(items))
+                    TrashOrigins(defaults: .standard).record(items)
                 case .failure(let error):
                     if let partial = error as? FileOps.TrashError {
                         if !partial.done.isEmpty { self.history.record(.trash(partial.done)) }
+                        TrashOrigins(defaults: .standard).record(partial.done)
                         self.present(partial.underlying, window: window)
                     } else {
                         self.present(error, window: window)

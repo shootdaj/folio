@@ -6,13 +6,42 @@ import FolioCore
 enum ListOptions {
     static let didChange = Notification.Name("FolioListOptionsDidChange")
     private static let key = "itemCheckBoxes"
+    static let hiddenKey = "showHiddenItems"
+    static let expandKey = "navPaneExpandToCurrent"
+    static let navPaneKey = "navPaneShown"
+    static let navPaneWidthKey = "navPaneWidth"
 
     static var checkboxes: Bool {
         get { UserDefaults.standard.bool(forKey: key) }
-        set {
-            UserDefaults.standard.set(newValue, forKey: key)
-            NotificationCenter.default.post(name: didChange, object: nil)
-        }
+        set { set(newValue, key) }
+    }
+
+    /// View > Hidden items: dot files and flagged items in the list and the tree.
+    static var showHidden: Bool {
+        get { UserDefaults.standard.bool(forKey: hiddenKey) }
+        set { set(newValue, hiddenKey) }
+    }
+
+    /// Explorer's "Expand to open folder": on unless turned off.
+    static var expandToCurrent: Bool {
+        get { UserDefaults.standard.object(forKey: expandKey) as? Bool ?? true }
+        set { set(newValue, expandKey) }
+    }
+
+    /// View > Navigation pane.
+    static var navPaneShown: Bool {
+        get { UserDefaults.standard.object(forKey: navPaneKey) as? Bool ?? true }
+        set { set(newValue, navPaneKey) }
+    }
+
+    static var navPaneWidth: CGFloat {
+        let w = UserDefaults.standard.double(forKey: navPaneWidthKey)
+        return w > 0 ? min(ChassisView.sideMax, max(ChassisView.sideMin, CGFloat(w))) : ChassisView.sideW
+    }
+
+    private static func set(_ value: Bool, _ key: String) {
+        UserDefaults.standard.set(value, forKey: key)
+        NotificationCenter.default.post(name: didChange, object: nil)
     }
 }
 
@@ -33,6 +62,12 @@ extension BrowserWindowController: FileListDelegate {
         default: selection.click(row)
         }
         applySelection(scrollTo: row)
+    }
+
+    /// Explorer: middle-click a folder and it opens in a tab behind this one.
+    func list(_ list: FolioTableView, middleClicked row: Int) {
+        guard entries.indices.contains(row), entries[row].isFolder else { return }
+        openInNewTab(entries[row].url, activate: false)
     }
 
     func list(_ list: FolioTableView, toggledCheckboxOf row: Int) {
@@ -308,6 +343,16 @@ extension BrowserWindowController: FileListDelegate {
     func validateFileItem(_ item: NSMenuItem) -> Bool {
         let editingText = window?.firstResponder is NSTextView
         let any = !selectedURLs.isEmpty
+        // Home is not a folder: nothing is pasted, made or opened in it.
+        if history.isHome {
+            switch item.action {
+            case #selector(paste(_:)), #selector(pasteShortcut(_:)), #selector(newFolder(_:)), #selector(newTextDocument(_:)),
+                 #selector(openInTerminal(_:)), #selector(showFolderProperties(_:)), #selector(copyAsPath(_:)),
+                 #selector(selectAll(_:)), #selector(copyAddress(_:)), #selector(copyAddressAsText(_:)):
+                return false
+            default: break
+            }
+        }
         switch item.action {
         case #selector(undoOperation(_:)):
             if editingText, let text = window?.firstResponder as? NSTextView {
@@ -350,6 +395,37 @@ extension BrowserWindowController: FileListDelegate {
         case #selector(toggleItemCheckBoxes(_:)):
             item.state = ListOptions.checkboxes ? .on : .off
             return true
+        case #selector(toggleHiddenItems(_:)):
+            item.state = ListOptions.showHidden ? .on : .off
+            return true
+        case #selector(toggleNavigationPane(_:)):
+            item.state = ListOptions.navPaneShown ? .on : .off
+            return true
+        case #selector(toggleExpandToCurrent(_:)):
+            item.state = ListOptions.expandToCurrent ? .on : .off
+            return true
+        case #selector(expandToCurrentFolder(_:)):
+            return !history.isHome
+        case #selector(ejectCurrentVolume(_:)):
+            if let v = currentEjectable { item.title = (v.isNetwork ? "Disconnect \u{201C}" : "Eject \u{201C}") + v.name + "\u{201D}" }
+            else { item.title = "Eject" }
+            return currentEjectable != nil
+        case #selector(openSelectionInNewTab(_:)):
+            return selectedEntries.contains(where: \.isFolder)
+        case #selector(toggleFavorite(_:)):
+            guard selectedURLs.count == 1, let url = selectedURLs.first else { return false }
+            item.title = FavoritesStore(defaults: options.historyDefaults).contains(url.path) ? "Remove from Favorites" : "Add to Favorites"
+            return true
+        case #selector(reopenClosedTab(_:)):
+            return (appDelegate?.closedTabs.count ?? 0) > 0
+        case #selector(nextTab(_:)), #selector(previousTab(_:)), #selector(mergeAllWindows(_:)):
+            return item.action == #selector(mergeAllWindows(_:)) ? (appDelegate?.browserControllers.count ?? 0) > 1 : tabs.count > 1
+        case #selector(moveTabToNewWindow(_:)):
+            return tabs.count > 1
+        case #selector(restoreFromTrash(_:)):
+            return isTrashView && any
+        case #selector(emptyRecycleBin(_:)):
+            return isTrashView
         case #selector(sortByColumn(_:)):
             item.state = (item.representedObject as? String) == sortSpec.key.rawValue ? .on : .off
             return true

@@ -22,6 +22,10 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
     weak var dropHost: DropHost?
     /// A typed command (terminal, cmd, an app name) that is not a folder; false when nothing ran.
     var onCommand: ((AddressCommand) -> Bool)?
+    /// Middle-click a crumb: that folder in a new background tab.
+    var onMiddleClick: ((URL) -> Void)?
+    /// \\server\share or smb://... typed: the window mounts it and opens it.
+    var onServer: ((ServerTarget) -> Bool)?
     private var dropCrumb: Int? { didSet { if dropCrumb != oldValue { needsDisplay = true } } }
 
     private(set) var folder = URL(fileURLWithPath: "/")
@@ -75,8 +79,20 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
         recrumb()
     }
 
+    private var isHome: Bool { NavigationHistory.isHome(folder) }
+
+    /// The folder a crumb opens (Home's one crumb is Home).
+    private func crumbURL(_ i: Int) -> URL {
+        crumbs[i].path == NavigationHistory.homePath ? NavigationHistory.home : URL(fileURLWithPath: crumbs[i].path, isDirectory: true)
+    }
+
     private func recrumb() {
-        crumbs = Breadcrumbs.crumbs(for: folder, volumes: volumes)
+        crumbs = isHome ? [Crumb(title: "Home", path: NavigationHistory.homePath, isCurrent: true, isVolume: true)]
+            : Breadcrumbs.crumbs(for: folder, volumes: volumes)
+        // The Trash reads as Explorer's Recycle Bin.
+        if let last = crumbs.last, RecycleBin.isTrash(URL(fileURLWithPath: last.path), home: FileManager.default.homeDirectoryForCurrentUser) {
+            crumbs[crumbs.count - 1] = Crumb(title: "Recycle Bin", path: last.path, isCurrent: last.isCurrent)
+        }
         rebuildAccessibility()
         needsDisplay = true
     }
@@ -117,6 +133,7 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
             // Only a current crumb too wide on its own is cut short.
             let w = min(crumbWidth(crumbs[i]), max(48, end - Self.minHit - Self.arrowWidth - x))
             out.append(Slot(rect: NSRect(x: x, y: 1, width: w, height: h), part: .crumb(i)))
+            guard !isHome else { x += w; continue }
             out.append(Slot(rect: NSRect(x: x + w, y: 1, width: Self.arrowWidth, height: h), part: .arrow(i)))
             x += w + Self.arrowWidth
         }
@@ -213,17 +230,23 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
         guard let (part, rect) = part(at: convert(event.locationInWindow, from: nil)) else { return }
         switch part {
         case .history: toggleHistory(event)
-        case .crumb(let i): onNavigate?(URL(fileURLWithPath: crumbs[i].path, isDirectory: true))
+        case .crumb(let i): onNavigate?(crumbURL(i))
         case .arrow(let i): toggleCrumbMenu(i, at: rect, event)
         case .overflow: toggleOverflow(at: rect, event)
         case .empty: beginEditing()
         }
     }
 
+    override func otherMouseDown(with event: NSEvent) {
+        guard event.buttonNumber == 2, let (part, _) = part(at: convert(event.locationInWindow, from: nil)),
+              case .crumb(let i) = part else { return super.otherMouseDown(with: event) }
+        onMiddleClick?(crumbURL(i))
+    }
+
     // MARK: Dropping on crumbs
 
     private func crumbIndex(_ info: NSDraggingInfo) -> Int? {
-        guard !isEditing, let (part, _) = part(at: convert(info.draggingLocation, from: nil)),
+        guard !isEditing, !isHome, let (part, _) = part(at: convert(info.draggingLocation, from: nil)),
               case .crumb(let i) = part else { return nil }
         return i
     }
@@ -327,7 +350,7 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
         let p = Palette.current
         field.font = Typeface.mono(13, weight: 500)
         field.textColor = p.txt.ns
-        field.stringValue = folder.path
+        field.stringValue = isHome ? "" : folder.path
         placeField()
         field.isHidden = false
         window.makeFirstResponder(field)
@@ -424,6 +447,11 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
 
     /// Enter: go to the typed folder, or shake and say "No such folder" and stay.
     private func commit(_ text: String) {
+        // \\server\share and smb://, afp://, nfs://, WebDAV and FTP addresses mount first.
+        if let target = ServerAddress.parse(text), onServer?(target) == true {
+            endEditing(focus: .list)
+            return
+        }
         guard let url = AddressInput.resolve(text, current: folder, env: .current) else {
             endEditing(focus: .list)
             return
@@ -535,8 +563,8 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
                 switch slot.part {
                 case .overflow: add("Collapsed folders", slot.rect) { $0.toggleOverflow(at: slot.rect, nil) }
                 case .crumb(let i):
-                    let path = crumbs[i].path
-                    add(crumbs[i].title, slot.rect) { $0.onNavigate?(URL(fileURLWithPath: path, isDirectory: true)) }
+                    let url = crumbURL(i)
+                    add(crumbs[i].title, slot.rect) { $0.onNavigate?(url) }
                 case .arrow(let i): add("Folders in " + crumbs[i].title, slot.rect) { $0.toggleCrumbMenu(i, at: slot.rect, nil) }
                 case .empty: add("Edit address", slot.rect) { $0.beginEditing() }
                 case .history: break
@@ -618,9 +646,11 @@ final class ToolbarView: NSView {
         back.frame = NSRect(x: 10, y: y, width: 44, height: 44)
         forward.frame = NSRect(x: 56, y: y, width: 44, height: 44)
         up.frame = NSRect(x: 102, y: y, width: 44, height: 44)
-        let searchW: CGFloat = bounds.width < 1180 ? 220 : 280
+        // Narrow windows (two side by side) give the search box's room to the address bar.
+        let searchW: CGFloat = bounds.width < 720 ? 0 : bounds.width < 1180 ? 220 : 280
+        search.isHidden = searchW == 0
         search.frame = NSRect(x: bounds.width - 10 - searchW, y: y, width: searchW, height: 44)
-        refresh.frame = NSRect(x: search.frame.minX - 8 - 44, y: y, width: 44, height: 44)
+        refresh.frame = NSRect(x: (searchW == 0 ? bounds.width - 2 : search.frame.minX) - 8 - 44, y: y, width: 44, height: 44)
         // The command bar takes what the address bar can spare; See more is always there.
         var right = refresh.frame.minX - 8
         separators = []
