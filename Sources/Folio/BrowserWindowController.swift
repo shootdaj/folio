@@ -3,6 +3,9 @@ import FolioCore
 
 /// Sees key presses before the table does, so Option+arrows work wherever focus is.
 final class BrowserWindow: NSWindow {
+    /// `--uitest` places the window off every screen so a run never covers what is on the desktop.
+    var allowsOffscreen = false
+
     override func sendEvent(_ event: NSEvent) {
         if event.type == .keyDown,
            let controller = windowController as? BrowserWindowController,
@@ -11,49 +14,94 @@ final class BrowserWindow: NSWindow {
         }
         super.sendEvent(event)
     }
+
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        allowsOffscreen ? frameRect : super.constrainFrameRect(frameRect, to: screen)
+    }
+
+    /// Centres the window's own close, minimise and zoom buttons in D1's 44 pt title bar,
+    /// 14 pt from the left edge and 20 pt apart.
+    func placeTrafficLights() {
+        guard !styleMask.contains(.fullScreen),
+              let close = standardWindowButton(.closeButton),
+              let container = close.superview?.superview else { return }
+        let bar = ChassisView.titleH
+        let buttonH = close.frame.height
+        let top = (bar - buttonH) / 2
+        var frame = container.frame
+        frame.size.height = top + buttonH
+        frame.origin.y = self.frame.height - frame.size.height
+        if container.frame != frame { container.frame = frame }
+        for (i, kind) in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].enumerated() {
+            guard let button = standardWindowButton(kind) else { continue }
+            let origin = NSPoint(x: 14 - (button.frame.width - 12) / 2 + CGFloat(i) * 20, y: 0)
+            if button.frame.origin != origin { button.setFrameOrigin(origin) }
+        }
+    }
 }
 
-/// One window showing one folder in a Details view.
+/// One window showing one folder in a Details view, in the D1 control-room chassis.
 @MainActor
 final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     NSTableViewDataSource, NSTableViewDelegate, NSMenuItemValidation {
 
+    struct Options {
+        var size = NSSize(width: 1280, height: 800)
+        /// `--uitest`: no column autosave, no window restoration, placed off-screen.
+        var uitest = false
+    }
+
     private var history: NavigationHistory
-    private var entries: [FileEntry] = []
-    private var sortSpec = SortSpec.standard
+    private(set) var entries: [FileEntry] = []
+    private(set) var sortSpec = SortSpec.standard
     private var isLoading = false
+    private var isResorting = false
     private var loadError: String?
+    private var volume: VolumeCapacity?
     /// Bumped on every load or re-sort; results for an older value are dropped.
     private var requestID = 0
 
-    private let tableView = NSTableView()
-    private let pathField = NSTextField(string: "")
-    private let statusField = NSTextField(labelWithString: "")
-    private lazy var backButton = navButton("chevron.left", "Back", #selector(goBack(_:)))
-    private lazy var forwardButton = navButton("chevron.right", "Forward", #selector(goForward(_:)))
-    private lazy var upButton = navButton("arrow.up", "Up", #selector(goUp(_:)))
+    let tableView = FolioTableView()
+    private let header = FolioHeaderView(frame: NSRect(x: 0, y: 0, width: 100,
+                                                       height: ListMetrics.headerHeight + ListMetrics.listTopPad))
+    private var chassis: ChassisView!
+    private var titleBar: TitleBarView { chassis.titleBar }
+    private var toolbar: ToolbarView { chassis.toolbar }
 
     private static let columns: [(key: SortKey, title: String, width: CGFloat)] = [
-        (.name, "Name", 320), (.modified, "Date modified", 150), (.kind, "Type", 170), (.size, "Size", 90),
+        (.name, "Name", 320), (.modified, "Date modified", 150), (.kind, "Type", 132), (.size, "Size", 88),
     ]
+    /// D1 shows dates as 2026-05-22 21:28 in local time, each date with its own daylight-saving rule.
     private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.dateStyle = .short
-        formatter.timeStyle = .short
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
         return formatter
     }()
 
-    init(folder: URL) {
+    /// True once the listing and any re-sort have landed.
+    var isIdle: Bool { !isLoading && !isResorting }
+
+    init(folder: URL, options: Options = Options()) {
         history = NavigationHistory(start: folder)
         let window = BrowserWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 900, height: 560),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            contentRect: NSRect(origin: .zero, size: options.size),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        window.minSize = NSSize(width: 480, height: 280)
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.minSize = NSSize(width: 760, height: 480)
+        window.backgroundColor = Palette.current.bg.ns
+        window.allowsOffscreen = options.uitest
+        if options.uitest { window.isRestorable = false }
         super.init(window: window)
         window.delegate = self
-        buildContent(in: window)
+        buildContent(in: window, options: options)
+        NotificationCenter.default.addObserver(self, selector: #selector(themeChanged(_:)),
+                                               name: ThemeController.didChange, object: nil)
+        loadVolumes()
         load()
     }
 
@@ -61,24 +109,42 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
 
     // MARK: Layout
 
-    private func buildContent(in window: NSWindow) {
-        pathField.isEditable = false
-        pathField.isSelectable = true
-        pathField.lineBreakMode = .byTruncatingMiddle
-        pathField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        statusField.textColor = .secondaryLabelColor
-        statusField.lineBreakMode = .byTruncatingTail
+    private func buildContent(in window: NSWindow, options: Options) {
+        let titleBar = TitleBarView(target: self, accentAction: #selector(chooseAccent(_:)),
+                                    themeAction: #selector(toggleTheme(_:)))
+        let toolbar = ToolbarView(target: self, back: #selector(goBack(_:)), forward: #selector(goForward(_:)),
+                                  up: #selector(goUp(_:)), refresh: #selector(refresh(_:)))
+        chassis = ChassisView(titleBar: titleBar, toolbar: toolbar)
+        toolbar.address.onNavigate = { [weak self] url in self?.navigate(to: url) }
+        toolbar.address.onEndEditing = { [weak self] in
+            guard let self else { return }
+            self.window?.makeFirstResponder(self.tableView)
+        }
+        chassis.sidebar.content.onNavigate = { [weak self] url in self?.navigate(to: url) }
+        chassis.sidebar.content.places = QuickAccess.places(home: FileManager.default.homeDirectoryForCurrentUser)
 
+        // Name fills the pane at the starting size; the others keep D1's widths. Columns never
+        // stretch with the window afterwards (Explorer), and saved widths win when there are some.
+        let listWidth = ChassisView.listWidth(windowWidth: options.size.width)
+        let fixed = Self.columns.dropFirst().reduce(0) { $0 + $1.width }
+        let nameWidth = max(200, listWidth - ListMetrics.columnGap / 2 - fixed
+                            - ListMetrics.columnGap * CGFloat(Self.columns.count))
         for column in Self.columns {
             let tableColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(column.key.rawValue))
             tableColumn.title = column.title
-            tableColumn.width = column.width
+            tableColumn.width = column.key == .name ? nameWidth : column.width
             tableColumn.minWidth = 40
             tableColumn.sortDescriptorPrototype = descriptor(for: SortSpec(key: column.key, ascending: column.key.defaultAscending))
             tableView.addTableColumn(tableColumn)
         }
-        tableView.style = .fullWidth
-        tableView.rowHeight = 24
+        tableView.headerView = header
+        tableView.cornerView = nil
+        tableView.style = .plain
+        tableView.rowHeight = ListMetrics.rowHeight
+        tableView.intercellSpacing = NSSize(width: ListMetrics.columnGap, height: 0)
+        tableView.backgroundColor = .clear
+        tableView.gridStyleMask = []
+        tableView.focusRingType = .none
         tableView.usesAlternatingRowBackgroundColors = false
         tableView.allowsMultipleSelection = true
         tableView.allowsColumnReordering = true
@@ -90,47 +156,19 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         tableView.target = self
         tableView.doubleAction = #selector(openClickedRow(_:))
         tableView.sortDescriptors = [descriptor(for: sortSpec)]
-        // After the columns exist, so saved widths and order are applied to them.
-        tableView.autosaveName = "DetailsColumns"
-        tableView.autosaveTableColumns = true
-
-        let scrollView = NSScrollView()
-        scrollView.documentView = tableView
-        scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = true
-        scrollView.autohidesScrollers = true
-
-        let bar = NSStackView(views: [backButton, forwardButton, upButton, pathField])
-        bar.orientation = .horizontal
-        bar.spacing = 6
-
-        let content = NSView()
-        for view in [bar, scrollView, statusField] {
-            view.translatesAutoresizingMaskIntoConstraints = false
-            content.addSubview(view)
+        tableView.setAccessibilityLabel("Files")
+        if !options.uitest {
+            // After the columns exist, so saved widths and order are applied to them.
+            tableView.autosaveName = "DetailsColumnsD1"
+            tableView.autosaveTableColumns = true
         }
-        NSLayoutConstraint.activate([
-            bar.topAnchor.constraint(equalTo: content.topAnchor, constant: 8),
-            bar.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 8),
-            bar.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -8),
-            scrollView.topAnchor.constraint(equalTo: bar.bottomAnchor, constant: 8),
-            scrollView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            statusField.topAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: 4),
-            statusField.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 10),
-            statusField.trailingAnchor.constraint(lessThanOrEqualTo: content.trailingAnchor, constant: -10),
-            statusField.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -5),
-        ])
-        window.contentView = content
-        window.initialFirstResponder = tableView
-    }
+        header.sort = sortSpec
 
-    private func navButton(_ symbol: String, _ label: String, _ action: Selector) -> NSButton {
-        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: label) ?? NSImage()
-        let button = NSButton(image: image, target: self, action: action)
-        button.bezelStyle = .toolbar
-        button.toolTip = label
-        return button
+        let scrollView = chassis.pane.scrollView
+        scrollView.documentView = tableView
+
+        window.contentView = chassis
+        window.initialFirstResponder = tableView
     }
 
     private func descriptor(for spec: SortSpec) -> NSSortDescriptor {
@@ -148,6 +186,20 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     @objc func goForward(_ sender: Any?) { if history.goForward() != nil { load() } }
     @objc func goUp(_ sender: Any?) { if history.goUp() != nil { load() } }
     @objc func goHome(_ sender: Any?) { navigate(to: FileManager.default.homeDirectoryForCurrentUser) }
+    @objc func refresh(_ sender: Any?) { load() }
+
+    /// Cmd+L, and Option+D (Anshul's Cmd+D): the crumbs become an editable path.
+    @objc func focusAddressBar(_ sender: Any?) { toolbar.address.beginEditing() }
+
+    @objc func chooseAccent(_ sender: Any?) {
+        guard let swatch = sender as? AccentSwatch else { return }
+        ThemeController.shared.accent = swatch.accent
+    }
+
+    /// The title bar's sun or moon: switches to the other of dark and light.
+    @objc func toggleTheme(_ sender: Any?) {
+        ThemeController.shared.theme = Palette.current.appearance == .dark ? .light : .dark
+    }
 
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
@@ -171,14 +223,28 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         let started = Date()
         Task.detached(priority: .userInitiated) { [weak self] in
             let result = Result { try FolderListing.list(folder, sortedBy: spec) }
-            await self?.finishLoad(result, id: id, spec: spec, folder: folder, started: started)
+            let volume = VolumeCapacity.read(folder)
+            await self?.finishLoad(result, volume: volume, id: id, spec: spec, folder: folder, started: started)
         }
     }
 
-    private func finishLoad(_ result: Result<[FileEntry], any Error>, id: Int, spec: SortSpec,
-                            folder: URL, started: Date) {
+    private func loadVolumes() {
+        Task.detached(priority: .utility) { [weak self] in
+            let volumes = VolumeCapacity.mounted()
+            await self?.showVolumes(volumes)
+        }
+    }
+
+    private func showVolumes(_ volumes: [VolumeCapacity]) {
+        chassis.sidebar.content.volumes = volumes
+        chassis.sidebar.needsLayout = true
+    }
+
+    private func finishLoad(_ result: Result<[FileEntry], any Error>, volume: VolumeCapacity?, id: Int,
+                            spec: SortSpec, folder: URL, started: Date) {
         guard id == requestID else { return }
         isLoading = false
+        self.volume = volume
         switch result {
         case .success(let list):
             show(list, selecting: [])
@@ -204,6 +270,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         let selected = Set(tableView.selectedRowIndexes.map { entries[$0].url })
         requestID += 1
         let id = requestID
+        isResorting = true
+        updateStatus()
         Task.detached(priority: .userInitiated) { [weak self] in
             let sorted = SortEngine.sort(current, by: spec)
             await self?.finishResort(sorted, id: id, selecting: selected)
@@ -212,6 +280,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
 
     private func finishResort(_ sorted: [FileEntry], id: Int, selecting selected: Set<URL>) {
         guard id == requestID else { return }
+        isResorting = false
         show(sorted, selecting: selected)
         if let first = tableView.selectedRowIndexes.first { tableView.scrollRowToVisible(first) }
     }
@@ -228,33 +297,35 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
 
     private func updateChrome() {
         let folder = history.current
-        window?.title = FileManager.default.displayName(atPath: folder.path)
-        pathField.stringValue = folder.path
-        backButton.isEnabled = history.canGoBack
-        forwardButton.isEnabled = history.canGoForward
-        upButton.isEnabled = history.canGoUp
+        let name = folder.path == "/" ? Breadcrumbs.rootTitle : FileManager.default.displayName(atPath: folder.path)
+        window?.title = name
+        titleBar.folderName = name
+        titleBar.folderPath = folder.path
+        toolbar.back.isEnabled = history.canGoBack
+        toolbar.forward.isEnabled = history.canGoForward
+        toolbar.up.isEnabled = history.canGoUp
+        toolbar.address.show(folder)
+        toolbar.search.folderName = name
+        chassis.sidebar.content.currentPath = folder.path
         updateStatus()
     }
 
+    private var selectedEntries: [FileEntry] {
+        tableView.selectedRowIndexes.compactMap { entries.indices.contains($0) ? entries[$0] : nil }
+    }
+
     private func updateStatus() {
-        if let loadError {
-            statusField.stringValue = loadError
-            return
-        }
-        if isLoading {
-            statusField.stringValue = "Loading…"
-            return
-        }
-        var text = entries.count == 1 ? "1 item" : "\(entries.count.formatted()) items"
-        let rows = tableView.selectedRowIndexes
-        if !rows.isEmpty {
-            text += "     \(rows.count.formatted()) selected"
-            let sizes = rows.compactMap { entries[$0].size }
-            if !sizes.isEmpty {
-                text += ", " + ByteCountFormatter.string(fromByteCount: sizes.reduce(0, +), countStyle: .file)
-            }
-        }
-        statusField.stringValue = text
+        let selection = SelectionSummary(selectedEntries)
+        let path = history.current.path
+        chassis.hud.segments = Hud.segments(path: path, entries: entries, sort: sortSpec, selection: selection)
+        header.sort = sortSpec
+    }
+
+    @objc private func themeChanged(_ note: Notification) {
+        window?.backgroundColor = Palette.current.bg.ns
+        if let content = window?.contentView { refreshTheme(in: content) }
+        tableView.enumerateAvailableRowViews { rowView, _ in refreshTheme(in: rowView) }
+        header.needsDisplay = true
     }
 
     // MARK: Opening
@@ -288,10 +359,12 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     func handleKeyDown(_ event: NSEvent) -> Bool {
         let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
         let tableFocused = window?.firstResponder === tableView
+        let editingText = window?.firstResponder is NSTextView
         switch (event.keyCode, modifiers) {
         case (126, .option): goUp(nil)                          // Option+Up
-        case (123, .option): goBack(nil)                        // Option+Left
-        case (124, .option): goForward(nil)                     // Option+Right
+        case (123, .option) where !editingText: goBack(nil)     // Option+Left
+        case (124, .option) where !editingText: goForward(nil)  // Option+Right
+        case (2, .option): focusAddressBar(nil)                 // Option+D (Cmd+D after Karabiner)
         case (51, []) where tableFocused: goBack(nil)           // Backspace
         case (36, []) where tableFocused, (76, []) where tableFocused:
             open(rows: tableView.selectedRowIndexes)            // Return, Enter
@@ -312,56 +385,39 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
 
     func numberOfRows(in tableView: NSTableView) -> Int { entries.count }
 
-    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        guard let tableColumn, let key = SortKey(rawValue: tableColumn.identifier.rawValue) else { return nil }
-        let cell = tableView.makeView(withIdentifier: tableColumn.identifier, owner: self) as? NSTableCellView
-            ?? makeCell(tableColumn.identifier, key: key)
-        let entry = entries[row]
-        switch key {
-        case .name:
-            cell.textField?.stringValue = entry.name
-            cell.imageView?.image = NSWorkspace.shared.icon(forFile: entry.url.path)
-        case .modified:
-            cell.textField?.stringValue = entry.modified.map(Self.dateFormatter.string(from:)) ?? ""
-        case .kind:
-            cell.textField?.stringValue = entry.kind
-        case .size:
-            cell.textField?.stringValue = entry.size.map {
-                ByteCountFormatter.string(fromByteCount: $0, countStyle: .file)
-            } ?? "--"
-        }
-        return cell
+    func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+        let id = NSUserInterfaceItemIdentifier("row")
+        if let view = tableView.makeView(withIdentifier: id, owner: self) as? FolioRowView { return view }
+        let view = FolioRowView()
+        view.identifier = id
+        return view
     }
 
-    private func makeCell(_ identifier: NSUserInterfaceItemIdentifier, key: SortKey) -> NSTableCellView {
-        let cell = NSTableCellView()
-        cell.identifier = identifier
-        let text = NSTextField(labelWithString: "")
-        text.lineBreakMode = .byTruncatingTail
-        text.translatesAutoresizingMaskIntoConstraints = false
-        if key != .name { text.textColor = .secondaryLabelColor }
-        if key == .size { text.alignment = .right }
-        cell.addSubview(text)
-        cell.textField = text
-        var leading = text.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4)
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        guard let tableColumn, let key = SortKey(rawValue: tableColumn.identifier.rawValue) else { return nil }
+        let entry = entries[row]
         if key == .name {
-            let image = NSImageView()
-            image.translatesAutoresizingMaskIntoConstraints = false
-            cell.addSubview(image)
-            cell.imageView = image
-            NSLayoutConstraint.activate([
-                image.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
-                image.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-                image.widthAnchor.constraint(equalToConstant: 16),
-                image.heightAnchor.constraint(equalToConstant: 16),
-            ])
-            leading = text.leadingAnchor.constraint(equalTo: image.trailingAnchor, constant: 6)
+            let cell = tableView.makeView(withIdentifier: tableColumn.identifier, owner: self) as? NameCellView
+                ?? { let c = NameCellView(); c.identifier = tableColumn.identifier; return c }()
+            cell.entry = entry
+            cell.themeDidChange()
+            return cell
         }
-        NSLayoutConstraint.activate([
-            leading,
-            text.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
-            text.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-        ])
+        let cell = tableView.makeView(withIdentifier: tableColumn.identifier, owner: self) as? TextCellView
+            ?? { let c = TextCellView(); c.identifier = tableColumn.identifier; return c }()
+        switch key {
+        case .modified:
+            cell.mono = true
+            cell.text = entry.modified.map(Self.dateFormatter.string(from:)) ?? ""
+        case .kind:
+            cell.text = entry.kind
+        case .size:
+            cell.mono = true
+            cell.alignRight = true
+            cell.text = entry.size.map(ByteText.kilobytes) ?? ""
+        case .name:
+            break
+        }
         return cell
     }
 
@@ -375,6 +431,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         guard SortSpec(key: key, ascending: first.ascending) != sortSpec else { return } // our own update
         sortSpec = sortSpec.clicking(key)
         tableView.sortDescriptors = [descriptor(for: sortSpec)]
+        header.sort = sortSpec
         resort()
     }
 
@@ -384,7 +441,16 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
 
     // MARK: Window
 
+    func windowDidResize(_ notification: Notification) {
+        (window as? BrowserWindow)?.placeTrafficLights()
+    }
+
+    func windowDidExitFullScreen(_ notification: Notification) {
+        (window as? BrowserWindow)?.placeTrafficLights()
+    }
+
     func windowWillClose(_ notification: Notification) {
+        NotificationCenter.default.removeObserver(self)
         (NSApp.delegate as? AppDelegate)?.windowClosed(self)
     }
 }
