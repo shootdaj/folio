@@ -209,12 +209,12 @@ public enum ZipFolder {
         }
     }
 
-    /// The type text Finder gives the extension ("Markdown document"), or Folder.
+    /// The type text Finder gives the extension ("Plain Text Document"), or Folder.
     static func kind(_ name: String, folder: Bool, cache: inout [String: String]) -> String {
         if folder { return "Folder" }
         let ext = (name as NSString).pathExtension.lowercased()
         if let known = cache[ext] { return known }
-        let text = UTType(filenameExtension: ext)?.localizedDescription ?? (ext.isEmpty ? "Document" : ext.uppercased() + " file")
+        let text = KindNames.name(forExtension: ext)
         cache[ext] = text
         return text
     }
@@ -245,5 +245,28 @@ public enum ZipFolder {
             out += inners.map { folder.appendingPathComponent(($0 as NSString).lastPathComponent) }
         }
         return out
+    }
+}
+
+/// Finder's kind for an extension, as the listing shows it for a real file: read once per extension
+/// from an empty sample file in a temp folder of Folio's own.
+enum KindNames {
+    nonisolated(unsafe) private static var known: [String: String] = [:]
+    private static let lock = NSLock()
+
+    static func name(forExtension ext: String) -> String {
+        lock.lock()
+        if let hit = known[ext] { lock.unlock(); return hit }
+        lock.unlock()
+        let folder = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("folio-kinds", isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let sample = folder.appendingPathComponent(ext.isEmpty ? "sample" : "sample." + ext)
+        if !FileManager.default.fileExists(atPath: sample.path) { FileManager.default.createFile(atPath: sample.path, contents: Data()) }
+        let text = (try? sample.resourceValues(forKeys: [.localizedTypeDescriptionKey]))?.localizedTypeDescription
+            ?? UTType(filenameExtension: ext)?.localizedDescription ?? "Document"
+        lock.lock()
+        known[ext] = text
+        lock.unlock()
+        return text
     }
 }

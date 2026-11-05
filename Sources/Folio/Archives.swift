@@ -56,7 +56,9 @@ extension BrowserWindowController {
 
     @objc func extractAll(_ sender: Any?) {
         guard let archive = archiveForExtract, let window else { NSSound.beep(); return }
-        let proposed = archive.deletingLastPathComponent().appendingPathComponent(ArchiveNaming.extractFolderName(for: archive), isDirectory: true)
+        // Spelt as the title bar spells paths (/tmp, not /private/tmp).
+        let proposed = archive.deletingLastPathComponent().appendingPathComponent(ArchiveNaming.extractFolderName(for: archive),
+                                                                                   isDirectory: true).standardizedFileURL
         let sheet = ExtractSheetController(archive: archive, destination: proposed)
         sheet.onExtract = { [weak self] dest, show in self?.startExtract(archive, into: dest, show: show) }
         sheet.begin(on: window)

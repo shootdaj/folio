@@ -162,7 +162,14 @@ extension BrowserWindowController {
         guard let key = AccessKeys.command(for: typed), let i = CommandKey.allCases.firstIndex(of: key),
               toolbar.commands.indices.contains(i) else { return false }
         let button = toolbar.commands[i]
-        if button.isEnabled && !button.isHidden { button.performClick(nil) } else { NSSound.beep() }
+        guard button.isEnabled, let action = button.action else { NSSound.beep(); return true }
+        if !button.isHidden {
+            button.performClick(nil)
+        } else {
+            // Folded into See more on a narrow window: the letter still runs it, its menu under See more.
+            let anchor = toolbar.commands.last.flatMap { $0.isHidden ? nil : $0 } ?? button
+            NSApp.sendAction(action, to: button.target, from: anchor)
+        }
         return true
     }
 

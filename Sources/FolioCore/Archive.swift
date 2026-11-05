@@ -127,6 +127,9 @@ public final class ArchiveJob: ProgressJob, @unchecked Sendable {
     private var handler: (@Sendable () -> Void)?
     /// Extract: entry path to size, for the bytes done.
     private var sizes: [String: Int64] = [:]
+    /// The entry bsdtar is on (its "a name" line has no newline until the entry is written), its size,
+    /// and how big the archive was when it began: a big file's progress shows while it is written.
+    private var inFlight: (path: String, size: Int64, archiveAt: Int64)?
 
     public init(compress items: [URL], format: ArchiveFormat, to archive: URL) {
         id = JobIDs.next()
@@ -212,10 +215,12 @@ public final class ArchiveJob: ProgressJob, @unchecked Sendable {
         cond.lock()
         defer { cond.unlock() }
         let now = Self.now()
+        let shown = bytesDone + inFlightBytes()
+        if state == .running { meter.record(bytes: shown, at: now) }
         let speed = state == .running ? meter.bytesPerSecond(at: now) : 0
-        let left: Double? = speed > 0 && bytesTotal > 0 ? Double(max(0, bytesTotal - bytesDone)) / speed : nil
+        let left: Double? = speed > 0 && bytesTotal > 0 ? Double(max(0, bytesTotal - shown)) / speed : nil
         return JobSnapshot(id: id, kind: kind, state: state, sources: sources, destination: destination,
-                           bytesDone: bytesDone, bytesTotal: bytesTotal, itemsDone: itemsDone, itemsTotal: itemsTotal,
+                           bytesDone: shown, bytesTotal: bytesTotal, itemsDone: itemsDone, itemsTotal: itemsTotal,
                            currentName: currentName, speed: speed, secondsLeft: left, conflict: nil, conflictsLeft: 0,
                            problem: nil, skipped: 0, skipIdentical: false)
     }
@@ -352,6 +357,7 @@ public final class ArchiveJob: ProgressJob, @unchecked Sendable {
                 buffer.removeSubrange(buffer.startIndex...nl)
                 if !entryDone(line) { messages.append(line) }
             }
+            if !buffer.isEmpty { entryStarted(String(decoding: buffer, as: UTF8.self)) }
         }
         p.waitUntilExit()
         locked { pid = 0 }
@@ -365,6 +371,49 @@ public final class ArchiveJob: ProgressJob, @unchecked Sendable {
         return true
     }
 
+    /// How far into the entry in flight: the archive's growth (compressing; random data grows it one to
+    /// one, compressible data less, so this never runs ahead) or the extracted file's size. Lock held.
+    private func inFlightBytes() -> Int64 {
+        guard let f = inFlight, state == .running || state == .paused else { return 0 }
+        var st = stat()
+        switch operation {
+        case .compress:
+            guard stat(destination.path, &st) == 0 else { return 0 }
+            return max(0, min(f.size, Int64(st.st_size) - f.archiveAt))
+        case .extract:
+            guard lstat(destination.appendingPathComponent(f.path).path, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG else { return 0 }
+            return max(0, min(f.size, Int64(st.st_size)))
+        }
+    }
+
+    /// The start of a verbose line with no newline yet: the entry being written now.
+    private func entryStarted(_ partial: String) {
+        guard partial.count > 2, partial.hasPrefix("a ") || partial.hasPrefix("x ") else { return }
+        var path = String(partial.dropFirst(2))
+        if path.hasPrefix("./") { path.removeFirst(2) }
+        if path.hasSuffix("/") { path.removeLast() }
+        let size: Int64
+        switch operation {
+        case .compress: size = sizeOfSource(path)
+        case .extract: size = locked { sizes[path] ?? 0 }
+        }
+        var st = stat()
+        let archiveAt = stat(destination.path, &st) == 0 ? Int64(st.st_size) : 0
+        locked {
+            guard inFlight?.path != path else { return }
+            inFlight = (path, size, archiveAt)
+            currentName = (path as NSString).lastPathComponent
+        }
+    }
+
+    private func sizeOfSource(_ path: String) -> Int64 {
+        let top = path.split(separator: "/").first.map(String.init) ?? path
+        guard let parent = sources.first(where: { $0.lastPathComponent == top })?.deletingLastPathComponent() else { return 0 }
+        var st = stat()
+        guard lstat(parent.appendingPathComponent(path).path, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG else { return 0 }
+        return Int64(st.st_size)
+    }
+
     /// "a Photos/one.jpg" (compress) or "x Photos/one.jpg" (extract): one more entry, and its bytes.
     private func entryDone(_ line: String) -> Bool {
         guard line.count > 2, line.hasPrefix("a ") || line.hasPrefix("x ") else { return false }
@@ -373,16 +422,11 @@ public final class ArchiveJob: ProgressJob, @unchecked Sendable {
         if path.hasSuffix("/") { path.removeLast() }
         let bytes: Int64
         switch operation {
-        case .compress:
-            let top = path.split(separator: "/").first.map(String.init) ?? path
-            let parent = sources.first { $0.lastPathComponent == top }?.deletingLastPathComponent()
-            var st = stat()
-            bytes = parent.map { lstat($0.appendingPathComponent(path).path, &st) == 0 && (st.st_mode & S_IFMT) == S_IFREG
-                ? Int64(st.st_size) : 0 } ?? 0
-        case .extract:
-            bytes = locked { sizes[path] ?? 0 }
+        case .compress: bytes = sizeOfSource(path)
+        case .extract: bytes = locked { sizes[path] ?? 0 }
         }
         locked {
+            inFlight = nil
             itemsDone += 1
             bytesDone += bytes
             currentName = (path as NSString).lastPathComponent
@@ -393,6 +437,7 @@ public final class ArchiveJob: ProgressJob, @unchecked Sendable {
 
     private func finish(_ end: JobState, record: OperationRecord?, placed: [URL]) {
         cond.lock()
+        inFlight = nil
         if end == .done {
             itemsTotal = max(itemsTotal, itemsDone)
             itemsDone = itemsTotal

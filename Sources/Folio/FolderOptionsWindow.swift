@@ -34,7 +34,7 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
     private var tab = FolderOptions.Tab.general
     private let header = OptionsHeader()
     private var tabButtons: [FolderOptions.Tab: SegmentButton] = [:]
-    private let body = NSView()
+    private let body = FlippedView()
     private let scroll = NSScrollView()
     private let list = OptionsListView()
     private let restore = D1Button("Restore Defaults", glyph: .refresh)
@@ -59,6 +59,7 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
         content.addSubview(header)
         for t in FolderOptions.Tab.allCases {
             let b = SegmentButton(t.rawValue) { [weak self] in self?.select(t) }
+            b.focusRingType = .none
             tabButtons[t] = b
             content.addSubview(b)
         }
@@ -143,20 +144,23 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
         return r
     }
 
-    private func group(_ title: String, at y: inout CGFloat, rows: [(NSView, CGFloat)], extra: CGFloat = 0) {
-        let height = FormGroupView.headH + CGFloat(rows.count) * 26 + 8 + extra
+    /// One `.sgrp`: its heading, then a line per control (24 pt; a button line 36 pt).
+    private func group(_ title: String, at y: inout CGFloat, rows: [(NSView, CGFloat)]) {
+        func lineH(_ v: NSView) -> CGFloat { v is D1Button || v is FlowView ? 38 : 24 }
+        let height = FormGroupView.headH + rows.reduce(CGFloat(0)) { $0 + lineH($1.0) } + 6
         let g = FormGroupView(title: title)
         g.frame = NSRect(x: 0, y: y, width: body.bounds.width, height: height)
-        var ry = FormGroupView.headH
+        var ry = FormGroupView.headH - 2
         for (view, indent) in rows {
-            let fit = (view as? D1Check)?.fit() ?? (view as? D1Radio)?.fit() ?? (view as? D1Button)?.fit() ?? 200
-            let rowH: CGFloat = view is D1Button ? 32 : 20
-            view.frame = NSRect(x: 14 + indent, y: ry + (26 - rowH) / 2, width: min(fit, g.bounds.width - 28 - indent), height: rowH)
+            let fit = (view as? D1Check)?.fit() ?? (view as? D1Radio)?.fit() ?? (view as? D1Button)?.fit() ?? (g.bounds.width - 28)
+            let h = lineH(view)
+            let rowH: CGFloat = h > 24 ? 34 : 20
+            view.frame = NSRect(x: 14 + indent, y: ry + (h - rowH) / 2, width: min(fit, g.bounds.width - 28 - indent), height: rowH)
             g.addSubview(view)
-            ry += 26
+            ry += h
         }
         body.addSubview(g)
-        y += height + 12
+        y += height + 8
     }
 
     private func buildGeneral() {
@@ -173,12 +177,13 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
         let clear = D1Button("Clear", glyph: .trash)
         clear.setAccessibilityLabel("Clear Folio history")
         clear.onPress = { [weak self] in self?.clearHistory() }
+        let label = LabelView("Clear Folio history (recent files, folders, address bar)", font: Typeface.mono(12), color: { $0.txt2 })
+        let clearRow = FlowView()
+        clearRow.add(label, width: 430)
+        clearRow.add(clear, width: clear.fit(minimum: 96))
         group("Privacy", at: &y, rows: [(check("Show recently used files", .showRecentFiles), 0),
                                         (check("Show frequently used folders", .showFrequentFolders), 0),
-                                        (LabelView("Clear Folio history: recent files, folders and the address bar",
-                                                   font: Typeface.mono(12), color: { $0.txt2 }), 0),
-                                        (clear, 0)], extra: 6)
-        for case let label as LabelView in body.subviews.flatMap(\.subviews) { label.frame.size.width = body.bounds.width - 40 }
+                                        (clearRow, 0)])
     }
 
     private func buildView() {
@@ -282,6 +287,11 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
     }
 }
 
+/// A view laid out top-down.
+final class FlippedView: NSView {
+    override var isFlipped: Bool { true }
+}
+
 /// Esc cancels and Return is OK, as in Explorer's dialog.
 final class OptionsWindow: NSWindow {
     var onReturn: (() -> Void)?
@@ -307,15 +317,12 @@ final class OptionsHeader: NSView {
 /// D1's `.sgrp`: the bg at 86% with a hairline, radius 4, 8 pt brackets at 55% accent, and the `.sh`
 /// heading (Archivo 700, wide, tracked).
 final class FormGroupView: NSView {
-    static let headH: CGFloat = 36
+    static let headH: CGFloat = 34
     let title: String
 
     init(title: String) {
         self.title = title
         super.init(frame: .zero)
-        setAccessibilityElement(true)
-        setAccessibilityRole(.group)
-        setAccessibilityLabel(title)
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }

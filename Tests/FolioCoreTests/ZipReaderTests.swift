@@ -52,6 +52,10 @@ import Testing
         let guide = try #require(rows.first { $0.name == "guide.md" })
         #expect(guide.url.path == zip.path + "/pack/docs/guide.md")
         #expect(guide.size == 2048)
+        // Kinds read as Finder (and the folder listing) word them, not UTType's short names.
+        let inZip = try #require(try ZipFolder.list(zip.appendingPathComponent("pack")).first { $0.name == "readme.txt" })
+        let onDisk = try #require(try FolderListing.list(t.url("src/pack")).first { $0.name == "readme.txt" })
+        #expect(inZip.kind == onDisk.kind)
     }
 
     @Test func splitsAPathIntoTheArchiveAndThePlaceInsideIt() async throws {

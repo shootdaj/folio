@@ -308,6 +308,7 @@ final class FileGridView: NSCollectionView {
     private let flow = NSCollectionViewFlowLayout()
     private let band = BandOverlay()
     private(set) var hoveredItem: Int?
+    private var hoverSelect: Timer?
     var mode: ViewMode = .largeIcons {
         didSet {
             guard mode != oldValue else { return }
@@ -511,7 +512,19 @@ final class FileGridView: NSCollectionView {
         hoveredItem = i
         if let old { cell(ofItem: old)?.isHovered = false }
         if let i { cell(ofItem: i)?.isHovered = true }
+        // Single-click mode's point to select: resting on an item a moment selects it.
+        hoverSelect?.invalidate()
+        hoverSelect = nil
+        if singleClickOpens, let i, NSEvent.pressedMouseButtons == 0 {
+            hoverSelect = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: false) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, self.hoveredItem == i, self.listDelegate?.listIsSelected(i) == false else { return }
+                    self.listDelegate?.list(self, clicked: i, modifiers: NSEvent.modifierFlags.intersection([.command, .shift]))
+                }
+            }
+        }
     }
+
 
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
