@@ -43,9 +43,13 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
     private let apply = D1Button("Apply")
     /// Every check box and radio on screen, with the setting it shows.
     private var controls: [(NSButton, FolderOptions.Setting)] = []
+    /// General's two boxes that change macOS itself at once (not on OK): they show what the Mac reports.
+    private var folderHandlerBox: D1Check?
+    private var loginItemBox: D1Check?
 
     private init() {
-        let window = OptionsWindow(contentRect: NSRect(x: 0, y: 0, width: 620, height: 660),
+        // 860 wide: General's two columns (milestone 9 added Folio and macOS) fit a 1024 pt screen.
+        let window = OptionsWindow(contentRect: NSRect(x: 0, y: 0, width: 860, height: 660),
                                    styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
         window.title = "Folder Options"
         window.titlebarAppearsTransparent = true
@@ -94,6 +98,8 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
         guard let content = window?.contentView else { return }
         body.subviews.forEach { $0.removeFromSuperview() }
         controls = []
+        folderHandlerBox = nil
+        loginItemBox = nil
         let w = content.bounds.width, h = content.bounds.height
         header.frame = NSRect(x: 0, y: 0, width: w, height: 44)
         var x: CGFloat = 24
@@ -144,12 +150,15 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
         return r
     }
 
-    /// One `.sgrp`: its heading, then a line per control (24 pt; a button line 36 pt).
-    private func group(_ title: String, at y: inout CGFloat, rows: [(NSView, CGFloat)]) {
+    /// One `.sgrp`: its heading, then a line per control (24 pt; a button line 36 pt). `column` 0 or 1 puts
+    /// it in General's left or right half; nil spans the width.
+    private func group(_ title: String, at y: inout CGFloat, column: Int? = nil, rows: [(NSView, CGFloat)]) {
         func lineH(_ v: NSView) -> CGFloat { v is D1Button || v is FlowView ? 38 : 24 }
         let height = FormGroupView.headH + rows.reduce(CGFloat(0)) { $0 + lineH($1.0) } + 6
         let g = FormGroupView(title: title)
-        g.frame = NSRect(x: 0, y: y, width: body.bounds.width, height: height)
+        let half = (body.bounds.width - 12) / 2
+        g.frame = column.map { NSRect(x: CGFloat($0) * (half + 12), y: y, width: half, height: height) }
+            ?? NSRect(x: 0, y: y, width: body.bounds.width, height: height)
         var ry = FormGroupView.headH - 2
         for (view, indent) in rows {
             let fit = (view as? D1Check)?.fit() ?? (view as? D1Radio)?.fit() ?? (view as? D1Button)?.fit() ?? (g.bounds.width - 28)
@@ -165,10 +174,10 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
 
     private func buildGeneral() {
         var y: CGFloat = 0
-        group("Open Folio to", at: &y, rows: [(radio("Home", .openToHome), 0), (radio("This PC (the startup disk)", .openToThisPC), 0)])
-        group("Browse folders", at: &y, rows: [(radio("Open each folder in the same window", .sameWindow), 0),
-                                               (radio("Open each folder in its own window", .ownWindow), 0)])
-        group("Click items as follows", at: &y, rows: [
+        group("Open Folio to", at: &y, column: 0, rows: [(radio("Home", .openToHome), 0), (radio("This PC (the startup disk)", .openToThisPC), 0)])
+        group("Browse folders", at: &y, column: 0, rows: [(radio("Open each folder in the same window", .sameWindow), 0),
+                                                          (radio("Open each folder in its own window", .ownWindow), 0)])
+        group("Click items as follows", at: &y, column: 0, rows: [
             (radio("Single-click to open an item (point to select)", .singleClick), 0),
             (radio("Underline icon titles consistent with my browser", .underlineAlways), 22),
             (radio("Underline icon titles only when I point at them", .underlineHover), 22),
@@ -177,35 +186,48 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
         let clear = D1Button("Clear", glyph: .trash)
         clear.setAccessibilityLabel("Clear Folio history")
         clear.onPress = { [weak self] in self?.clearHistory() }
-        let label = LabelView("Clear Folio history (recent files, folders, address bar)", font: Typeface.mono(12), color: { $0.txt2 })
+        let label = LabelView("Clear recent files, folders, addresses", font: Typeface.mono(12), color: { $0.txt2 })
         let clearRow = FlowView()
-        clearRow.add(label, width: 430)
-        clearRow.add(clear, width: clear.fit(minimum: 96))
-        group("Privacy", at: &y, rows: [(check("Show recently used files", .showRecentFiles), 0),
-                                        (check("Show frequently used folders", .showFrequentFolders), 0),
-                                        (clearRow, 0)])
+        let clearW = clear.fit(minimum: 96)
+        clearRow.add(label, width: (body.bounds.width - 12) / 2 - 28 - clearW - 10)
+        clearRow.add(clear, width: clearW)
+        var right: CGFloat = 0
+        group("Privacy", at: &right, column: 1, rows: [(check("Show recently used files", .showRecentFiles), 0),
+                                                       (check("Show frequently used folders", .showFrequentFolders), 0),
+                                                       (clearRow, 0)])
+        // Milestone 9. The first and last change macOS at once and show what it reports; the rest wait for OK.
+        let handler = D1Check("Open folders in Folio instead of Finder")
+        handler.toolTip = "Asks macOS to open folders and drives in Folio, then says what macOS kept"
+        handler.onToggle = { [weak self] on in self?.setFolderHandler(on) }
+        folderHandlerBox = handler
+        let login = D1Check("Launch Folio at login")
+        login.toolTip = "Adds Folio to your login items (System Settings > General > Login Items)"
+        login.onToggle = { [weak self] on in self?.setLoginItem(on) }
+        loginItemBox = login
+        group("Folio and macOS", at: &right, column: 1, rows: [
+            (handler, 0),
+            (check("Open external folder links in a new tab", .externalFoldersInNewTab,
+                   note: "Folders from ff and other apps open as a tab in the front window"), 0),
+            (check("Reopen windows and tabs on relaunch", .reopenWindows), 0),
+            (check("Keep running when the last window closes", .keepRunning, note: "Cmd+Q still quits"), 0),
+            (login, 0),
+        ])
+    }
+
+    private func setFolderHandler(_ on: Bool) {
+        guard let app = NSApp.delegate as? AppDelegate else { return }
+        app.setFolderHandler(on: on, sheetOn: window) { [weak self] in self?.refresh() }
+    }
+
+    private func setLoginItem(_ on: Bool) {
+        guard let app = NSApp.delegate as? AppDelegate else { return }
+        app.setLaunchAtLogin(on, sheetOn: window) { [weak self] in self?.refresh() }
     }
 
     private func buildView() {
-        var y: CGFloat = 0
-        let applyAll = D1Button("Apply to Folders")
-        applyAll.onPress = { ViewCenter.shared.makeDefault() }
-        applyAll.toolTip = "Saves the current view as the one every folder starts in"
-        let reset = D1Button("Reset Folders")
-        reset.onPress = {
-            ViewCenter.shared.set(.details)
-            ViewCenter.shared.makeDefault()
-        }
-        let pair = FlowView()
-        pair.add(applyAll, width: applyAll.fit())
-        pair.add(reset, width: reset.fit())
-        let folderViews = FormGroupView(title: "Folder views")
-        folderViews.frame = NSRect(x: 0, y: 0, width: body.bounds.width, height: FormGroupView.headH + 46)
-        pair.frame = NSRect(x: 14, y: FormGroupView.headH, width: body.bounds.width - 28, height: 34)
-        folderViews.addSubview(pair)
-        body.addSubview(folderViews)
-        y += folderViews.frame.height + 12
-
+        // No Folder views group: Folio has one view for every folder and no folder keeps its own, so
+        // Explorer's Apply to Folders and Reset Folders have nothing to do (View > Make This the Default View).
+        let y: CGFloat = 0
         // Advanced settings: Explorer's long list, scrolling inside its group.
         let advanced = FormGroupView(title: "Advanced settings")
         advanced.frame = NSRect(x: 0, y: y, width: body.bounds.width, height: body.bounds.height - y)
@@ -254,6 +276,8 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
             if let c = control as? D1Check { c.isChecked = draft.isOn(setting) }
             if let r = control as? D1Radio { r.isSelected = draft.isOn(setting) }
         }
+        folderHandlerBox?.isChecked = SystemSettings.foldersOpenInFolio
+        loginItemBox?.isChecked = SystemSettings.launchesAtLogin
         apply.isEnabled = draft != ListOptions.folder
     }
 

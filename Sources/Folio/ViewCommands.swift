@@ -339,6 +339,7 @@ extension BrowserWindowController: GridHost {
 
     func selectionDidChange() {
         let selected = selectedEntries
+        sessionChanged()
         if ListOptions.sidePane != .none, !history.isHome {
             var meta: ItemMetadata?
             if selected.count == 1, let one = selected.first {

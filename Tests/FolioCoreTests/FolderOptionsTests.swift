@@ -20,6 +20,7 @@ import Testing
         #expect(!o.openFoldersInNewWindow)
         #expect(!o.singleClickOpens && o.underline == .onHover)
         #expect(o.showRecentFiles && o.showFrequentFolders)
+        #expect(o.externalFoldersInNewTab && o.reopenWindows && o.keepRunning, "milestone 9: tabs, reopen, keep running")
         #expect(!o.alwaysShowIcons && o.fileIconOnThumbnails && o.fileSizeInFolderTips)
         #expect(!o.fullPathInTitleBar && !o.showHidden && o.hideEmptyDrives && !o.hideExtensions)
         #expect(o.hideFolderMergeConflicts && o.hideProtectedOSFiles)
@@ -38,6 +39,9 @@ import Testing
         o.underline = .always
         o.showRecentFiles = false
         o.showFrequentFolders = false
+        o.externalFoldersInNewTab = false
+        o.reopenWindows = false
+        o.keepRunning = false
         o.alwaysShowIcons = true
         o.fileIconOnThumbnails = false
         o.fileSizeInFolderTips = false
@@ -67,7 +71,7 @@ import Testing
         #expect(s.load() == o)
         for key in FolderOptionsStore.keys { #expect(d.object(forKey: key) != nil, "\(key) is written") }
         #expect(Set(FolderOptionsStore.keys).count == FolderOptionsStore.keys.count)
-        #expect(FolderOptionsStore.keys.count == 31)
+        #expect(FolderOptionsStore.keys.count == 34)
         // Every field differs from the default, so a field the store forgot would come back as the default.
         #expect(FolderOptions.allChanged(from: FolderOptions(), to: o).count == FolderOptionsStore.keys.count)
     }
@@ -91,12 +95,16 @@ import Testing
         o.openTo = .thisPC
         o.fullPathInTitleBar = true
         o.dontUseIndex = true
+        o.keepRunning = false
+        o.reopenWindows = false
         var general = o
         general.restoreDefaults(.general)
         #expect(general.openTo == .home && general.fullPathInTitleBar && general.dontUseIndex)
+        #expect(general.keepRunning && general.reopenWindows, "Folio and macOS live on General")
         var view = o
         view.restoreDefaults(.view)
         #expect(view.openTo == .thisPC && !view.fullPathInTitleBar && view.dontUseIndex)
+        #expect(!view.keepRunning && !view.reopenWindows, "View's Restore Defaults leaves them alone")
         var search = o
         search.restoreDefaults(.search)
         #expect(search.openTo == .thisPC && search.fullPathInTitleBar && !search.dontUseIndex)

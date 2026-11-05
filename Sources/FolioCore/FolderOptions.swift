@@ -15,6 +15,14 @@ public struct FolderOptions: Equatable, Sendable {
     public var underline = Underline.onHover
     public var showRecentFiles = true
     public var showFrequentFolders = true
+    // General: Folio and macOS (milestone 9)
+    /// Explorer's "Open desktop folders and external folder links in a new tab": folders from ff and
+    /// other apps open as a tab in the front window.
+    public var externalFoldersInNewTab = true
+    /// Explorer's "Restore previous folder windows at logon", on here: windows and tabs come back.
+    public var reopenWindows = true
+    /// Explorer stays alive with no window open; Cmd+Q still quits.
+    public var keepRunning = true
 
     // View: Files and folders
     public var alwaysShowIcons = false
@@ -63,12 +71,17 @@ public struct FolderOptions: Equatable, Sendable {
             underline = d.underline
             showRecentFiles = d.showRecentFiles
             showFrequentFolders = d.showFrequentFolders
+            externalFoldersInNewTab = d.externalFoldersInNewTab
+            reopenWindows = d.reopenWindows
+            keepRunning = d.keepRunning
         case .view:
             let keep = (openTo, openFoldersInNewWindow, singleClickOpens, underline, showRecentFiles, showFrequentFolders,
                         dontUseIndex, includeSystemDirectories, includeCompressedFiles, alwaysSearchContents)
+            let folio = (externalFoldersInNewTab, reopenWindows, keepRunning)
             self = d
             (openTo, openFoldersInNewWindow, singleClickOpens, underline, showRecentFiles, showFrequentFolders,
              dontUseIndex, includeSystemDirectories, includeCompressedFiles, alwaysSearchContents) = keep
+            (externalFoldersInNewTab, reopenWindows, keepRunning) = folio
         case .search:
             dontUseIndex = d.dontUseIndex
             includeSystemDirectories = d.includeSystemDirectories
@@ -110,7 +123,7 @@ public struct FolderOptions: Equatable, Sendable {
     /// Each check box and radio of the dialog, so it can read and write the right field.
     public enum Setting: String, Sendable, CaseIterable {
         case openToHome, openToThisPC, sameWindow, ownWindow, singleClick, doubleClick, underlineAlways, underlineHover
-        case showRecentFiles, showFrequentFolders
+        case showRecentFiles, showFrequentFolders, externalFoldersInNewTab, reopenWindows, keepRunning
         case alwaysShowIcons, fileIconOnThumbnails, fileSizeInFolderTips, fullPathInTitleBar
         case hiddenOff, hiddenOn, hideEmptyDrives, hideExtensions, hideFolderMergeConflicts, hideProtectedOSFiles
         case showDriveLetters, showCompressedInColour, showPopupDescriptions, showPreviewHandlers, showStatusBar
@@ -131,6 +144,9 @@ public struct FolderOptions: Equatable, Sendable {
         case .underlineHover: underline == .onHover
         case .showRecentFiles: showRecentFiles
         case .showFrequentFolders: showFrequentFolders
+        case .externalFoldersInNewTab: externalFoldersInNewTab
+        case .reopenWindows: reopenWindows
+        case .keepRunning: keepRunning
         case .alwaysShowIcons: alwaysShowIcons
         case .fileIconOnThumbnails: fileIconOnThumbnails
         case .fileSizeInFolderTips: fileSizeInFolderTips
@@ -174,6 +190,9 @@ public struct FolderOptions: Equatable, Sendable {
         case .underlineHover: underline = .onHover
         case .showRecentFiles: showRecentFiles.toggle()
         case .showFrequentFolders: showFrequentFolders.toggle()
+        case .externalFoldersInNewTab: externalFoldersInNewTab.toggle()
+        case .reopenWindows: reopenWindows.toggle()
+        case .keepRunning: keepRunning.toggle()
         case .alwaysShowIcons: alwaysShowIcons.toggle()
         case .fileIconOnThumbnails: fileIconOnThumbnails.toggle()
         case .fileSizeInFolderTips: fileSizeInFolderTips.toggle()
@@ -251,6 +270,7 @@ public struct FolderOptionsStore {
 
     public static let keys = [
         "openFolioTo", "browseFoldersOwnWindow", "singleClickOpen", "singleClickUnderline", "showRecentFiles", "showFrequentFolders",
+        "externalFoldersInNewTab", "reopenWindows", "keepRunningWithoutWindows",
         "showThumbnails", "fileIconOnThumbnails", "folderTipSizes", "fullPathInTitle", "showHiddenItems", "hideEmptyDrives",
         "showFileExtensions", "hideFolderMergeConflicts", "hideProtectedFiles", "showDriveLetters", "showCompressedInColour",
         "showInfoTips", "showPreviewHandlers", "showStatusBar", "itemCheckBoxes", "typeIntoSearch", "confirmDelete",
@@ -264,6 +284,8 @@ public struct FolderOptionsStore {
             "openFolioTo": o.openTo.rawValue, "browseFoldersOwnWindow": o.openFoldersInNewWindow,
             "singleClickOpen": o.singleClickOpens, "singleClickUnderline": o.underline.rawValue,
             "showRecentFiles": o.showRecentFiles, "showFrequentFolders": o.showFrequentFolders,
+            "externalFoldersInNewTab": o.externalFoldersInNewTab, "reopenWindows": o.reopenWindows,
+            "keepRunningWithoutWindows": o.keepRunning,
             "showThumbnails": !o.alwaysShowIcons, "fileIconOnThumbnails": o.fileIconOnThumbnails,
             "folderTipSizes": o.fileSizeInFolderTips, "fullPathInTitle": o.fullPathInTitleBar,
             "showHiddenItems": o.showHidden, "hideEmptyDrives": o.hideEmptyDrives, "showFileExtensions": !o.hideExtensions,
@@ -287,6 +309,9 @@ public struct FolderOptionsStore {
         o.underline = defaults.string(forKey: "singleClickUnderline").flatMap(FolderOptions.Underline.init(rawValue:)) ?? o.underline
         o.showRecentFiles = bool("showRecentFiles", o.showRecentFiles)
         o.showFrequentFolders = bool("showFrequentFolders", o.showFrequentFolders)
+        o.externalFoldersInNewTab = bool("externalFoldersInNewTab", o.externalFoldersInNewTab)
+        o.reopenWindows = bool("reopenWindows", o.reopenWindows)
+        o.keepRunning = bool("keepRunningWithoutWindows", o.keepRunning)
         o.alwaysShowIcons = !bool("showThumbnails", !o.alwaysShowIcons)
         o.fileIconOnThumbnails = bool("fileIconOnThumbnails", o.fileIconOnThumbnails)
         o.fileSizeInFolderTips = bool("folderTipSizes", o.fileSizeInFolderTips)
