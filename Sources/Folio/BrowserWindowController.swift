@@ -1347,6 +1347,14 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     }
 
     func windowDidExitFullScreen(_ notification: Notification) {
+        // Back from full screen the window may come back larger than its screen: it is fitted to it.
+        if let window, let visible = (window.screen ?? NSScreen.main)?.visibleFrame, !options.uitest,
+           window.frame.width > visible.width || window.frame.height > visible.height {
+            let w = min(window.frame.width, visible.width), h = min(window.frame.height, visible.height)
+            let x = min(max(window.frame.minX, visible.minX), visible.maxX - w)
+            let y = min(max(window.frame.minY, visible.minY), visible.maxY - h)
+            window.setFrame(NSRect(x: x, y: y, width: w, height: h), display: true)
+        }
         (window as? BrowserWindow)?.placeTrafficLights()
     }
 
