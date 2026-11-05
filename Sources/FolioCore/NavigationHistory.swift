@@ -37,6 +37,26 @@ public struct NavigationHistory: Sendable {
         return current
     }
 
+    /// What right-clicking Back lists: the previous folders, the most recent first.
+    public var backList: [URL] { backStack.reversed() }
+
+    /// What right-clicking Forward lists: the next folders, the nearest first.
+    public var forwardList: [URL] { forwardStack.reversed() }
+
+    /// Jumps to entry `steps - 1` of `backList`. Nil (and no change) past the end.
+    public mutating func goBack(steps: Int) -> URL? {
+        guard steps > 0, steps <= backStack.count else { return nil }
+        for _ in 0..<steps { _ = goBack() }
+        return current
+    }
+
+    /// Jumps to entry `steps - 1` of `forwardList`. Nil (and no change) past the end.
+    public mutating func goForward(steps: Int) -> URL? {
+        guard steps > 0, steps <= forwardStack.count else { return nil }
+        for _ in 0..<steps { _ = goForward() }
+        return current
+    }
+
     public mutating func goUp() -> URL? {
         guard let parent = Self.parent(of: current) else { return nil }
         push(parent)
