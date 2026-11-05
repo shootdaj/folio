@@ -1,0 +1,34 @@
+{
+  "BTTPresetName" : "Folio",
+  "BTTPresetUUID" : "7C3E9D1A-58B4-4F6E-9A21-3B5D0F4C8E17",
+  "BTTPresetContent" : [
+    {
+      "BTTAppBundleIdentifier" : "BT.G",
+      "BTTAppName" : "Global",
+      "BTTAppSpecificSettings" : {
+
+      },
+      "BTTTriggers" : [
+        {
+          "BTTTriggerType" : 0,
+          "BTTTriggerTypeDescription" : "Folio, like Win+E: open Folio instead of Finder",
+          "BTTTriggerClass" : "BTTTriggerTypeKeyboardShortcut",
+          "BTTPredefinedActionType" : 206,
+          "BTTPredefinedActionName" : "Execute Shell Script \/ Task",
+          "BTTShellTaskActionScript" : "\/usr\/bin\/open -b com.anshul.folio",
+          "BTTShellTaskActionConfig" : "\/bin\/bash:::-c:::-:::",
+          "BTTUUID" : "E2A6F0C4-1B7D-4C39-8D5E-6F2A9B0C3D41",
+          "BTTNotesInsteadOfDescription" : 0,
+          "BTTEnabled" : 1,
+          "BTTEnabled2" : 1,
+          "BTTOrder" : 0,
+          "BTTShortcutKeyCode" : 14,
+          "BTTShortcutModifierKeys" : 1179648,
+          "BTTTriggerOnDown" : 1,
+          "BTTLayoutIndependentChar" : "e",
+          "BTTAdditionalConfiguration" : "1179648"
+        }
+      ]
+    }
+  ]
+}
