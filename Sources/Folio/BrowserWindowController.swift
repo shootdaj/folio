@@ -88,6 +88,21 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     private let addressHistory: AddressHistory
     /// "No such folder" after Enter on a bad address, until the next edit or navigation.
     var statusMessage: String?
+    /// Quick access pins, shared by every window through the defaults.
+    var pins: PinStore
+    /// The drag badge ("Move to target") and the folder a drag is hovering to spring open.
+    let dropTip = DropTipView()
+    var springTarget: URL?
+    var springTimer: Timer?
+    /// The folder row lit under a drag (-1 for none); the list draws D1's feedback, not AppKit's.
+    var dropTargetRow = -1 {
+        didSet {
+            guard dropTargetRow != oldValue else { return }
+            tableView.enumerateAvailableRowViews { view, row in (view as? FolioRowView)?.isDropTarget = row == dropTargetRow }
+        }
+    }
+    /// What Quick Look shows: the selection when it opened.
+    var quickLookItems: [URL] = []
 
     let tableView = FolioTableView()
     let header = FolioHeaderView(frame: NSRect(x: 0, y: 0, width: 100,
@@ -115,6 +130,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     init(folder: URL, options: Options = Options()) {
         history = NavigationHistory(start: folder)
         addressHistory = AddressHistory(defaults: options.historyDefaults)
+        pins = PinStore(defaults: options.historyDefaults, home: FileManager.default.homeDirectoryForCurrentUser)
         let window = BrowserWindow(
             contentRect: NSRect(origin: .zero, size: options.size),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -138,6 +154,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         center.addObserver(self, selector: #selector(clipboardChanged(_:)), name: NSApplication.didBecomeActiveNotification, object: nil)
         center.addObserver(self, selector: #selector(jobsChanged(_:)), name: OperationCenter.jobsChanged, object: nil)
         center.addObserver(self, selector: #selector(listOptionsChanged(_:)), name: ListOptions.didChange, object: nil)
+        center.addObserver(self, selector: #selector(pinsChanged(_:)), name: PinsChanged.name, object: nil)
         loadVolumes()
         load()
     }
@@ -176,7 +193,12 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         toolbar.back.onHold = { [weak self] in self?.showHistoryList(back: true) }
         toolbar.forward.onHold = { [weak self] in self?.showHistoryList(back: false) }
         chassis.sidebar.content.onNavigate = { [weak self] url in self?.navigate(to: url) }
-        chassis.sidebar.content.places = QuickAccess.places(home: FileManager.default.homeDirectoryForCurrentUser)
+        chassis.sidebar.content.places = pins.places
+        chassis.sidebar.content.dropHost = self
+        chassis.sidebar.content.onPinsEdited = { [weak self] edit in self?.editPins(edit) }
+        chassis.sidebar.content.menuProvider = { [weak self] path, isPin in self?.sidebarMenu(path: path, isPin: isPin) }
+        address.dropHost = self
+        address.onCommand = { [weak self] command in self?.runAddressCommand(command) ?? false }
         chassis.rail.onJump = { [weak self] fraction in self?.jump(to: fraction) }
 
         // Date, Type and Size keep D1's widths; Name takes the rest of the list (fitColumns), so the
@@ -219,6 +241,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         toolbar.groupEnds = [6, 8]
         tableView.sortDescriptors = [descriptor(for: sortSpec)]
         tableView.setAccessibilityLabel("Files")
+        tableView.registerForDraggedTypes(droppableTypes)
+        tableView.draggingDestinationFeedbackStyle = .none
+        dropTip.isHidden = true
         if !options.uitest {
             // After the columns exist, so saved widths and order are applied to them.
             tableView.autosaveName = "DetailsColumnsD1"
@@ -296,7 +321,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         }
     }
 
-    private func displayName(_ url: URL) -> String {
+    func displayName(_ url: URL) -> String {
         url.path == "/" ? (toolbar.address.volumes.first { $0.path == "/" }?.name ?? Breadcrumbs.rootTitle)
             : FileManager.default.displayName(atPath: url.path)
     }
@@ -661,6 +686,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         case (51, []) where !editingText: goBack(nil)           // Backspace, even with files selected
         case (36, []) where tableFocused, (76, []) where tableFocused:
             open(rows: tableView.selectedRowIndexes)            // Return, Enter
+        case (36, .option) where !editingText, (76, .option) where !editingText:
+            showProperties(nil)                                 // Option+Return (Explorer's Alt+Enter)
+        case (49, []) where tableFocused: toggleQuickLook(nil)  // Space: Quick Look
+        case (109, .shift) where !editingText, (110, []) where !editingText:
+            showContextMenuForSelection(nil)                    // Shift+F10, the Menu key
         case (125, []) where tableFocused, (125, .shift) where tableFocused:   // Down, Shift+Down
             moveSelection(.down, extend: modifiers == .shift)
         case (126, []) where tableFocused, (126, .shift) where tableFocused:   // Up, Shift+Up
@@ -726,6 +756,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         let view = tableView.makeView(withIdentifier: id, owner: self) as? FolioRowView
             ?? { let v = FolioRowView(); v.identifier = id; return v }()
         view.isFocusRow = row == selection.focus
+        view.isDropTarget = row == dropTargetRow
         return view
     }
 

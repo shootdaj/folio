@@ -181,6 +181,19 @@ final class OperationCenter {
 
     func record(_ step: OperationRecord) { history.record(step) }
 
+    /// Create alias, Create symbolic link, Paste shortcut, Send to Desktop and alias drops: one undo step.
+    func makeLinks(_ kind: LinkKind, to targets: [URL], in folder: URL, window: NSWindow?) {
+        guard !targets.isEmpty else { return }
+        var items: [LinkItem] = []
+        do {
+            for target in targets { items.append(try Aliases.makeItem(kind, to: target, in: folder)) }
+        } catch {
+            present(error, window: window)
+        }
+        if !items.isEmpty { history.record(.links(items)) }
+        postChanged(select: items.map(\.url))
+    }
+
     func trash(_ urls: [URL], window: NSWindow?) {
         guard !urls.isEmpty else { return }
         let trasher = trash

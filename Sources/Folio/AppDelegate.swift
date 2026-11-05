@@ -36,6 +36,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             ThemeController.shared.start(defaults: .standard)
         }
         NSApp.mainMenu = MainMenu.build()
+        // Other apps' Services take the selected files' URLs or paths (the menus' Services submenu).
+        NSApp.registerServicesMenuSendTypes([.fileURL, .string], returnTypes: [])
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -75,6 +77,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         default: break
         }
         return true
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // File promises from Folio's last drag would hold up quitting (AppKit resolves them all).
+        DragState.releasePasteboard()
+        return .terminateNow
     }
 
     func application(_ sender: NSApplication, open urls: [URL]) {

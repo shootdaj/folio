@@ -119,10 +119,15 @@ final class D1Check: NSButton {
 
     var isChecked: Bool {
         get { state == .on }
-        set { state = newValue ? .on : .off; needsDisplay = true }
+        set { state = newValue ? .on : .off; isMixed = false; needsDisplay = true }
     }
 
+    /// A multi-selection where some items have it and some do not; a click turns it on for all.
+    var isMixed = false { didSet { needsDisplay = true } }
+
     @objc private func toggled(_ sender: Any?) {
+        if isMixed { state = .on }
+        isMixed = false
         needsDisplay = true
         onToggle?(isChecked)
     }
@@ -134,8 +139,8 @@ final class D1Check: NSButton {
     override func draw(_ dirtyRect: NSRect) {
         let p = Palette.current
         let box = NSRect(x: 0, y: (bounds.height - 14) / 2, width: 14, height: 14)
-        CheckBox.draw(in: box, on: isChecked, mixed: false, p)
-        drawLine(title, font: labelFont, color: isChecked ? p.txt : p.txt2, x: 22, midY: bounds.midY,
+        CheckBox.draw(in: box, on: isChecked && !isMixed, mixed: isMixed, p)
+        drawLine(title, font: labelFont, color: isChecked || isMixed ? p.txt : p.txt2, x: 22, midY: bounds.midY,
                  maxWidth: bounds.width - 22)
     }
 }

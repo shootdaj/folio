@@ -6,6 +6,12 @@ public struct SendTarget: Sendable, Equatable {
     public let name: String
     public let url: URL
     public let isApp: Bool
+
+    public init(name: String, url: URL, isApp: Bool) {
+        self.name = name
+        self.url = url
+        self.isApp = isApp
+    }
 }
 
 /// Explorer's shell:sendto: whatever sits in Folio's Send To folder (folders, apps, or aliases and links
