@@ -329,8 +329,22 @@ extension BrowserWindowController: FileListDelegate {
              #selector(renameSelection(_:)), #selector(share(_:)):
             // Off while text is edited, so Cmd+Delete deletes typing instead of files.
             return any && !editingText
-        case #selector(paste(_:)):
-            return FileClipboard.hasFiles
+        case #selector(paste(_:)), #selector(pasteShortcut(_:)):
+            return FileClipboard.hasFiles && !editingText
+        case #selector(pasteIntoFolder(_:)):
+            return FileClipboard.hasFiles && selectedEntries.contains(where: \.isFolder)
+        case #selector(copyPath(_:)), #selector(createAlias(_:)), #selector(createSymlink(_:)), #selector(openWithOther(_:)),
+             #selector(sendToDesktop(_:)), #selector(sendToMail(_:)), #selector(sendToAirDrop(_:)), #selector(sendToFolder(_:)),
+             #selector(sendToApp(_:)), #selector(openSelection(_:)), #selector(openWithApp(_:)):
+            return any && !editingText
+        case #selector(copyAsPath(_:)), #selector(showProperties(_:)):
+            return !editingText
+        case #selector(printSelection(_:)):
+            return selectedEntries.contains { !$0.isFolder } && !editingText
+        case #selector(openInNewWindow(_:)):
+            return selectedEntries.contains(where: \.isFolder)
+        case #selector(toggleQuickLook(_:)):
+            return any
         case #selector(selectNone(_:)), #selector(invertSelection(_:)), #selector(selectAll(_:)):
             return !entries.isEmpty
         case #selector(toggleItemCheckBoxes(_:)):
@@ -422,8 +436,12 @@ extension BrowserWindowController: FileListDelegate {
                   ("Delete permanently...", #selector(deletePermanently(_:)))]
             .map { NSMenuItem(title: $0.0, action: $0.1, keyEquivalent: "") }
         items.append(.separator())
-        // Properties arrives with milestone 4 and Folder Options later; they show where Explorer has them.
-        items += ["Properties", "Options"].map { NSMenuItem(title: $0, action: nil, keyEquivalent: "") }
+        items += [("Copy as path", #selector(copyAsPath(_:))), ("Open in Terminal", #selector(openInTerminal(_:)))]
+            .map { NSMenuItem(title: $0.0, action: $0.1, keyEquivalent: "") }
+        items.append(.separator())
+        // Folder Options arrives later; it shows where Explorer has it.
+        items += [NSMenuItem(title: "Properties", action: #selector(showProperties(_:)), keyEquivalent: ""),
+                  NSMenuItem(title: "Options", action: nil, keyEquivalent: "")]
         popUp(items, from: sender)
     }
 

@@ -26,6 +26,12 @@ enum MainMenu {
         ])
         add("File", to: main, [
             item("New Window", #selector(AppDelegate.newWindow(_:)), "n"),
+            item("Open in Terminal", #selector(BrowserWindowController.openInTerminal(_:))),
+            .separator(),
+            // Explorer's Alt+Enter is Option+Return (bound in BrowserWindow); Cmd+I is Finder's.
+            item("Properties", #selector(BrowserWindowController.showProperties(_:)), "i"),
+            item("Quick Look", #selector(BrowserWindowController.toggleQuickLook(_:)), "y"),
+            .separator(),
             item("Close Window", #selector(NSWindow.performClose(_:)), "w"),
         ])
         // File commands go to the window controller; while a name or the address is being edited the
@@ -39,6 +45,13 @@ enum MainMenu {
             item("Paste", #selector(NSText.paste(_:)), "v"),
             item("Copy To...", #selector(BrowserWindowController.copyTo(_:))),
             item("Move To...", #selector(BrowserWindowController.moveTo(_:))),
+            // Explorer's Ctrl+Shift+C.
+            item("Copy as Path", #selector(BrowserWindowController.copyAsPath(_:)), "c", [.command, .shift]),
+            item("Copy Path", #selector(BrowserWindowController.copyPath(_:)), "c", [.command, .option, .shift]),
+            item("Paste Shortcut", #selector(BrowserWindowController.pasteShortcut(_:))),
+            .separator(),
+            item("Create Alias", #selector(BrowserWindowController.createAlias(_:)), "a", [.command, .control]),
+            item("Create Symbolic Link", #selector(BrowserWindowController.createSymlink(_:))),
             .separator(),
             item("Rename", #selector(BrowserWindowController.renameSelection(_:)), key(NSF2FunctionKey), []),
             item("Move to Trash", #selector(BrowserWindowController.moveToTrash(_:)), "\u{8}"),

@@ -33,6 +33,8 @@ public enum OperationRecord: Sendable, Equatable {
     case trash([TrashedItem])
     case newFolder(URL)
     case newFile(URL)
+    /// Create alias, Create symbolic link, Paste shortcut, Send to Desktop, a link drop.
+    case links([LinkItem])
 
     /// The Edit menu names the action: Undo Rename, Redo Move.
     public var title: String {
@@ -43,6 +45,7 @@ public enum OperationRecord: Sendable, Equatable {
         case .trash: "Delete"
         case .newFolder: "New Folder"
         case .newFile: "New Text Document"
+        case .links(let items): items.first?.kind == .symlink ? "Create Symbolic Link" : "Create Alias"
         }
     }
 }

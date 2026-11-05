@@ -21,6 +21,16 @@ protocol FileListDelegate: AnyObject {
     /// The rubber band now covers `rows` (already combined with the old selection for Cmd+drag).
     func list(_ list: FolioTableView, banded rows: IndexSet, focus: Int?)
     func listToggledAll(_ list: FolioTableView)
+    /// Option+double-click: Properties (Explorer's Alt+double-click).
+    func list(_ list: FolioTableView, showPropertiesOf row: Int)
+    /// The press on a row became a drag of the selection (left or right button).
+    func list(_ list: FolioTableView, beginDragWith event: NSEvent, rightButton: Bool)
+    /// Right-click: the item menu for `row`, or the background menu for -1.
+    func list(_ list: FolioTableView, menuFor row: Int, event: NSEvent) -> NSMenu?
+    /// A drag left the list or ended over it.
+    func listDragExited(_ list: FolioTableView)
+    /// Services: the selected items' file URLs.
+    func listSelectedURLs(_ list: FolioTableView) -> [URL]
 }
 
 /// The table, with hover tracking for the 5.5% row wash, Explorer clicks (Cmd+click toggles, Shift+click
@@ -76,6 +86,11 @@ final class FolioTableView: NSTableView {
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         guard let delegate = listDelegate else { return super.mouseDown(with: event) }
+        // Control+click is the Mac's right-click.
+        if event.modifierFlags.contains(.control), let menu = menu(for: event) {
+            NSMenu.popUpContextMenu(menu, with: event, for: self)
+            return
+        }
         let point = convert(event.locationInWindow, from: nil)
         let row = row(at: point)
         let mods = event.modifierFlags.intersection([.command, .shift])
@@ -88,23 +103,74 @@ final class FolioTableView: NSTableView {
             return
         }
         if event.clickCount >= 2, mods.isEmpty {
-            delegate.list(self, opened: row)
-            return
-        }
-        // A plain click on one of several selected rows keeps them all until the mouse comes up
-        // without a drag (so a drag can take them all, as in Explorer).
-        if mods.isEmpty, selectedRowIndexes.contains(row), selectedRowIndexes.count > 1 {
-            while let next = window?.nextEvent(matching: [.leftMouseUp, .leftMouseDragged]) {
-                if next.type == .leftMouseUp {
-                    delegate.list(self, clicked: row, modifiers: [])
-                    return
-                }
-                let p = convert(next.locationInWindow, from: nil)
-                if hypot(p.x - point.x, p.y - point.y) > 4 { return }
+            if event.modifierFlags.contains(.option) {
+                delegate.list(self, showPropertiesOf: row)
+            } else {
+                delegate.list(self, opened: row)
             }
             return
         }
+        // A plain click on one of several selected rows keeps them all until the mouse comes up
+        // without a drag, so a drag takes them all, as in Explorer.
+        if mods.isEmpty, selectedRowIndexes.contains(row), selectedRowIndexes.count > 1 {
+            if !trackDrag(from: point, button: .left) { delegate.list(self, clicked: row, modifiers: []) }
+            return
+        }
         delegate.list(self, clicked: row, modifiers: mods)
+        // A press on a selected row can become a drag of the selection.
+        if selectedRowIndexes.contains(row) { _ = trackDrag(from: point, button: .left) }
+    }
+
+    private enum Button { case left, right }
+
+    /// Follows the pressed button: true when it moved more than 4 pt and a drag began.
+    private func trackDrag(from start: NSPoint, button: Button) -> Bool {
+        let types: NSEvent.EventTypeMask = button == .left ? [.leftMouseUp, .leftMouseDragged] : [.rightMouseUp, .rightMouseDragged]
+        while let next = window?.nextEvent(matching: types) {
+            if next.type == .leftMouseUp || next.type == .rightMouseUp { return false }
+            let p = convert(next.locationInWindow, from: nil)
+            if hypot(p.x - start.x, p.y - start.y) > 4 {
+                listDelegate?.list(self, beginDragWith: next, rightButton: button == .right)
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Explorer's right-button drag: press, drag and let go, and a menu asks what to do. A right press
+    /// that does not move shows the item menu when the button comes up, as in Explorer.
+    override func rightMouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        let row = row(at: point)
+        guard row >= 0, let delegate = listDelegate else { return super.rightMouseDown(with: event) }
+        if !selectedRowIndexes.contains(row) { delegate.list(self, clicked: row, modifiers: []) }
+        if trackDrag(from: point, button: .right) { return }
+        super.rightMouseDown(with: event)
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let row = row(at: convert(event.locationInWindow, from: nil))
+        return listDelegate?.list(self, menuFor: row, event: event)
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        super.draggingExited(sender)
+        listDelegate?.listDragExited(self)
+    }
+
+    override func draggingEnded(_ sender: NSDraggingInfo) {
+        super.draggingEnded(sender)
+        listDelegate?.listDragExited(self)
+    }
+
+    // MARK: Services (other apps' items in the context menu's Services submenu)
+
+    override func validRequestor(forSendType sendType: NSPasteboard.PasteboardType?,
+                                 returnType: NSPasteboard.PasteboardType?) -> Any? {
+        if returnType == nil, let sendType, sendType == .fileURL || sendType == .string, !selectedRowIndexes.isEmpty {
+            return self
+        }
+        return super.validRequestor(forSendType: sendType, returnType: returnType)
     }
 
     /// Explorer's marquee: from empty space, a rectangle that selects every row it touches; with Cmd
@@ -270,6 +336,19 @@ final class FolioRowView: NSTableRowView {
         drawBrackets(r, color: p.accent.ns, length: 7)
     }
 
+    /// A folder row under a drag: the mark fill, an accent outline and brackets, over the selection.
+    var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard isDropTarget else { return }
+        let p = Palette.current
+        let r = bounds.insetBy(dx: 3, dy: 0)
+        fillRect(r, p.markFill)
+        strokeRounded(r.insetBy(dx: 0.5, dy: 0.5), radius: 3, p.accent)
+        drawBrackets(r, color: p.accent.ns, length: 7)
+    }
+
     override func didAddSubview(_ subview: NSView) {
         super.didAddSubview(subview)
         (subview as? RowCellView)?.rowSelectionChanged(isSelected)
@@ -386,6 +465,15 @@ final class TextCellView: NSTableCellView, RowCellView {
 final class ListPaneView: NSView {
     let scrollView = NSScrollView()
     private let overlay = BracketOverlay()
+    /// A drag over the list background: the whole pane is the target (the current folder).
+    var isDropTarget = false {
+        didSet {
+            guard isDropTarget != oldValue else { return }
+            overlay.lit = isDropTarget
+            needsDisplay = true
+            overlay.needsDisplay = true
+        }
+    }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -424,10 +512,17 @@ final class ListPaneView: NSView {
 
     /// Brackets drawn above the scrolling rows; never takes clicks.
     private final class BracketOverlay: NSView {
+        var lit = false
         override var isFlipped: Bool { true }
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func draw(_ dirtyRect: NSRect) {
-            drawBrackets(bounds, color: Palette.current.bracket.ns, length: 12)
+            let p = Palette.current
+            if lit {
+                strokeRounded(bounds.insetBy(dx: 0.5, dy: 0.5), radius: 4, p.accent)
+                drawBrackets(bounds, color: p.accent.ns, length: 14, width: 2)
+            } else {
+                drawBrackets(bounds, color: p.bracket.ns, length: 12)
+            }
         }
     }
 }

@@ -44,9 +44,26 @@ final class SidebarView: NSView {
     }
 }
 
-/// The groups themselves. Every row is drawn here; clicks navigate.
-final class SidebarContentView: NSView {
+/// A change to the Quick access pins made in the sidebar.
+enum PinEdit {
+    case pin(String, at: Int)
+    case move(from: Int, to: Int)
+    case unpin(String)
+}
+
+/// The groups themselves. Every row is drawn here; clicks navigate. Files dropped on a row move or copy
+/// into it (hovering 0.8 s opens it); folders dropped between Quick access rows are pinned there, and
+/// pins drag to reorder.
+final class SidebarContentView: NSView, NSDraggingSource {
     var onNavigate: ((URL) -> Void)?
+    weak var dropHost: DropHost?
+    var onPinsEdited: ((PinEdit) -> Void)?
+    /// Right-click a row: (its path, whether it is a pin) to the window's menu.
+    var menuProvider: ((String, Bool) -> NSMenu?)?
+    static let pinType = NSPasteboard.PasteboardType("com.anshul.folio.pin")
+    /// The row a drag would drop into, and the place a folder would be pinned at.
+    private var dropRow: Int? { didSet { if dropRow != oldValue { needsDisplay = true } } }
+    private var insertAt: Int? { didSet { if insertAt != oldValue { needsDisplay = true } } }
 
     var places: [QuickAccessPlace] = [] { didSet { needsLayout = true; needsDisplay = true } }
     var volumes: [VolumeCapacity] = [] { didSet { needsLayout = true; needsDisplay = true } }
@@ -70,6 +87,9 @@ final class SidebarContentView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         addSubview(light)
+        registerForDraggedTypes(droppableTypes + [Self.pinType])
+        setAccessibilityRole(.group)
+        setAccessibilityLabel("Quick access and This PC")
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
@@ -135,6 +155,11 @@ final class SidebarContentView: NSView {
             } else if hovered == i {
                 fillRounded(row.rect, radius: 3, p.txt.withAlpha(0.08))
             }
+            if dropRow == i {
+                fillRounded(row.rect, radius: 3, p.markFill)
+                strokeRounded(row.rect.insetBy(dx: 0.5, dy: 0.5), radius: 3, p.accent)
+                drawBrackets(row.rect, color: p.accent.ns, length: 7)
+            }
             switch row.kind {
             case .place(let place): drawPlace(place, in: row.rect, on: on, p)
             case .volume(let volume): drawVolume(volume, in: row.rect, p)
@@ -144,6 +169,16 @@ final class SidebarContentView: NSView {
                 strokeRounded(row.rect.insetBy(dx: 1, dy: 1), radius: 3, p.accent, width: 2)
             }
         }
+        if let insertAt { drawInsertion(insertAt, groups: groups, p) }
+    }
+
+    /// The accent line where a dropped folder would be pinned.
+    private func drawInsertion(_ index: Int, groups: [Group], _ p: Palette) {
+        guard let qa = groups.first else { return }
+        let y = qa.rect.minY + 1 + Self.header + CGFloat(index) * Self.itemH
+        let line = NSRect(x: qa.rect.minX + 8, y: y - 1, width: qa.rect.width - 16, height: 2)
+        fillRect(line, p.accent)
+        fillRounded(NSRect(x: line.minX - 3, y: y - 3, width: 6, height: 6), radius: 3, p.accent)
     }
 
     private func drawPlace(_ place: QuickAccessPlace, in r: NSRect, on: Bool, _ p: Palette) {
@@ -224,7 +259,122 @@ final class SidebarContentView: NSView {
     override func mouseDown(with event: NSEvent) {
         guard let i = rowIndex(at: event) else { return }
         focusRow = i
-        onNavigate?(URL(fileURLWithPath: geometry().1[i].path, isDirectory: true))
+        let row = geometry().1[i]
+        // A pin goes where it is dragged; a press that does not move opens it.
+        if case .place = row.kind, let window {
+            let start = convert(event.locationInWindow, from: nil)
+            while let next = window.nextEvent(matching: [.leftMouseUp, .leftMouseDragged]) {
+                if next.type == .leftMouseUp { break }
+                let p = convert(next.locationInWindow, from: nil)
+                if hypot(p.x - start.x, p.y - start.y) > 4 {
+                    beginPinDrag(i, row: row, event: next)
+                    return
+                }
+            }
+        }
+        onNavigate?(URL(fileURLWithPath: row.path, isDirectory: true))
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard let i = rowIndex(at: event) else { return nil }
+        let row = geometry().1[i]
+        if case .place = row.kind { return menuProvider?(row.path, true) }
+        return menuProvider?(row.path, false)
+    }
+
+    // MARK: Dragging pins (reorder)
+
+    private func beginPinDrag(_ index: Int, row: Row, event: NSEvent) {
+        let item = NSPasteboardItem()
+        item.setString(String(index), forType: Self.pinType)
+        item.setString(row.path, forType: .string)
+        let drag = NSDraggingItem(pasteboardWriter: item)
+        let size = row.rect.size
+        let image = NSImage(size: size)
+        if let rep = bitmapImageRepForCachingDisplay(in: row.rect) {
+            cacheDisplay(in: row.rect, to: rep)
+            image.addRepresentation(rep)
+        }
+        drag.setDraggingFrame(row.rect, contents: image)
+        beginDraggingSession(with: [drag], event: event, source: self)
+    }
+
+    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+        context == .withinApplication ? .move : .copy
+    }
+
+    // MARK: Dropping
+
+    private func clearDrop() {
+        dropRow = nil
+        insertAt = nil
+        dropHost?.springLoad(nil)
+        dropHost?.hideDropTip()
+    }
+
+    private func draggedFolders(_ info: NSDraggingInfo) -> [URL] {
+        let urls = (info.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]) ?? []
+        return urls.filter { url in
+            var isDir: ObjCBool = false
+            return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) && isDir.boolValue && !DropRules.isApp(url)
+        }
+    }
+
+    /// The place between Quick access rows (or above the first, below the last) a point is close to.
+    private func insertion(at point: NSPoint, _ groups: [Group]) -> Int? {
+        guard let qa = groups.first, qa.rect.insetBy(dx: 0, dy: -2).contains(point) else { return nil }
+        let top = qa.rect.minY + 1 + Self.header
+        if point.y < top { return 0 }
+        let offset = point.y - top
+        let k = Int((offset / Self.itemH).rounded())
+        if k >= places.count { return places.count }
+        return abs(offset - CGFloat(k) * Self.itemH) <= 6 ? k : nil
+    }
+
+    override func draggingEntered(_ info: NSDraggingInfo) -> NSDragOperation { draggingUpdated(info) }
+
+    override func draggingUpdated(_ info: NSDraggingInfo) -> NSDragOperation {
+        let point = convert(info.draggingLocation, from: nil)
+        let (groups, rows) = geometry()
+        let pinDrag = info.draggingPasteboard.types?.contains(Self.pinType) == true
+        let folders = pinDrag ? [] : draggedFolders(info)
+        if let at = insertion(at: point, groups), pinDrag || !folders.isEmpty {
+            dropRow = nil
+            insertAt = at
+            dropHost?.springLoad(nil)
+            dropHost?.showTip("Pin to Quick access", accentFrom: 7, info: info)
+            return pinDrag ? .move : .link
+        }
+        insertAt = nil
+        guard !pinDrag, let i = rows.firstIndex(where: { $0.rect.contains(point) }), let host = dropHost else {
+            clearDrop()
+            return []
+        }
+        let target = URL(fileURLWithPath: rows[i].path, isDirectory: true)
+        let action = host.dropAction(info, onto: target)
+        dropRow = action == .none ? nil : i
+        host.springLoad(target)
+        host.showDropTip(action, target: target, info: info)
+        return host.dragOperation(for: action, info)
+    }
+
+    override func draggingExited(_ info: NSDraggingInfo?) { clearDrop() }
+    override func draggingEnded(_ info: NSDraggingInfo) { clearDrop() }
+
+    override func performDragOperation(_ info: NSDraggingInfo) -> Bool {
+        let rows = geometry().1
+        defer { clearDrop() }
+        if let at = insertAt {
+            DragState.droppedInFolio = true
+            if let raw = info.draggingPasteboard.string(forType: Self.pinType), let from = Int(raw) {
+                onPinsEdited?(.move(from: from, to: at))
+            } else {
+                for (n, folder) in draggedFolders(info).enumerated() { onPinsEdited?(.pin(folder.path, at: at + n)) }
+            }
+            return true
+        }
+        guard let i = dropRow, rows.indices.contains(i) else { return false }
+        return dropHost?.performDrop(info, onto: URL(fileURLWithPath: rows[i].path, isDirectory: true)) ?? false
     }
 
     // MARK: Keyboard focus (F6, Tab): until milestone 5's tree, the sidebar's rows are the tree.

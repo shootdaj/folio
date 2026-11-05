@@ -18,6 +18,11 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
     var historyPaths: (() -> [String])?
     var dropdown: Dropdown?
     var volumes: [VolumeCapacity] = [] { didSet { if volumes != oldValue { recrumb() } } }
+    /// Files dragged onto a crumb move or copy into that folder; hovering opens it.
+    weak var dropHost: DropHost?
+    /// A typed command (terminal, cmd, an app name) that is not a folder; false when nothing ran.
+    var onCommand: ((AddressCommand) -> Bool)?
+    private var dropCrumb: Int? { didSet { if dropCrumb != oldValue { needsDisplay = true } } }
 
     private(set) var folder = URL(fileURLWithPath: "/")
     private(set) var crumbs: [Crumb] = []
@@ -55,6 +60,7 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
         field.cell?.wraps = false
         field.setAccessibilityLabel("Address")
         addSubview(field)
+        registerForDraggedTypes(droppableTypes)
         setAccessibilityRole(.group)
         setAccessibilityLabel("Address bar")
     }
@@ -153,7 +159,12 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
             case .crumb(let i):
                 let crumb = crumbs[i]
                 let tone = crumb.isCurrent ? p.accent : p.txt
-                if hot { fillRounded(slot.rect, radius: 3, tone.withAlpha(0.08)) }
+                if dropCrumb == i {
+                    let r = slot.rect.insetBy(dx: 0, dy: 5)
+                    fillRounded(r, radius: 3, p.markFill)
+                    strokeRounded(r.insetBy(dx: 0.5, dy: 0.5), radius: 3, p.accent)
+                    drawBrackets(r, color: p.accent.ns, length: 6)
+                } else if hot { fillRounded(slot.rect, radius: 3, tone.withAlpha(0.08)) }
                 drawLine(crumb.title, font: crumb.isCurrent ? currentFont : crumbFont, color: tone,
                          x: slot.rect.minX + Self.crumbPad, midY: box.midY, maxWidth: slot.rect.width - 2 * Self.crumbPad)
             case .arrow(let i):
@@ -207,6 +218,44 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
         case .overflow: toggleOverflow(at: rect, event)
         case .empty: beginEditing()
         }
+    }
+
+    // MARK: Dropping on crumbs
+
+    private func crumbIndex(_ info: NSDraggingInfo) -> Int? {
+        guard !isEditing, let (part, _) = part(at: convert(info.draggingLocation, from: nil)),
+              case .crumb(let i) = part else { return nil }
+        return i
+    }
+
+    override func draggingEntered(_ info: NSDraggingInfo) -> NSDragOperation { draggingUpdated(info) }
+
+    override func draggingUpdated(_ info: NSDraggingInfo) -> NSDragOperation {
+        guard let i = crumbIndex(info), let host = dropHost else {
+            clearDrop()
+            return []
+        }
+        let target = URL(fileURLWithPath: crumbs[i].path, isDirectory: true)
+        let action = host.dropAction(info, onto: target)
+        dropCrumb = action == .none ? nil : i
+        host.springLoad(crumbs[i].isCurrent ? nil : target)
+        host.showDropTip(action, target: target, info: info)
+        return host.dragOperation(for: action, info)
+    }
+
+    private func clearDrop() {
+        dropCrumb = nil
+        dropHost?.springLoad(nil)
+        dropHost?.hideDropTip()
+    }
+
+    override func draggingExited(_ info: NSDraggingInfo?) { clearDrop() }
+    override func draggingEnded(_ info: NSDraggingInfo) { clearDrop() }
+
+    override func performDragOperation(_ info: NSDraggingInfo) -> Bool {
+        defer { clearDrop() }
+        guard let i = dropCrumb, crumbs.indices.contains(i) else { return false }
+        return dropHost?.performDrop(info, onto: URL(fileURLWithPath: crumbs[i].path, isDirectory: true)) ?? false
     }
 
     /// Right-click: Copy address, Copy address as text, Edit address (the window controller does them).
@@ -380,6 +429,11 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
             return
         }
         if !open(url.path) {
+            // Explorer's address bar also runs commands: terminal, cmd, wt, an app name.
+            if let command = AddressCommand.parse(text), onCommand?(command) == true {
+                endEditing(focus: .list)
+                return
+            }
             isInvalid = true
             dropdown?.close()
             onStatus?(StatusText.noSuchFolder)
