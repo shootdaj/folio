@@ -139,6 +139,9 @@ public final class SearchEngine: @unchecked Sendable {
             }
         case .home:
             scopes = [NSMetadataQueryUserHomeScope, NSMetadataQueryLocalComputerScope]
+            // The home folder is walked only where Spotlight has no index of it.
+            let home = FileManager.default.homeDirectoryForCurrentUser
+            if !VolumeIndexing.isIndexed(home) || request.includeHidden { roots = [home] }
         case .thisPC:
             scopes = [NSMetadataQueryLocalComputerScope]
             let volumes = FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: [.volumeIsLocalKey],

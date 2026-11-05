@@ -10,6 +10,8 @@ enum Glyph: Hashable {
     case cut, paste, rename, trash, newFolder, share, more, sortLines, view
     // Milestone 5: tabs, the navigation pane's places and Home.
     case plus, home, eject, globe, server, link, cloud, clock, mapPin, tabs
+    // Milestone 7: D1's Search options chips (cal, kind, size).
+    case calendar, kind, size
 
     fileprivate enum Part {
         case path(String)
@@ -85,6 +87,9 @@ enum Glyph: Hashable {
         case .clock: [.circle(12, 12, 9), .path("M12 7v5l3 2")]
         case .mapPin: [.path("M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 0 1 16 0Z"), .circle(12, 10, 3)]
         case .tabs: [.rect(3, 6, 18, 14, 1.5), .path("M3 10h18M9 6v4")]
+        case .calendar: [.rect(3, 5, 18, 16, 1.5), .path("M3 10h18M8 3v4M16 3v4")]
+        case .kind: [.rect(4, 4, 7, 7, 1), .rect(13, 13, 7, 7, 1), .circle(16.5, 7.5, 3.5), .path("m4 20 3.5-6 3.5 6z")]
+        case .size: [.path("M4 20V10M10 20V4M16 20v-7M2 20h20")]
         }
     }
 

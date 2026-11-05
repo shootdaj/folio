@@ -111,10 +111,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func application(_ sender: NSApplication, open urls: [URL]) {
         guard uitest == nil else { return }
         for url in urls {
+            // A saved search runs again, live.
+            if url.pathExtension.lowercased() == SavedSearch.fileExtension, let saved = try? SavedSearch.read(from: url) {
+                openSavedSearch(saved)
+                continue
+            }
             var isDirectory: ObjCBool = false
             FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
             openWindow(at: isDirectory.boolValue ? url : url.deletingLastPathComponent())
         }
+    }
+
+    /// A window on the saved search's place with the search shown (Back goes to the plain folder).
+    @discardableResult
+    func openSavedSearch(_ saved: SavedSearch) -> BrowserWindowController {
+        let place: URL
+        switch saved.location {
+        case .folder(let url): place = url
+        case .home: place = NavigationHistory.home
+        case .thisPC: place = URL(fileURLWithPath: "/", isDirectory: true)
+        }
+        var history = NavigationHistory(start: place)
+        history.push(place, search: HistorySearch(text: saved.text, recursive: saved.recursive, everywhere: saved.location == .thisPC))
+        let controller = openWindow(with: [BrowserTab(history: history)], active: 0, near: nil, size: nil)
+        // The results' own grouping and sort, as saved (the tab's grouping outside the search stays).
+        controller.group = saved.group
+        if let first = saved.sort.first {
+            controller.searchSort = SortSpec(key: first.key, ascending: first.ascending, then: Array(saved.sort.dropFirst()))
+        }
+        if saved.group != nil || !saved.sort.isEmpty { controller.rearrange() }
+        if let raw = saved.view, let mode = ViewMode(rawValue: raw), mode != .details { controller.chooseView(mode) }
+        return controller
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

@@ -22,7 +22,16 @@ final class ChassisView: NSView {
     /// Option+P's Preview pane or Option+Shift+P's Details pane, right of the list.
     let sidePane = SidePaneView(frame: .zero)
     let status = StatusBarView(frame: .zero)
+    /// The Search options row above the results while a search is shown.
+    let searchOptions = SearchOptionsBar(frame: .zero)
     private let handle = SidebarHandle(frame: .zero)
+    var showsSearchOptions = false {
+        didSet {
+            guard showsSearchOptions != oldValue else { return }
+            searchOptions.isHidden = !showsSearchOptions
+            needsLayout = true
+        }
+    }
 
     /// The navigation pane's width, dragged at its right edge and kept in the defaults.
     var sideWidth: CGFloat = ChassisView.sideW { didSet { if sideWidth != oldValue { needsLayout = true } } }
@@ -53,8 +62,9 @@ final class ChassisView: NSView {
         super.init(frame: .zero)
         home.isHidden = true
         sidePane.isHidden = true
+        searchOptions.isHidden = true
         // The sidebar's scroll view comes first and the list's second (the VM scripts find them so).
-        for view in [sidebar, pane, home, rail, hud, toolbar, status, tabStrip, titleBar, handle, sidePane] as [NSView] { addSubview(view) }
+        for view in [sidebar, pane, home, rail, hud, toolbar, status, tabStrip, titleBar, handle, sidePane, searchOptions] as [NSView] { addSubview(view) }
         handle.onDrag = { [weak self] x in
             guard let self else { return }
             self.sideWidth = min(Self.sideMax, max(Self.sideMin, x))
@@ -93,8 +103,12 @@ final class ChassisView: NSView {
         let sideW = showsSide ? min(SidePaneView.width, max(0, (w - side) / 2 - 40)) : 0
         sidePane.isHidden = !showsSide
         let paneW = max(0, w - side - Self.paneMargin - Self.railGutter - Self.railW - (showsSide ? sideW + Self.paneMargin : 0))
-        pane.frame = NSRect(x: side + Self.paneMargin, y: top + Self.paneMargin, width: paneW,
-                            height: max(0, bodyH - 2 * Self.paneMargin))
+        // D1's `.opts` row sits over the results: 8 pt in, 50 pt high, the pane 8 pt below it.
+        let optsH = searchOptions.preferredHeight(width: paneW)
+        let opts = showsSearchOptions && !showsHome ? optsH + Self.paneMargin : 0
+        searchOptions.frame = NSRect(x: side + Self.paneMargin, y: top + Self.paneMargin, width: paneW, height: optsH)
+        pane.frame = NSRect(x: side + Self.paneMargin, y: top + Self.paneMargin + opts, width: paneW,
+                            height: max(0, bodyH - 2 * Self.paneMargin - opts))
         sidePane.frame = NSRect(x: pane.frame.maxX + Self.paneMargin, y: top + Self.paneMargin, width: sideW,
                                 height: max(0, bodyH - 2 * Self.paneMargin))
         home.frame = NSRect(x: side + Self.paneMargin, y: top + Self.paneMargin,

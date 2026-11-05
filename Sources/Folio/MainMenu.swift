@@ -34,7 +34,10 @@ enum MainMenu {
             item("Open in Terminal", #selector(BrowserWindowController.openInTerminal(_:))),
             .separator(),
             item("Connect to Server...", #selector(BrowserWindowController.connectToServer(_:)), "k"),
-            item("Eject", #selector(BrowserWindowController.ejectCurrentVolume(_:)), "e"),
+            // Cmd+E is Explorer's Ctrl+E (focus the search box) after the Karabiner swap.
+            item("Eject", #selector(BrowserWindowController.ejectCurrentVolume(_:)), "e", [.command, .shift]),
+            .separator(),
+            item("Save Search...", #selector(BrowserWindowController.saveSearch(_:))),
             .separator(),
             // Explorer's Alt+Enter is Option+Return (bound in BrowserWindow); Cmd+I is Finder's.
             item("Properties", #selector(BrowserWindowController.showProperties(_:)), "i"),
@@ -71,6 +74,9 @@ enum MainMenu {
             item("Select All", #selector(NSResponder.selectAll(_:)), "a"),
             item("Select None", #selector(BrowserWindowController.selectNone(_:))),
             item("Invert Selection", #selector(BrowserWindowController.invertSelection(_:))),
+            .separator(),
+            // Explorer's Ctrl+F (Cmd+F after the Karabiner swap); Cmd+E and F3 go there too.
+            item("Search", #selector(BrowserWindowController.focusSearch(_:)), "f"),
         ])
         add("View", to: main, viewItems(compactMenu: false) + [
             .separator(),

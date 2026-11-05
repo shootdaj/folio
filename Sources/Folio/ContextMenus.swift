@@ -73,6 +73,7 @@ extension BrowserWindowController {
         }
         add(menu, "Open", #selector(openSelection(_:)))
         if !oneFolder || items.count > 1 { submenu(menu, "Open with", openWithMenu(for: urls)) }
+        if isSearching { add(menu, "Open file location", #selector(openFileLocation(_:))) }
         if !folders.isEmpty {
             add(menu, "Open in new tab", #selector(openSelectionInNewTab(_:)))
             add(menu, "Open in new window", #selector(openInNewWindow(_:)))
@@ -124,6 +125,10 @@ extension BrowserWindowController {
 
     func backgroundMenu() -> NSMenu {
         let menu = styled("Background")
+        if isSearching {
+            add(menu, "Save search", #selector(saveSearch(_:)))
+            menu.addItem(.separator())
+        }
         let view = styled("View")
         for item in MainMenu.viewItems(compactMenu: true) { view.addItem(item) }
         submenu(menu, "View", view)
