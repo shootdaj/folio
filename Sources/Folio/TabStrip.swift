@@ -202,7 +202,8 @@ final class TabStripView: NSView, NSDraggingSource {
         }
         if closeRect(i).contains(start), i == activeIndex || hovered == i {
             // Closes when the button comes up over the x, as a button does.
-            while let next = window?.nextEvent(matching: [.leftMouseUp, .leftMouseDragged]) {
+            guard let window else { return }
+            while let next = MouseTracking.next(window, [.leftMouseUp, .leftMouseDragged]) {
                 if next.type == .leftMouseUp {
                     if closeRect(i).contains(convert(next.locationInWindow, from: nil)) { onClose?(i) }
                     return
@@ -219,7 +220,8 @@ final class TabStripView: NSView, NSDraggingSource {
     private func trackDrag(from start: NSPoint, index: Int, event: NSEvent) {
         var current = index
         var moved = false
-        while let next = window?.nextEvent(matching: [.leftMouseUp, .leftMouseDragged]) {
+        guard let window else { return }
+        while let next = MouseTracking.next(window, [.leftMouseUp, .leftMouseDragged]) {
             if next.type == .leftMouseUp { return }
             let p = convert(next.locationInWindow, from: nil)
             if !moved && hypot(p.x - start.x, p.y - start.y) < 4 { continue }

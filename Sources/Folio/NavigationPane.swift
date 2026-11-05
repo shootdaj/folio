@@ -695,6 +695,11 @@ final class SidebarOutlineView: NSOutlineView {
 
     override func frameOfOutlineCell(atRow row: Int) -> NSRect { .zero }
 
+    /// A click in a window that is not in front acts at once (the Eject button, a row) instead of
+    /// AppKit holding the press back to see whether it becomes a drag.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func shouldDelayWindowOrdering(for event: NSEvent) -> Bool { false }
+
     override func layout() {
         super.layout()
         overlay.frame = bounds
@@ -754,15 +759,57 @@ final class SidebarOutlineView: NSOutlineView {
         }
     }
 
+    /// Clicks are tracked here rather than by NSTableView: a press on a chevron opens or closes, on
+    /// the Eject button ejects, on a row selects it and, unless it turns into a drag, opens it.
     override func mouseDown(with event: NSEvent) {
+        guard let window else { return }
         let point = convert(event.locationInWindow, from: nil)
         let row = row(at: point)
-        if row >= 0, let chevron = chevronRect(row: row), chevron.insetBy(dx: -4, dy: -4).contains(point),
-           let node = item(atRow: row) as? SideNode {
+        guard row >= 0, let node = item(atRow: row) as? SideNode else { return }
+        if let chevron = chevronRect(row: row), chevron.insetBy(dx: -4, dy: -4).contains(point) {
             pane?.toggle(node, all: event.modifierFlags.contains(.option))
             return
         }
-        super.mouseDown(with: event)
+        if let cell = view(atColumn: 0, row: row, makeIfNecessary: false) as? SideCellView, let button = cell.ejectButton,
+           button.frame.contains(cell.convert(point, from: self)) {
+            button.highlight(true)
+            var inside = true
+            while let next = MouseTracking.next(window, [.leftMouseUp, .leftMouseDragged]) {
+                if next.type == .leftMouseUp { inside = button.bounds.contains(button.convert(next.locationInWindow, from: nil)); break }
+            }
+            button.highlight(false)
+            if inside { button.performClick(nil) }
+            return
+        }
+        window.makeFirstResponder(self)
+        if pane?.outlineView(self, shouldSelectItem: node) == true {
+            selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        }
+        while let next = MouseTracking.next(window, [.leftMouseUp, .leftMouseDragged]) {
+            if next.type == .leftMouseUp { break }
+            let p = convert(next.locationInWindow, from: nil)
+            if hypot(p.x - point.x, p.y - point.y) > 4 {
+                beginRowDrag(row, node: node, event: next)
+                return
+            }
+        }
+        pane?.activate(node)
+    }
+
+    /// A pin (to reorder) or a tree folder (to move or copy it) dragged out of the pane.
+    private func beginRowDrag(_ row: Int, node: SideNode, event: NSEvent) {
+        guard let pane, let writer = pane.outlineView(self, pasteboardWriterForItem: node) else { return }
+        let item = NSDraggingItem(pasteboardWriter: writer)
+        let r = rect(ofRow: row)
+        let image = NSImage(size: r.size)
+        if let view = rowView(atRow: row, makeIfNecessary: false),
+           let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+            view.cacheDisplay(in: view.bounds, to: rep)
+            image.addRepresentation(rep)
+        }
+        item.setDraggingFrame(r, contents: image)
+        DragState.droppedInFolio = false
+        beginDraggingSession(with: [item], event: event, source: self)
     }
 
     override func otherMouseDown(with event: NSEvent) {
@@ -1078,6 +1125,7 @@ final class SideRowView: NSTableRowView {
 /// drives that can be ejected (Disconnect on shares).
 final class SideCellView: NSTableCellView {
     private var eject: ChromeButton?
+    var ejectButton: ChromeButton? { eject }
     private var volume: VolumeCapacity?
     private weak var pane: NavigationPane?
 
@@ -1116,5 +1164,19 @@ final class SideCellView: NSTableCellView {
         // Only the Eject button takes clicks; the rest go to the outline (select, drag, open).
         if let eject, !eject.isHidden, let hit = eject.hitTest(convert(point, from: superview)) { return hit }
         return nil
+    }
+}
+
+/// Following a press without trusting that its button-up event arrives: the next drag or up event, or
+/// nil once the mouse button is no longer down (the press then ends where it is).
+@MainActor
+enum MouseTracking {
+    static func next(_ window: NSWindow, _ mask: NSEvent.EventTypeMask) -> NSEvent? {
+        while true {
+            if let e = window.nextEvent(matching: mask, until: Date(timeIntervalSinceNow: 0.1), inMode: .eventTracking, dequeue: true) {
+                return e
+            }
+            if NSEvent.pressedMouseButtons & 1 == 0 { return nil }
+        }
     }
 }
