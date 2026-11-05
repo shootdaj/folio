@@ -61,6 +61,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     private var volume: VolumeCapacity?
     /// Bumped on every load or re-sort; results for an older value are dropped.
     private var requestID = 0
+    private var isFittingColumns = false
 
     let tableView = FolioTableView()
     private let header = FolioHeaderView(frame: NSRect(x: 0, y: 0, width: 100,
@@ -69,6 +70,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     private var titleBar: TitleBarView { chassis.titleBar }
     private var toolbar: ToolbarView { chassis.toolbar }
 
+    private static let nameMinWidth: CGFloat = 120
     private static let columns: [(key: SortKey, title: String, width: CGFloat)] = [
         (.name, "Name", 320), (.modified, "Date modified", 150), (.kind, "Type", 132), (.size, "Size", 88),
     ]
@@ -126,17 +128,17 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         chassis.sidebar.content.places = QuickAccess.places(home: FileManager.default.homeDirectoryForCurrentUser)
         chassis.rail.onJump = { [weak self] fraction in self?.jump(to: fraction) }
 
-        // Name fills the pane at the starting size; the others keep D1's widths. Columns never
-        // stretch with the window afterwards (Explorer), and saved widths win when there are some.
-        let listWidth = ChassisView.listWidth(windowWidth: options.size.width)
-        let fixed = Self.columns.dropFirst().reduce(0) { $0 + $1.width }
-        let nameWidth = max(200, listWidth - ListMetrics.columnGap / 2 - fixed
-                            - ListMetrics.columnGap * CGFloat(Self.columns.count))
+        // Date, Type and Size keep D1's widths; Name takes the rest of the list (fitColumns), so the
+        // four columns always fit and there is never a horizontal scroller.
+        let nameWidth = CGFloat(ColumnFit.nameWidth(
+            clipWidth: Double(ChassisView.listWidth(windowWidth: options.size.width)),
+            otherWidths: Self.columns.dropFirst().map { Double($0.width) },
+            gap: Double(ListMetrics.columnGap), minimum: Double(Self.nameMinWidth)))
         for column in Self.columns {
             let tableColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(column.key.rawValue))
             tableColumn.title = column.title
             tableColumn.width = column.key == .name ? nameWidth : column.width
-            tableColumn.minWidth = 40
+            tableColumn.minWidth = column.key == .name ? Self.nameMinWidth : 40
             tableColumn.sortDescriptorPrototype = descriptor(for: SortSpec(key: column.key, ascending: column.key.defaultAscending))
             tableView.addTableColumn(tableColumn)
         }
@@ -169,6 +171,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
 
         let scrollView = chassis.pane.scrollView
         scrollView.documentView = tableView
+        // The clip narrows when always-visible scrollbars appear; refit Name whenever it changes.
+        scrollView.contentView.postsFrameChangedNotifications = true
+        NotificationCenter.default.addObserver(self, selector: #selector(listResized(_:)),
+                                               name: NSView.frameDidChangeNotification, object: scrollView.contentView)
         scrollView.contentView.postsBoundsChangedNotifications = true
         NotificationCenter.default.addObserver(self, selector: #selector(listScrolled(_:)),
                                                name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
@@ -340,6 +346,26 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
 
     @objc private func listScrolled(_ note: Notification) { updateVisibleRange() }
 
+    @objc private func listResized(_ note: Notification) {
+        fitColumns()
+        updateVisibleRange()
+    }
+
+    /// Name gets the list width the fixed columns leave, whatever the scroller style.
+    private func fitColumns() {
+        let nameID = NSUserInterfaceItemIdentifier(SortKey.name.rawValue)
+        guard !isFittingColumns, let name = tableView.tableColumn(withIdentifier: nameID) else { return }
+        let clip = chassis.pane.scrollView.contentView.bounds.width
+        guard clip > 0 else { return }
+        let others = tableView.tableColumns.filter { $0 !== name }.map { Double($0.width) }
+        let width = CGFloat(ColumnFit.nameWidth(clipWidth: Double(clip), otherWidths: others,
+                                                gap: Double(ListMetrics.columnGap), minimum: Double(Self.nameMinWidth)))
+        guard abs(name.width - width) >= 0.5 else { return }
+        isFittingColumns = true
+        name.width = width
+        isFittingColumns = false
+    }
+
     private func updateVisibleRange() {
         let clip = chassis.pane.scrollView.contentView
         let total = max(1, tableView.frame.height)
@@ -468,6 +494,12 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
 
     func tableViewSelectionDidChange(_ notification: Notification) {
         updateStatus()
+    }
+
+    /// Dragging the Date, Type or Size divider gives or takes the space from Name.
+    func tableViewColumnDidResize(_ notification: Notification) {
+        let column = notification.userInfo?["NSTableColumn"] as? NSTableColumn
+        if column?.identifier.rawValue != SortKey.name.rawValue { fitColumns() }
     }
 
     // MARK: Window

@@ -220,7 +220,9 @@ final class ListPaneView: NSView {
         scrollView.contentView.drawsBackground = false
         scrollView.borderType = .noBorder
         scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = true
+        // Name always fits the columns to the list (BrowserWindowController.fitColumns).
+        scrollView.hasHorizontalScroller = false
+        scrollView.horizontalScrollElasticity = .none
         scrollView.autohidesScrollers = true
         scrollView.scrollerStyle = .overlay
         // Keeps the header's square corners inside the pane's 4 pt radius.

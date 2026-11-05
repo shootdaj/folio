@@ -6,6 +6,8 @@ import FolioCore
 final class ChassisView: NSView {
     static let titleH: CGFloat = 44, toolH: CGFloat = 56, hudH: CGFloat = 30, statusH: CGFloat = 32
     static let sideW: CGFloat = 248, railW: CGFloat = 34, paneMargin: CGFloat = 8
+    /// Space between the list's vertical scroller and the tick strip, so neither sits on the other.
+    static let railGutter: CGFloat = 14
 
     let titleBar: TitleBarView
     let toolbar: ToolbarView
@@ -28,7 +30,7 @@ final class ChassisView: NSView {
 
     /// Width the list's columns can fill for a window of this width.
     static func listWidth(windowWidth: CGFloat) -> CGFloat {
-        windowWidth - sideW - paneMargin - railW - 2
+        windowWidth - sideW - paneMargin - railGutter - railW - 2
     }
 
     override func layout() {
@@ -42,7 +44,7 @@ final class ChassisView: NSView {
         sidebar.frame = NSRect(x: 0, y: top, width: Self.sideW, height: bodyH)
         rail.frame = NSRect(x: w - Self.railW, y: top, width: Self.railW, height: bodyH)
         pane.frame = NSRect(x: Self.sideW + Self.paneMargin, y: top + Self.paneMargin,
-                            width: max(0, w - Self.sideW - Self.paneMargin - Self.railW),
+                            width: max(0, w - Self.sideW - Self.paneMargin - Self.railGutter - Self.railW),
                             height: max(0, bodyH - 2 * Self.paneMargin))
         status.frame = NSRect(x: 0, y: h - Self.statusH, width: w, height: Self.statusH)
     }
