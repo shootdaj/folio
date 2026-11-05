@@ -17,14 +17,21 @@ final class RenameEditor: NSObject, NSTextFieldDelegate {
 
     var isActive: Bool { row != nil }
 
-    func begin(in table: NSTableView, row: Int, entry: FileEntry, textX: CGFloat) {
-        end()
+    /// Over the Name cell of `tableRow`; `row` is the item it renames.
+    func begin(in table: NSTableView, tableRow: Int, row: Int, entry: FileEntry, textX: CGFloat) {
         guard let column = table.tableColumns.firstIndex(where: { $0.identifier.rawValue == SortKey.name.rawValue }) else { return }
-        let cell = table.frameOfCell(atColumn: column, row: row)
+        let cell = table.frameOfCell(atColumn: column, row: tableRow)
+        begin(in: table, cell: cell, row: row, entry: entry, textX: textX)
+    }
+
+    /// Over a name drawn at `textX` inside `cell` (the icon grid's label line).
+    func begin(in host: NSView, cell: NSRect, row: Int, entry: FileEntry, textX: CGFloat) {
+        end()
+        let table = host
         let font = Typeface.ui(13)
         let want = textWidth(entry.name, font: font) + 40
         let x = cell.minX + textX - 5
-        box.frame = NSRect(x: x, y: cell.minY + 1, width: max(120, min(cell.maxX - x, want)), height: cell.height - 2)
+        box.frame = NSRect(x: x, y: cell.minY + 1, width: max(120, min(max(cell.maxX - x, 120), want)), height: cell.height - 2)
         box.field.font = font
         box.field.textColor = Palette.current.txt.ns
         box.field.stringValue = entry.name
@@ -49,8 +56,8 @@ final class RenameEditor: NSObject, NSTextFieldDelegate {
         row = nil
         let window = box.window
         box.removeFromSuperview()
-        if let table = window?.windowController as? BrowserWindowController {
-            window?.makeFirstResponder(table.tableView)
+        if let controller = window?.windowController as? BrowserWindowController {
+            window?.makeFirstResponder(controller.listView)
         }
         ending = false
         onEnd?()

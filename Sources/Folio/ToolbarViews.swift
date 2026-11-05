@@ -26,6 +26,17 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
     var onMiddleClick: ((URL) -> Void)?
     /// \\server\share or smb://... typed: the window mounts it and opens it.
     var onServer: ((ServerTarget) -> Bool)?
+    /// Header filters on the list, as tokens after the crumbs ("Type: Folder ✕"), Explorer's criteria
+    /// in the address bar. The ✕ clears that column's filter.
+    var tokens: [FilterToken] = [] {
+        didSet {
+            guard tokens != oldValue else { return }
+            rebuildAccessibility()
+            needsDisplay = true
+            superview?.needsLayout = true
+        }
+    }
+    var onClearToken: ((ColumnID) -> Void)?
     private var dropCrumb: Int? { didSet { if dropCrumb != oldValue { needsDisplay = true } } }
 
     private(set) var folder = URL(fileURLWithPath: "/")
@@ -48,7 +59,7 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
     static let crumbPad: CGFloat = 8
     static let minHit: CGFloat = 40
 
-    enum Part: Equatable { case overflow, crumb(Int), arrow(Int), history, empty }
+    enum Part: Equatable { case overflow, crumb(Int), arrow(Int), history, empty, token(Int) }
     private struct Slot { let rect: NSRect; let part: Part }
 
     override init(frame: NSRect) {
@@ -116,10 +127,22 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
         NSRect(x: bounds.width - 1 - Self.arrowWidth, y: 1, width: Self.arrowWidth, height: bounds.height - 2)
     }
 
-    /// The «, crumbs and arrows from the left, then the empty area and the history arrow.
+    private var tokenFont: NSFont { Typeface.mono(12, weight: 500) }
+
+    private func tokenWidth(_ t: FilterToken) -> CGFloat { textWidth(t.text, font: tokenFont) + 10 + 8 + 14 + 6 }
+
+    /// What the tokens take, so the toolbar can make room for them.
+    var tokensWidth: CGFloat { tokens.isEmpty ? 0 : tokens.map(tokenWidth).reduce(0, +) + CGFloat(tokens.count) * 6 + 4 }
+
+    /// The ✕ at a token's right end.
+    private func clearRect(_ r: NSRect) -> NSRect { NSRect(x: r.maxX - 22, y: r.minY, width: 22, height: r.height) }
+
+    /// The «, crumbs and arrows from the left, the filter tokens, then the empty area and the history arrow.
     private func slots() -> [Slot] {
         let h = bounds.height - 2
-        let end = historyRect.minX
+        let tokenWidths = tokens.map(tokenWidth)
+        let tokensTotal = tokens.isEmpty ? 0 : tokenWidths.reduce(0, +) + CGFloat(tokens.count) * 6 + 4
+        let end = historyRect.minX - min(tokensTotal, max(0, historyRect.minX - Self.iconWidth - 160))
         let widths = crumbs.map { Double(crumbWidth($0) + Self.arrowWidth) }
         let first = CrumbFit.firstVisible(widths: widths, available: Double(end - Self.iconWidth - Self.minHit),
                                           overflowWidth: Double(Self.arrowWidth))
@@ -137,7 +160,16 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
             out.append(Slot(rect: NSRect(x: x + w, y: 1, width: Self.arrowWidth, height: h), part: .arrow(i)))
             x += w + Self.arrowWidth
         }
-        out.append(Slot(rect: NSRect(x: x, y: 1, width: max(0, end - x), height: h), part: .empty))
+        if !tokens.isEmpty {
+            x += 4
+            for (i, w) in tokenWidths.enumerated() {
+                let width = min(w, max(60, historyRect.minX - 6 - x))
+                guard width > 40 else { break }
+                out.append(Slot(rect: NSRect(x: x, y: 8, width: width, height: h - 14), part: .token(i)))
+                x += width + 6
+            }
+        }
+        out.append(Slot(rect: NSRect(x: x, y: 1, width: max(0, historyRect.minX - x), height: h), part: .empty))
         out.append(Slot(rect: historyRect, part: .history))
         return out
     }
@@ -186,6 +218,16 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
                          x: slot.rect.minX + Self.crumbPad, midY: box.midY, maxWidth: slot.rect.width - 2 * Self.crumbPad)
             case .arrow(let i):
                 drawArrow(slot.rect, open: dropdown?.isOpen("crumb:" + crumbs[i].path) == true, down: false, hot: hot, p)
+            case .token(let i):
+                let r = slot.rect
+                fillRounded(r, radius: 4, p.selectionFill)
+                strokeRounded(r, radius: 4, p.accent.withAlpha(0.7))
+                drawBrackets(r, color: p.accent.ns, length: 5)
+                drawLine(tokens[i].text, font: tokenFont, color: p.accent, x: r.minX + 10, midY: r.midY, maxWidth: r.width - 10 - 24)
+                let x = clearRect(r)
+                if hot { fillRounded(x.insetBy(dx: 2, dy: 3), radius: 3, p.accent.withAlpha(0.16)) }
+                Glyph.close.draw(in: NSRect(x: x.midX - 6, y: x.midY - 6, width: 12, height: 12), color: (hot ? p.accent : p.txt2).ns,
+                                 lineWidth: 2)
             case .empty, .history:
                 break
             }
@@ -234,6 +276,10 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
         case .arrow(let i): toggleCrumbMenu(i, at: rect, event)
         case .overflow: toggleOverflow(at: rect, event)
         case .empty: beginEditing()
+        case .token(let i):
+            if clearRect(rect).contains(convert(event.locationInWindow, from: nil)), tokens.indices.contains(i) {
+                onClearToken?(tokens[i].column)
+            }
         }
     }
 
@@ -567,6 +613,11 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
                     add(crumbs[i].title, slot.rect) { $0.onNavigate?(url) }
                 case .arrow(let i): add("Folders in " + crumbs[i].title, slot.rect) { $0.toggleCrumbMenu(i, at: slot.rect, nil) }
                 case .empty: add("Edit address", slot.rect) { $0.beginEditing() }
+                case .token(let i):
+                    let token = tokens[i]
+                    add("Filter " + token.text, NSRect(x: slot.rect.minX, y: slot.rect.minY, width: slot.rect.width - 22,
+                                                      height: slot.rect.height)) { _ in }
+                    add("Clear filter " + token.text, clearRect(slot.rect)) { $0.onClearToken?(token.column) }
                 case .history: break
                 }
             }
@@ -660,7 +711,8 @@ final class ToolbarView: NSView {
             separators.append(right - 0.5)
             right -= 7
             let rest = commands.dropLast()
-            let room = right - 154 - Self.addressMin
+            // Filter tokens widen the address bar; the commands that no longer fit fold into See more.
+            let room = right - 154 - max(Self.addressMin, 230 + address.tokensWidth)
             let groups = CGFloat(groupEnds.filter { $0 < rest.count - 1 }.count)
             var fit = rest.count
             while fit > 0, CGFloat(fit) * Self.commandW + groups * 13 > room { fit -= 1 }

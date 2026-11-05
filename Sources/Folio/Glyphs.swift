@@ -205,6 +205,14 @@ enum ItemIcon {
         ctx.restoreGState()
     }
 
+    /// Explorer's shortcut arrow on an alias or symbolic link: a small boxed arrow at the icon's corner.
+    static func drawLinkBadge(in rect: NSRect, palette p: Palette) {
+        fillRounded(rect, radius: max(1.5, rect.width / 6), p.s1)
+        strokeRounded(rect, radius: max(1.5, rect.width / 6), p.line3, width: max(0.75, rect.width / 12))
+        Glyph.arrow.draw(in: rect.insetBy(dx: rect.width * 0.12, dy: rect.height * 0.12), color: p.accent.ns,
+                         lineWidth: rect.width >= 20 ? 2.2 : 3, rotation: -.pi / 4)
+    }
+
     /// The Folio mark in the title bar: an outlined folder and a lit dot, 18 x 18.
     static func drawBrand(in rect: NSRect, palette p: Palette) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }

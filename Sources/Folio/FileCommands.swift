@@ -1,7 +1,8 @@
 import AppKit
 import FolioCore
 
-/// View > Item check boxes, off by default, saved under `itemCheckBoxes`.
+/// View > Show: item check boxes, hidden items, file name extensions, thumbnails, compact view and
+/// the right-hand pane, each saved in the defaults.
 @MainActor
 enum ListOptions {
     static let didChange = Notification.Name("FolioListOptionsDidChange")
@@ -10,6 +11,39 @@ enum ListOptions {
     static let expandKey = "navPaneExpandToCurrent"
     static let navPaneKey = "navPaneShown"
     static let navPaneWidthKey = "navPaneWidth"
+    static let extensionsKey = "showFileExtensions"
+    static let thumbnailsKey = "showThumbnails"
+    static let compactKey = "compactView"
+    static let sidePaneKey = "sidePane"
+
+    /// View > Show > File name extensions: on unless turned off.
+    static var showExtensions: Bool {
+        get { UserDefaults.standard.object(forKey: extensionsKey) as? Bool ?? true }
+        set { set(newValue, extensionsKey) }
+    }
+
+    /// Thumbnails in the icon views; off is Explorer's "Always show icons, never thumbnails".
+    static var thumbnails: Bool {
+        get { UserDefaults.standard.object(forKey: thumbnailsKey) as? Bool ?? true }
+        set { set(newValue, thumbnailsKey) }
+    }
+
+    /// View > Compact view: less space between items in every view.
+    static var compact: Bool {
+        get { UserDefaults.standard.bool(forKey: compactKey) }
+        set { set(newValue, compactKey) }
+    }
+
+    /// The right-hand pane: Preview (Option+P), Details (Option+Shift+P), or none.
+    enum SidePane: String { case none, preview, details }
+
+    static var sidePane: SidePane {
+        get { UserDefaults.standard.string(forKey: sidePaneKey).flatMap(SidePane.init(rawValue:)) ?? .none }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: sidePaneKey)
+            NotificationCenter.default.post(name: didChange, object: nil)
+        }
+    }
 
     static var checkboxes: Bool {
         get { UserDefaults.standard.bool(forKey: key) }
@@ -53,7 +87,7 @@ extension BrowserWindowController: FileListDelegate {
 
     // MARK: Clicks from the list
 
-    func list(_ list: FolioTableView, clicked row: Int, modifiers: NSEvent.ModifierFlags) {
+    func list(_ list: NSView, clicked row: Int, modifiers: NSEvent.ModifierFlags) {
         if renamer.isActive { renamer.cancel() }
         switch modifiers {
         case [.command, .shift]: selection.addRange(to: row)
@@ -65,29 +99,29 @@ extension BrowserWindowController: FileListDelegate {
     }
 
     /// Explorer: middle-click a folder and it opens in a tab behind this one.
-    func list(_ list: FolioTableView, middleClicked row: Int) {
+    func list(_ list: NSView, middleClicked row: Int) {
         guard entries.indices.contains(row), entries[row].isFolder else { return }
         openInNewTab(entries[row].url, activate: false)
     }
 
-    func list(_ list: FolioTableView, toggledCheckboxOf row: Int) {
+    func list(_ list: NSView, toggledCheckboxOf row: Int) {
         selection.toggle(row)
         applySelection(scrollTo: row)
     }
 
-    func list(_ list: FolioTableView, opened row: Int) {
+    func list(_ list: NSView, opened row: Int) {
         selection.click(row)
         applySelection(scrollTo: row)
         open(rows: IndexSet(integer: row))
     }
 
-    func list(_ list: FolioTableView, banded rows: IndexSet, focus: Int?) {
+    func list(_ list: NSView, banded rows: IndexSet, focus: Int?) {
         if renamer.isActive { renamer.cancel() }
         selection.adopt(rows, focus: focus)
         applySelection(scroll: false)
     }
 
-    func listToggledAll(_ list: FolioTableView) { toggleAllFromHeader() }
+    func listToggledAll(_ list: NSView) { toggleAllFromHeader() }
 
     func toggleAllFromHeader() {
         if !entries.isEmpty && selection.rows.count == entries.count { selection.selectNone() } else { selection.selectAll() }
@@ -224,12 +258,21 @@ extension BrowserWindowController: FileListDelegate {
 
     func beginRename(row: Int, batch: [URL]?) {
         guard entries.indices.contains(row) else { return }
-        tableView.scrollRowToVisible(row)
+        scrollToItem(row)
         renameBatch = batch
         let entry = entries[row]
+        if !viewMode.usesTable {
+            // The icon views: the box goes over the label, as wide as the cell.
+            grid.layoutSubtreeIfNeeded()
+            guard let frame = grid.frame(ofItem: row), let cell = grid.cell(ofItem: row) else { return }
+            let name = cell.nameRect
+            let box = NSRect(x: frame.minX + name.minX, y: frame.minY + name.minY - 2, width: max(name.width, 160), height: 24)
+            renamer.begin(in: grid, cell: box, row: row, entry: entry, textX: 5)
+            return
+        }
         let iconX = ListMetrics.rowLead + 6 + 8 + (tableView.showsCheckboxes ? NameCellView.boxShift : 0)
         let textX = iconX + (entry.isFolder ? 18 : 15) + 8
-        renamer.begin(in: tableView, row: row, entry: entry, textX: textX)
+        renamer.begin(in: tableView, tableRow: tableRow(ofItem: row), row: row, entry: entry, textX: textX)
     }
 
     /// Enter, Tab, Shift+Tab or a click away. False keeps the box open (a name that can't be used).
@@ -322,25 +365,21 @@ extension BrowserWindowController: FileListDelegate {
         applySort(SortSpec(key: key, ascending: sortSpec.key == key ? sortSpec.ascending : key.defaultAscending))
     }
 
-    @objc func sortAscending(_ sender: Any?) { applySort(SortSpec(key: sortSpec.key, ascending: true)) }
-    @objc func sortDescending(_ sender: Any?) { applySort(SortSpec(key: sortSpec.key, ascending: false)) }
-
-    private func applySort(_ spec: SortSpec) {
-        guard spec != sortSpec else { return }
-        tableView.sortDescriptors = [NSSortDescriptor(key: spec.key.rawValue, ascending: spec.ascending)]
-    }
+    @objc func sortAscending(_ sender: Any?) { applySort(SortSpec(key: sortSpec.key, ascending: true, then: sortSpec.then)) }
+    @objc func sortDescending(_ sender: Any?) { applySort(SortSpec(key: sortSpec.key, ascending: false, then: sortSpec.then)) }
 
     @objc func share(_ sender: Any?) {
         let urls = selectedURLs
         guard !urls.isEmpty else { NSSound.beep(); return }
-        let anchor: NSView = shareButton.flatMap { $0.isHidden ? nil : $0 } ?? tableView
-        let rect = anchor === tableView ? tableView.rect(ofRow: selection.rows.first ?? 0) : anchor.bounds
+        let anchor: NSView = shareButton.flatMap { $0.isHidden ? nil : $0 } ?? listView
+        let rect = anchor === listView ? (frameOfItem(selection.rows.first ?? 0) ?? listView.bounds) : anchor.bounds
         NSSharingServicePicker(items: urls).show(relativeTo: rect, of: anchor, preferredEdge: .minY)
     }
 
     // MARK: Menus
 
     func validateFileItem(_ item: NSMenuItem) -> Bool {
+        if let view = validateViewItem(item) { return view }
         let editingText = window?.firstResponder is NSTextView
         let any = !selectedURLs.isEmpty
         // Home is not a folder: nothing is pasted, made or opened in it.
@@ -483,11 +522,9 @@ extension BrowserWindowController: FileListDelegate {
         popUp(MainMenu.sortItems(), from: sender)
     }
 
+    /// The command bar's View: the layouts, Compact view, Show and Make this the default view.
     @objc func showViewMenu(_ sender: Any?) {
-        let details = NSMenuItem(title: "Details", action: nil, keyEquivalent: "")
-        details.state = .on
-        popUp([details, .separator(),
-               NSMenuItem(title: "Item check boxes", action: #selector(toggleItemCheckBoxes(_:)), keyEquivalent: "")], from: sender)
+        popUp(MainMenu.viewItems(compactMenu: true), from: sender)
     }
 
     /// See more: the selection commands, Copy to and Move to, and everything the bar had no room for.

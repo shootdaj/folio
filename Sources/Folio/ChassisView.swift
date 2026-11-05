@@ -19,12 +19,21 @@ final class ChassisView: NSView {
     let pane = ListPaneView(frame: .zero)
     let home = HomePaneView(frame: .zero)
     let rail = TickStripView(frame: .zero)
+    /// Option+P's Preview pane or Option+Shift+P's Details pane, right of the list.
+    let sidePane = SidePaneView(frame: .zero)
     let status = StatusBarView(frame: .zero)
     private let handle = SidebarHandle(frame: .zero)
 
     /// The navigation pane's width, dragged at its right edge and kept in the defaults.
     var sideWidth: CGFloat = ChassisView.sideW { didSet { if sideWidth != oldValue { needsLayout = true } } }
     var sidebarShown = true { didSet { if sidebarShown != oldValue { needsLayout = true } } }
+    var sidePaneKind: ListOptions.SidePane = .none {
+        didSet {
+            guard sidePaneKind != oldValue else { return }
+            sidePane.kind = sidePaneKind
+            needsLayout = true
+        }
+    }
     /// Home instead of the file list (the tick strip goes with the list).
     var showsHome = false {
         didSet {
@@ -43,8 +52,9 @@ final class ChassisView: NSView {
         self.toolbar = toolbar
         super.init(frame: .zero)
         home.isHidden = true
+        sidePane.isHidden = true
         // The sidebar's scroll view comes first and the list's second (the VM scripts find them so).
-        for view in [sidebar, pane, home, rail, hud, toolbar, status, tabStrip, titleBar, handle] as [NSView] { addSubview(view) }
+        for view in [sidebar, pane, home, rail, hud, toolbar, status, tabStrip, titleBar, handle, sidePane] as [NSView] { addSubview(view) }
         handle.onDrag = { [weak self] x in
             guard let self else { return }
             self.sideWidth = min(Self.sideMax, max(Self.sideMin, x))
@@ -78,9 +88,15 @@ final class ChassisView: NSView {
         sidebar.frame = NSRect(x: 0, y: top, width: side, height: bodyH)
         handle.frame = NSRect(x: side - 3, y: top, width: 6, height: bodyH)
         rail.frame = NSRect(x: w - Self.railW, y: top, width: Self.railW, height: bodyH)
-        pane.frame = NSRect(x: side + Self.paneMargin, y: top + Self.paneMargin,
-                            width: max(0, w - side - Self.paneMargin - Self.railGutter - Self.railW),
+        // The right-hand pane sits between the list and the tick strip, never narrower than the list allows.
+        let showsSide = sidePaneKind != .none && !showsHome
+        let sideW = showsSide ? min(SidePaneView.width, max(0, (w - side) / 2 - 40)) : 0
+        sidePane.isHidden = !showsSide
+        let paneW = max(0, w - side - Self.paneMargin - Self.railGutter - Self.railW - (showsSide ? sideW + Self.paneMargin : 0))
+        pane.frame = NSRect(x: side + Self.paneMargin, y: top + Self.paneMargin, width: paneW,
                             height: max(0, bodyH - 2 * Self.paneMargin))
+        sidePane.frame = NSRect(x: pane.frame.maxX + Self.paneMargin, y: top + Self.paneMargin, width: sideW,
+                                height: max(0, bodyH - 2 * Self.paneMargin))
         home.frame = NSRect(x: side + Self.paneMargin, y: top + Self.paneMargin,
                             width: max(0, w - side - 2 * Self.paneMargin), height: max(0, bodyH - 2 * Self.paneMargin))
         status.frame = NSRect(x: 0, y: h - Self.statusH, width: w, height: Self.statusH)

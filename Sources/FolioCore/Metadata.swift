@@ -30,9 +30,10 @@ public enum MetadataReader {
         } else if v?.isAliasFile == true {
             m.linkTarget = (try? URL(resolvingAliasFileAt: url, options: [.withoutUI, .withoutMounting]))?.path
         }
-        readSpotlight(url, isImage: type?.conforms(to: .image) ?? false, into: &m)
+        readSpotlight(url, into: &m)
         if m.comments == nil { m.comments = finderComment(url) }
-        if let type, type.conforms(to: .image), m.pixelWidth == nil || m.dateTaken == nil || m.cameraModel == nil {
+        // Date taken is the camera's EXIF date only (Spotlight's content date is just the file's for a screenshot).
+        if let type, type.conforms(to: .image) {
             readImage(url, into: &m)
         }
         if let type, type.conforms(to: .audiovisualContent), m.duration == nil { readMedia(url, into: &m) }
@@ -50,7 +51,7 @@ public enum MetadataReader {
         return out
     }
 
-    private static func readSpotlight(_ url: URL, isImage: Bool, into m: inout ItemMetadata) {
+    private static func readSpotlight(_ url: URL, into m: inout ItemMetadata) {
         guard let item = MDItemCreateWithURL(kCFAllocatorDefault, url as CFURL) else { return }
         func get(_ key: CFString) -> Any? { MDItemCopyAttribute(item, key) }
         func number(_ key: CFString) -> Double? { (get(key) as? NSNumber)?.doubleValue }
@@ -64,7 +65,8 @@ public enum MetadataReader {
         m.artist = (get(kMDItemAuthors) as? [String])?.joined(separator: "; ")
         m.title = text(kMDItemTitle)
         m.comments = text(kMDItemFinderComment)
-        if isImage { m.dateTaken = get(kMDItemContentCreationDate) as? Date }
+        // Spotlight fills Title with the file name when a file has none of its own.
+        if let t = m.title, t == url.lastPathComponent || t == url.deletingPathExtension().lastPathComponent { m.title = nil }
     }
 
     private static func readImage(_ url: URL, into m: inout ItemMetadata) {

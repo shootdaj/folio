@@ -47,6 +47,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         } else {
             ThemeController.shared.start(defaults: .standard)
         }
+        // One view and one column set for every window and folder (milestone 6).
+        ViewCenter.shared.start(defaults: uitest?.defaults ?? .standard)
+        ColumnCenter.shared.start(defaults: uitest?.defaults ?? .standard)
         NSApp.mainMenu = MainMenu.build()
         // Other apps' Services take the selected files' URLs or paths (the menus' Services submenu).
         NSApp.registerServicesMenuSendTypes([.fileURL, .string], returnTypes: [])

@@ -31,6 +31,11 @@ public enum SortLabel {
         return spec.then.isEmpty ? first : first + ", then " + spec.then.map(\.key.title).joined(separator: ", ")
     }
 
+    /// The HUD's room: the first key and how many more ("Date modified, newest first +2").
+    public static func short(_ spec: SortSpec) -> String {
+        term(spec.key, spec.ascending) + (spec.then.isEmpty ? "" : " +\(spec.then.count)")
+    }
+
     /// "Date modified, newest first".
     public static func term(_ key: SortKey, _ ascending: Bool) -> String {
         let way: String = if key.isDate {
@@ -144,7 +149,7 @@ public enum Hud {
             HudSegment(key: "Items", value: ByteText.grouped(entries.count), hasLight: false, trailing: false),
             HudSegment(key: "Folders", value: ByteText.grouped(folders), hasLight: false, trailing: false),
             HudSegment(key: "Files", value: ByteText.grouped(entries.count - folders), hasLight: false, trailing: false),
-            HudSegment(key: "Sort", value: SortLabel.label(sort), hasLight: false, trailing: false),
+            HudSegment(key: "Sort", value: SortLabel.short(sort), hasLight: false, trailing: false),
             HudSegment(key: "View", value: view, hasLight: false, trailing: false),
             HudSegment(key: "Selected", value: selectedText(selection), hasLight: false, trailing: true),
         ]

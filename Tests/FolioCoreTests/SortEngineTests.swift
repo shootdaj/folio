@@ -144,5 +144,8 @@ private func names(_ entries: [FileEntry]) -> [String] { entries.map(\.name) }
         #expect(SortLabel.label(SortSpec(key: .modified, ascending: false).shiftClicking(.kind).shiftClicking(.name))
             == "Date modified, newest first, then Type, Name")
         #expect(SortLabel.label(SortSpec(key: .created, ascending: true)) == "Date created, oldest first")
+        #expect(SortLabel.short(SortSpec(key: .modified, ascending: false).shiftClicking(.kind).shiftClicking(.name))
+            == "Date modified, newest first +2")
+        #expect(SortLabel.short(.standard) == "Name, A to Z")
     }
 }

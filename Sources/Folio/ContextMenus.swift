@@ -8,7 +8,7 @@ import Quartz
 extension BrowserWindowController {
     // MARK: Building the menus
 
-    func list(_ list: FolioTableView, menuFor row: Int, event: NSEvent) -> NSMenu? {
+    func list(_ list: NSView, menuFor row: Int, event: NSEvent) -> NSMenu? {
         if renamer.isActive { renamer.cancel() }
         let extended = event.modifierFlags.contains(.shift)
         if row >= 0, entries.indices.contains(row) {
@@ -29,9 +29,8 @@ extension BrowserWindowController {
         let shift = NSEvent.modifierFlags.contains(.shift)
         let menu = selection.rows.isEmpty ? backgroundMenu() : itemMenu(extended: shift)
         let row = selection.focus.flatMap { selection.rows.contains($0) ? $0 : nil } ?? selection.rows.first
-        let at = row.map { NSPoint(x: tableView.rect(ofRow: $0).minX + 60, y: tableView.rect(ofRow: $0).maxY) }
-            ?? NSPoint(x: 60, y: 40)
-        menu.popUp(positioning: nil, at: at, in: tableView)
+        let at = row.flatMap(frameOfItem).map { NSPoint(x: $0.minX + 60, y: $0.maxY) } ?? NSPoint(x: 60, y: 40)
+        menu.popUp(positioning: nil, at: at, in: listView)
     }
 
     private func styled(_ title: String) -> NSMenu {
@@ -126,11 +125,7 @@ extension BrowserWindowController {
     func backgroundMenu() -> NSMenu {
         let menu = styled("Background")
         let view = styled("View")
-        let details = NSMenuItem(title: "Details", action: nil, keyEquivalent: "")
-        details.state = .on
-        view.addItem(details)
-        view.addItem(.separator())
-        add(view, "Item check boxes", #selector(toggleItemCheckBoxes(_:)))
+        for item in MainMenu.viewItems(compactMenu: true) { view.addItem(item) }
         submenu(menu, "View", view)
         let sort = styled("Sort by")
         for item in MainMenu.sortItems() {
@@ -139,10 +134,8 @@ extension BrowserWindowController {
         }
         submenu(menu, "Sort by", sort)
         let group = styled("Group by")
-        for title in ["(None)", "Name", "Date modified", "Type", "Size"] {
-            let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-            item.toolTip = "Grouping arrives with milestone 6"
-            if title == "(None)" { item.state = .on }
+        for item in MainMenu.groupItems() {
+            if item.action != nil { item.target = self }
             group.addItem(item)
         }
         submenu(menu, "Group by", group)
@@ -224,7 +217,7 @@ extension BrowserWindowController {
 
     // MARK: Commands
 
-    @objc func openSelection(_ sender: Any?) { open(rows: tableView.selectedRowIndexes) }
+    @objc func openSelection(_ sender: Any?) { open(rows: selection.rows) }
 
     @objc func openInNewWindow(_ sender: Any?) {
         for entry in selectedEntries where entry.isFolder {
@@ -412,7 +405,7 @@ extension BrowserWindowController {
         PropertiesWindowController.show([history.current], near: window)
     }
 
-    func list(_ list: FolioTableView, showPropertiesOf row: Int) {
+    func list(_ list: NSView, showPropertiesOf row: Int) {
         selection.click(row)
         applySelection(scrollTo: row)
         showProperties(nil)
@@ -435,12 +428,37 @@ extension BrowserWindowController {
         MainActor.assumeIsolated {
             quickLookItems = selectedURLs
             panel.dataSource = self
+            panel.delegate = self
             panel.reloadData()
         }
     }
 
     nonisolated override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
-        MainActor.assumeIsolated { panel.dataSource = nil }
+        MainActor.assumeIsolated {
+            panel.dataSource = nil
+            panel.delegate = nil
+        }
+    }
+}
+
+extension BrowserWindowController: QLPreviewPanelDelegate {
+    /// The arrow keys in Quick Look walk the list, as in Finder: the next item is selected and previewed.
+    nonisolated func previewPanel(_ panel: QLPreviewPanel!, handle event: NSEvent!) -> Bool {
+        guard let event, event.type == .keyDown else { return false }
+        let key = event.keyCode
+        return MainActor.assumeIsolated {
+            guard quickLookItems.count <= 1 else { return false }
+            let grid = !viewMode.usesTable
+            let line = grid ? self.grid.itemsPerLine : 1
+            switch key {
+            case 125: moveSelection(grid && line > 1 && !self.grid.isHorizontal ? .pageDown(line) : .down, extend: false)
+            case 126: moveSelection(grid && line > 1 && !self.grid.isHorizontal ? .pageUp(line) : .up, extend: false)
+            case 124 where grid: moveSelection(self.grid.isHorizontal ? .pageDown(line) : .down, extend: false)
+            case 123 where grid: moveSelection(self.grid.isHorizontal ? .pageUp(line) : .up, extend: false)
+            default: return false
+            }
+            return true
+        }
     }
 }
 

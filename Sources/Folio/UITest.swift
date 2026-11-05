@@ -199,8 +199,7 @@ extension BrowserWindowController {
 
     /// What NSTableView does after a header click, for when the synthesized click is swallowed.
     func uitestSortFallback(_ key: SortKey) {
-        let next = sortSpec.clicking(key)
-        tableView.sortDescriptors = [NSSortDescriptor(key: next.key.rawValue, ascending: next.ascending)]
+        applySort(sortSpec.clicking(key))
     }
 
     func uitestClickRow(_ row: Int) {

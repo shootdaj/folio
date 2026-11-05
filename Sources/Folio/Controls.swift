@@ -108,6 +108,7 @@ final class D1Check: NSButton {
         super.init(frame: NSRect(x: 0, y: 0, width: 200, height: 20))
         setButtonType(.switch)
         self.title = title
+        setAccessibilityLabel(title)
         isBordered = false
         target = self
         action = #selector(toggled(_:))
@@ -139,6 +140,8 @@ final class D1Check: NSButton {
     override func draw(_ dirtyRect: NSRect) {
         let p = Palette.current
         let box = NSRect(x: 0, y: (bounds.height - 14) / 2, width: 14, height: 14)
+        // Greyed when it cannot change (Choose details' Name).
+        if !isEnabled { NSGraphicsContext.current?.cgContext.setAlpha(0.5) }
         CheckBox.draw(in: box, on: isChecked && !isMixed, mixed: isMixed, p)
         drawLine(title, font: labelFont, color: isChecked || isMixed ? p.txt : p.txt2, x: 22, midY: bounds.midY,
                  maxWidth: bounds.width - 22)
