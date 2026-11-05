@@ -938,6 +938,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         }
         let folderOptions = ListOptions.folder
         if listedWith != (ListOptions.showHidden, folderOptions.hideProtectedOSFiles) {
+            listedWith = (ListOptions.showHidden, folderOptions.hideProtectedOSFiles)
             if isSearching { runSearch(keepingState: true) } else if !history.isHome { reloadContents() }
         }
         applyFolderOptions()
