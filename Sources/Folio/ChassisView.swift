@@ -12,12 +12,14 @@ final class ChassisView: NSView {
     let hud = HudView(frame: .zero)
     let sidebar = SidebarView(frame: .zero)
     let pane = ListPaneView(frame: .zero)
+    let rail = TickStripView(frame: .zero)
+    let status = StatusBarView(frame: .zero)
 
     init(titleBar: TitleBarView, toolbar: ToolbarView) {
         self.titleBar = titleBar
         self.toolbar = toolbar
         super.init(frame: .zero)
-        for view in [sidebar, pane, hud, toolbar, titleBar] as [NSView] { addSubview(view) }
+        for view in [sidebar, pane, rail, hud, toolbar, status, titleBar] as [NSView] { addSubview(view) }
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
@@ -38,9 +40,11 @@ final class ChassisView: NSView {
         let top = Self.titleH + Self.toolH + Self.hudH
         let bodyH = max(0, h - top - Self.statusH)
         sidebar.frame = NSRect(x: 0, y: top, width: Self.sideW, height: bodyH)
+        rail.frame = NSRect(x: w - Self.railW, y: top, width: Self.railW, height: bodyH)
         pane.frame = NSRect(x: Self.sideW + Self.paneMargin, y: top + Self.paneMargin,
                             width: max(0, w - Self.sideW - Self.paneMargin - Self.railW),
                             height: max(0, bodyH - 2 * Self.paneMargin))
+        status.frame = NSRect(x: 0, y: h - Self.statusH, width: w, height: Self.statusH)
     }
 
     override func draw(_ dirtyRect: NSRect) {

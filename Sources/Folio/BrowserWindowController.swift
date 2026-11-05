@@ -122,6 +122,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         }
         chassis.sidebar.content.onNavigate = { [weak self] url in self?.navigate(to: url) }
         chassis.sidebar.content.places = QuickAccess.places(home: FileManager.default.homeDirectoryForCurrentUser)
+        chassis.rail.onJump = { [weak self] fraction in self?.jump(to: fraction) }
 
         // Name fills the pane at the starting size; the others keep D1's widths. Columns never
         // stretch with the window afterwards (Explorer), and saved widths win when there are some.
@@ -166,6 +167,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
 
         let scrollView = chassis.pane.scrollView
         scrollView.documentView = tableView
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(self, selector: #selector(listScrolled(_:)),
+                                               name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
 
         window.contentView = chassis
         window.initialFirstResponder = tableView
@@ -293,6 +297,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             tableView.selectRowIndexes(rows, byExtendingSelection: false)
         }
         updateStatus()
+        updateVisibleRange()
     }
 
     private func updateChrome() {
@@ -317,8 +322,32 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     private func updateStatus() {
         let selection = SelectionSummary(selectedEntries)
         let path = history.current.path
+        if let loadError {
+            chassis.status.countText = loadError
+        } else if isLoading {
+            chassis.status.countText = "Loading " + (path as NSString).lastPathComponent
+        } else {
+            chassis.status.countText = StatusText.count(items: entries.count, selection: selection)
+        }
+        chassis.status.ticker.items = Ticker.items(volume: volume, selection: selection, sort: sortSpec, path: path)
         chassis.hud.segments = Hud.segments(path: path, entries: entries, sort: sortSpec, selection: selection)
+        chassis.rail.rowCount = entries.count
+        chassis.rail.selected = tableView.selectedRowIndexes
         header.sort = sortSpec
+    }
+
+    @objc private func listScrolled(_ note: Notification) { updateVisibleRange() }
+
+    private func updateVisibleRange() {
+        let clip = chassis.pane.scrollView.contentView
+        let total = max(1, tableView.frame.height)
+        chassis.rail.visibleRange = (Double(clip.bounds.minY / total), Double(clip.bounds.height / total))
+    }
+
+    private func jump(to fraction: Double) {
+        guard !entries.isEmpty else { return }
+        let row = min(entries.count - 1, Int(fraction * Double(entries.count)))
+        tableView.scrollRowToVisible(row)
     }
 
     @objc private func themeChanged(_ note: Notification) {
