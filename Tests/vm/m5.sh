@@ -718,7 +718,8 @@ if wait_window folio-tests 6 && wait_list_row folio-tests scratch.dmg 6; then
         sleep 1.5
         f=$(shot m5-11b-image-opened)
         pass 11b open-image "Return on scratch.dmg attached it and the tab shows the drive: $(names_now), $f"
-        keys 'keystroke "e" using command down'
+        # File > Eject is Cmd+Shift+E since milestone 7 (Cmd+E is Explorer's Ctrl+E, the search box).
+        keys 'keystroke "e" using {command down, shift down}'
         i=0
         while [ -d "$RENAMED" ] && [ "$i" -lt 40 ]; do sleep 0.25; i=$((i + 1)); done
         if [ ! -d "$RENAMED" ] && wait_tabs Home "Home=0|Home=1" 8 && [ -z "$(scratch_disks)" ]; then
