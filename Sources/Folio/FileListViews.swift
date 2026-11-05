@@ -12,9 +12,31 @@ enum ListMetrics {
     static let rowLead: CGFloat = 10 - columnGap / 2
 }
 
-/// The table, with hover tracking for the 5.5% row wash.
+/// What the list asks of its window controller: Explorer's selection rules live there (ListSelection).
+@MainActor
+protocol FileListDelegate: AnyObject {
+    func list(_ list: FolioTableView, clicked row: Int, modifiers: NSEvent.ModifierFlags)
+    func list(_ list: FolioTableView, toggledCheckboxOf row: Int)
+    func list(_ list: FolioTableView, opened row: Int)
+    /// The rubber band now covers `rows` (already combined with the old selection for Cmd+drag).
+    func list(_ list: FolioTableView, banded rows: IndexSet, focus: Int?)
+    func listToggledAll(_ list: FolioTableView)
+}
+
+/// The table, with hover tracking for the 5.5% row wash, Explorer clicks (Cmd+click toggles, Shift+click
+/// ranges, Cmd+Shift+click adds a range), a rubber band from empty space, and item check boxes.
 final class FolioTableView: NSTableView {
     private(set) var hoveredRow = -1
+    weak var listDelegate: FileListDelegate?
+    /// View > Item check boxes: a box in each Name cell (on hover and on selected rows) and in the header.
+    var showsCheckboxes = false {
+        didSet {
+            guard showsCheckboxes != oldValue else { return }
+            enumerateAvailableRowViews { row, _ in row.subviews.forEach { $0.needsDisplay = true } }
+            headerView?.needsDisplay = true
+        }
+    }
+    private let band = BandView()
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -43,12 +65,111 @@ final class FolioTableView: NSTableView {
             }
         }
     }
+
+    /// The check box of a row, in table coordinates (a little larger than drawn, to be easy to hit).
+    func checkboxRect(row: Int) -> NSRect {
+        let column = tableColumns.firstIndex { $0.identifier.rawValue == SortKey.name.rawValue } ?? 0
+        let cell = frameOfCell(atColumn: column, row: row)
+        return NSRect(x: cell.minX + NameCellView.boxX - 4, y: cell.midY - 11, width: 22, height: 22)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        guard let delegate = listDelegate else { return super.mouseDown(with: event) }
+        let point = convert(event.locationInWindow, from: nil)
+        let row = row(at: point)
+        let mods = event.modifierFlags.intersection([.command, .shift])
+        guard row >= 0 else {
+            rubberBand(from: event, at: point, adding: mods.contains(.command))
+            return
+        }
+        if showsCheckboxes, checkboxRect(row: row).contains(point) {
+            delegate.list(self, toggledCheckboxOf: row)
+            return
+        }
+        if event.clickCount >= 2, mods.isEmpty {
+            delegate.list(self, opened: row)
+            return
+        }
+        // A plain click on one of several selected rows keeps them all until the mouse comes up
+        // without a drag (so a drag can take them all, as in Explorer).
+        if mods.isEmpty, selectedRowIndexes.contains(row), selectedRowIndexes.count > 1 {
+            while let next = window?.nextEvent(matching: [.leftMouseUp, .leftMouseDragged]) {
+                if next.type == .leftMouseUp {
+                    delegate.list(self, clicked: row, modifiers: [])
+                    return
+                }
+                let p = convert(next.locationInWindow, from: nil)
+                if hypot(p.x - point.x, p.y - point.y) > 4 { return }
+            }
+            return
+        }
+        delegate.list(self, clicked: row, modifiers: mods)
+    }
+
+    /// Explorer's marquee: from empty space, a rectangle that selects every row it touches; with Cmd
+    /// it adds to what was selected. A click with no drag clears the selection.
+    private func rubberBand(from event: NSEvent, at start: NSPoint, adding: Bool) {
+        let base = adding ? selectedRowIndexes : IndexSet()
+        if !adding { listDelegate?.list(self, banded: IndexSet(), focus: nil) }
+        if band.superview == nil { addSubview(band) }
+        let rowH = numberOfRows > 0 ? rect(ofRow: 0).height : rowHeight
+        while let next = window?.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
+            if next.type == .leftMouseUp { break }
+            autoscroll(with: next)
+            let p = convert(next.locationInWindow, from: nil)
+            let r = RubberBand.rect(from: (Double(start.x), Double(start.y)), to: (Double(p.x), Double(p.y)))
+            band.frame = NSRect(x: r.x, y: r.y, width: r.width, height: r.height)
+            band.isHidden = false
+            let hit = RubberBand.rows(fromY: Double(start.y), toY: Double(p.y), rowHeight: Double(rowH), count: numberOfRows)
+            let focus = hit.isEmpty ? nil : (p.y < start.y ? hit.first : hit.last)
+            listDelegate?.list(self, banded: RubberBand.selection(base: base, hit: hit, adding: adding), focus: focus)
+        }
+        band.isHidden = true
+    }
+
+    /// The marquee: the selection fill and a 1 pt accent line.
+    private final class BandView: NSView {
+        override var isFlipped: Bool { true }
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override func draw(_ dirtyRect: NSRect) {
+            let p = Palette.current
+            fillRect(bounds, p.selectionFill)
+            p.accent.withAlpha(0.8).ns.setStroke()
+            let path = NSBezierPath(rect: bounds.insetBy(dx: 0.5, dy: 0.5))
+            path.lineWidth = 1
+            path.stroke()
+        }
+    }
 }
 
 /// The column header (`.lh`): s2 strip, wide Archivo labels, the sorted column in the accent with a
 /// glowing underline and arrow. Clicks, resizing and reordering stay NSTableHeaderView's own.
 final class FolioHeaderView: NSTableHeaderView {
     var sort = SortSpec.standard { didSet { needsDisplay = true } }
+    /// The header box: nil hides it; otherwise none, some (mixed) or all rows selected.
+    var checkState: (all: Bool, some: Bool)? { didSet { needsDisplay = true } }
+    var onToggleAll: (() -> Void)?
+
+    private var nameColumnRect: NSRect? {
+        guard let table = tableView,
+              let i = table.tableColumns.firstIndex(where: { $0.identifier.rawValue == SortKey.name.rawValue }) else { return nil }
+        return headerRect(ofColumn: i)
+    }
+
+    private var boxRect: NSRect? {
+        guard checkState != nil, let r = nameColumnRect else { return nil }
+        return NSRect(x: r.minX + ListMetrics.columnGap / 2 + NameCellView.boxX, y: ListMetrics.headerHeight / 2 - 7, width: 14, height: 14)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if let box = boxRect, box.insetBy(dx: -4, dy: -6).contains(point) {
+            onToggleAll?()
+            return
+        }
+        super.mouseDown(with: event)
+    }
 
     override var isFlipped: Bool { true }
 
@@ -67,6 +188,9 @@ final class FolioHeaderView: NSTableHeaderView {
             guard let key = SortKey(rawValue: column.identifier.rawValue) else { continue }
             drawHeader(column.title, key: key, in: rect, p)
         }
+        if let box = boxRect, let state = checkState {
+            CheckBox.draw(in: box, on: state.all, mixed: state.some && !state.all, p)
+        }
     }
 
     private func drawHeader(_ title: String, key: SortKey, in rect: NSRect, _ p: Palette) {
@@ -78,7 +202,7 @@ final class FolioHeaderView: NSTableHeaderView {
         let half = ListMetrics.columnGap / 2
         // Name sits 16 px in from the grid edge; Size hugs the right, its arrow slot still reserved.
         let x: CGFloat = switch key {
-        case .name: rect.minX + ListMetrics.rowLead + half + 16
+        case .name: rect.minX + ListMetrics.rowLead + half + 16 + (checkState == nil ? 0 : NameCellView.boxShift)
         case .size: rect.maxX - half - arrow - gap - tw
         default: rect.minX + half
         }
@@ -106,7 +230,15 @@ final class FolioHeaderView: NSTableHeaderView {
 
 /// A row (`.row`): hover wash, and when selected the accent fill inset 3 px with corner brackets.
 final class FolioRowView: NSTableRowView {
-    var isHovered = false { didSet { if isHovered != oldValue { needsDisplay = true } } }
+    var isHovered = false {
+        didSet {
+            guard isHovered != oldValue else { return }
+            needsDisplay = true
+            subviews.forEach { $0.needsDisplay = true }
+        }
+    }
+    /// Explorer's focus rectangle, drawn when the keyboard focus (Ctrl+arrows) is on an unselected row.
+    var isFocusRow = false { didSet { if isFocusRow != oldValue { needsDisplay = true } } }
 
     override var isFlipped: Bool { true }
 
@@ -121,6 +253,13 @@ final class FolioRowView: NSTableRowView {
     override func drawBackground(in dirtyRect: NSRect) {
         if isHovered && !isSelected {
             fillRounded(bounds.insetBy(dx: 3, dy: 0), radius: 3, Palette.current.txt.withAlpha(0.055))
+        }
+        if isFocusRow && !isSelected {
+            let path = NSBezierPath(rect: bounds.insetBy(dx: 3.5, dy: 0.5))
+            path.lineWidth = 1
+            path.setLineDash([2, 2], count: 2, phase: 0)
+            Palette.current.txt3.ns.setStroke()
+            path.stroke()
         }
     }
 
@@ -144,15 +283,35 @@ protocol RowCellView: AnyObject {
 
 /// Name cell: selection light, folder or file icon, name (accent and semibold when selected).
 final class NameCellView: NSTableCellView, RowCellView, ThemeAware {
-    var entry: FileEntry? { didSet { needsDisplay = true; setAccessibilityLabel(entry?.name) } }
+    var entry: FileEntry? {
+        didSet {
+            needsDisplay = true
+            setAccessibilityLabel(entry?.name)
+            setAccessibilityValue(entry?.name)
+        }
+    }
+    /// Cut and not yet pasted: drawn at Explorer's faded opacity.
+    var isCut = false { didSet { if isCut != oldValue { needsDisplay = true } } }
+    var showsCheckbox = false {
+        didSet {
+            guard showsCheckbox != oldValue else { return }
+            light.isLit = selected && !showsCheckbox
+            needsDisplay = true
+        }
+    }
     private var selected = false
     private let light = LedView(diameter: 6)
+
+    /// Where the item check box sits in the cell, and how far it pushes the icon and name.
+    static let boxX: CGFloat = ListMetrics.rowLead - 1
+    static let boxShift: CGFloat = 8
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         light.isLit = false
         light.breathing = true
         addSubview(light)
+        setAccessibilityRole(.staticText)
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
@@ -162,7 +321,7 @@ final class NameCellView: NSTableCellView, RowCellView, ThemeAware {
     func rowSelectionChanged(_ selected: Bool) {
         guard selected != self.selected else { return }
         self.selected = selected
-        light.isLit = selected
+        light.isLit = selected && !showsCheckbox
         needsDisplay = true
     }
 
@@ -177,7 +336,12 @@ final class NameCellView: NSTableCellView, RowCellView, ThemeAware {
         guard let entry else { return }
         let p = Palette.current
         let mid = bounds.midY
-        let iconX = ListMetrics.rowLead + 6 + 8
+        let hovered = (superview as? FolioRowView)?.isHovered ?? false
+        if showsCheckbox && (selected || hovered) {
+            CheckBox.draw(in: NSRect(x: Self.boxX, y: (mid - 7).rounded(), width: 14, height: 14), on: selected, mixed: false, p)
+        }
+        if isCut { NSGraphicsContext.current?.cgContext.setAlpha(0.45) }
+        let iconX = ListMetrics.rowLead + 6 + 8 + (showsCheckbox ? Self.boxShift : 0)
         let textX: CGFloat
         if entry.isFolder {
             ItemIcon.drawFolder(in: NSRect(x: iconX, y: mid - 7.5, width: 18, height: 15), palette: p, lit: selected)
@@ -193,9 +357,17 @@ final class NameCellView: NSTableCellView, RowCellView, ThemeAware {
 
 /// Date, Type and Size cells: one line of text, mono for dates and sizes, Size right-aligned.
 final class TextCellView: NSTableCellView, RowCellView {
-    var text = "" { didSet { if text != oldValue { needsDisplay = true; setAccessibilityLabel(text) } } }
+    var text = "" {
+        didSet {
+            guard text != oldValue else { return }
+            needsDisplay = true
+            setAccessibilityLabel(text)
+            setAccessibilityValue(text)
+        }
+    }
     var mono = false
     var alignRight = false
+    var isCut = false { didSet { if isCut != oldValue { needsDisplay = true } } }
 
     override var isFlipped: Bool { true }
 
@@ -203,6 +375,7 @@ final class TextCellView: NSTableCellView, RowCellView {
 
     override func draw(_ dirtyRect: NSRect) {
         let p = Palette.current
+        if isCut { NSGraphicsContext.current?.cgContext.setAlpha(0.45) }
         let font = mono ? Typeface.mono(12) : Typeface.ui(13)
         drawLine(text, font: font, color: p.txt2, x: alignRight ? bounds.maxX : 0, midY: bounds.midY,
                  maxWidth: bounds.width, alignRight: alignRight)

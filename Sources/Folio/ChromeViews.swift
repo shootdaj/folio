@@ -10,6 +10,8 @@ final class LedView: NSView, ThemeAware {
     var breathing = false { didSet { updateAnimation() } }
     /// D1's `pulse2`: two quick flashes every 1.6 s (the HUD while the address is being edited).
     var pulsing = false { didSet { if pulsing != oldValue { updateAnimation() } } }
+    /// D1's `blink`: on, then at 18% for half of every second (paused, waiting on a conflict).
+    var blinking = false { didSet { if blinking != oldValue { updateAnimation() } } }
     var isLit = true { didSet { isHidden = !isLit; updateAnimation() } }
 
     private let ring = CALayer()
@@ -60,8 +62,18 @@ final class LedView: NSView, ThemeAware {
     private func updateAnimation() {
         guard let layer else { return }
         layer.removeAnimation(forKey: "breathe")
-        guard breathing || pulsing, isLit, window != nil,
+        guard breathing || pulsing || blinking, isLit, window != nil,
               !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+        if blinking {
+            let k = CAKeyframeAnimation(keyPath: "opacity")
+            k.values = [1, 0.18]
+            k.keyTimes = [0, 0.5]
+            k.calculationMode = .discrete
+            k.duration = 1
+            k.repeatCount = .infinity
+            layer.add(k, forKey: "breathe")
+            return
+        }
         if pulsing {
             let k = CAKeyframeAnimation(keyPath: "opacity")
             k.values = [0.3, 1, 0.3, 1, 0.3, 0.3]

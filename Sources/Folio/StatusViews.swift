@@ -13,6 +13,17 @@ final class StatusBarView: NSView {
         }
     }
     let ticker = TickerView(frame: .zero)
+    /// Explorer's one-line "Copying 3 items" while a job runs; clicking it brings the progress window back.
+    let chip = StatusChip()
+    var chipText: String? {
+        didSet {
+            guard chipText != oldValue else { return }
+            chip.text = chipText ?? ""
+            chip.isHidden = chipText == nil
+            needsLayout = true
+            needsDisplay = true
+        }
+    }
     private let light = LedView(diameter: 7)
 
     override init(frame: NSRect) {
@@ -20,6 +31,9 @@ final class StatusBarView: NSView {
         light.breathing = true
         addSubview(light)
         addSubview(ticker)
+        chip.isHidden = true
+        addSubview(chip)
+        setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityLabel("Status bar")
     }
@@ -31,11 +45,13 @@ final class StatusBarView: NSView {
     private var countFont: NSFont { Typeface.ui(12, weight: 500) }
 
     /// Left block: padding 12, light 7, gap 9, the count; then gap 12, a 1 pt rule, gap 12.
-    private var tickerX: CGFloat { 12 + 7 + 9 + textWidth(countText, font: countFont) + 12 + 1 + 12 }
+    private var chipX: CGFloat { 12 + 7 + 9 + textWidth(countText, font: countFont) + 12 + 1 + 12 }
+    private var tickerX: CGFloat { chip.isHidden ? chipX : chipX + chip.fit() + 12 + 1 + 12 }
 
     override func layout() {
         super.layout()
         light.place(dotAt: NSPoint(x: 12, y: ((bounds.height + 1) / 2 - 3.5).rounded()))
+        chip.frame = NSRect(x: chipX, y: (bounds.height + 1 - 24) / 2, width: chip.fit(), height: 24)
         ticker.frame = NSRect(x: tickerX, y: (bounds.height + 1 - 20) / 2, width: max(0, bounds.width - tickerX - 12), height: 20)
     }
 
@@ -46,6 +62,67 @@ final class StatusBarView: NSView {
         let mid = (bounds.height + 1) / 2
         let w = drawLine(countText, font: countFont, color: p.txt, x: 12 + 7 + 9, midY: mid)
         fillRect(NSRect(x: 12 + 7 + 9 + w + 12, y: mid - 7, width: 1, height: 14), p.line2)
+        if !chip.isHidden {
+            fillRect(NSRect(x: chip.frame.maxX + 12, y: mid - 7, width: 1, height: 14), p.line2)
+        }
+    }
+}
+
+/// The status bar's job chip: a pulsing light and "Copying 3 items, 42%" in mono, hover brackets.
+final class StatusChip: NSButton {
+    var text = "" {
+        didSet {
+            guard text != oldValue else { return }
+            title = text
+            setAccessibilityLabel(text)
+            needsDisplay = true
+        }
+    }
+    var onPress: (() -> Void)?
+    private let light = LedView(diameter: 7)
+    private var hovered = false
+
+    init() {
+        super.init(frame: .zero)
+        isBordered = false
+        title = ""
+        target = self
+        action = #selector(pressed(_:))
+        light.pulsing = true
+        addSubview(light)
+        toolTip = "Show the progress window"
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    override var isFlipped: Bool { true }
+
+    @objc private func pressed(_ sender: Any?) { onPress?() }
+
+    private var labelFont: NSFont { Typeface.mono(12, weight: 500) }
+
+    func fit() -> CGFloat { 8 + 7 + 8 + textWidth(text, font: labelFont) + 8 }
+
+    override func layout() {
+        super.layout()
+        light.place(dotAt: NSPoint(x: 8, y: (bounds.height / 2 - 3.5).rounded()))
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                                       owner: self, userInfo: nil))
+    }
+
+    override func mouseEntered(with event: NSEvent) { hovered = true; needsDisplay = true }
+    override func mouseExited(with event: NSEvent) { hovered = false; needsDisplay = true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let p = Palette.current
+        fillRounded(bounds, radius: 3, p.selectionFill)
+        if hovered { drawBrackets(bounds, color: p.bracket.ns, length: 6) }
+        drawLine(text, font: labelFont, color: p.accent, x: 8 + 7 + 8, midY: bounds.midY)
     }
 }
 
