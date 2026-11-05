@@ -18,15 +18,37 @@ let processStartDate: Date = {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var windows: [BrowserWindowController] = []
     private var cascadePoint = NSPoint.zero
+    private let uitest: UITestConfig?
+
+    init(uitest: UITestConfig?) {
+        self.uitest = uitest
+        super.init()
+    }
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         _ = processStartDate
         Fonts.registerBundled()
-        ThemeController.shared.start(defaults: .standard)
+        if let uitest {
+            ThemeController.shared.start(defaults: uitest.defaults)
+            ThemeController.shared.theme = uitest.theme
+            ThemeController.shared.accent = uitest.accent
+        } else {
+            ThemeController.shared.start(defaults: .standard)
+        }
         NSApp.mainMenu = MainMenu.build()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if let uitest {
+            let controller = BrowserWindowController(
+                folder: uitest.folder, options: .init(size: UITestRunner.windowSize, uitest: true))
+            windows.append(controller)
+            Task { @MainActor in
+                let code = await UITestRunner.run(uitest, controller: controller)
+                exit(code)
+            }
+            return
+        }
         // Folders passed with `open -a` or dropped on the Dock icon arrive in application(_:open:) first.
         if windows.isEmpty { openWindow(at: FileManager.default.homeDirectoryForCurrentUser) }
         NSApp.activate()
@@ -55,6 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func application(_ sender: NSApplication, open urls: [URL]) {
+        guard uitest == nil else { return }
         for url in urls {
             var isDirectory: ObjCBool = false
             FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
@@ -63,7 +86,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag { openWindow(at: FileManager.default.homeDirectoryForCurrentUser) }
+        if !flag && uitest == nil { openWindow(at: FileManager.default.homeDirectoryForCurrentUser) }
         return true
     }
 
