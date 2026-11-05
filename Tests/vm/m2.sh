@@ -4,7 +4,7 @@
 # Runs INSIDE the tart VM folio-test as admin (docs/plan/VM.md), never on a host Mac (docs/plan/RULES.md,
 # rule 0). Makes a test tree under /private/tmp/folio-tests/m2-<stamp>/, opens ~/folio/Folio.app on it as a
 # normal foreground app, drives it with System Events and writes PNGs to ~/folio/shots/:
-#   m2-1-typeahead.png   Cmd+L, then typing ~/../../private/tmp/folio-tests/m2-<stamp>/Code/a
+#   m2-1-typeahead.png   Cmd+L (caret at the end), Cmd+A, then typing /private/tmp/folio-tests/m2-<stamp>/Code/a
 #   m2-1b-highlight.png  Down: the first match highlighted (extra shot of D1's highlighted row)
 #   m2-2-tab.png         Tab: the field holds .../Code/agent-expert/ and lists its folders
 #   m2-3-enter.png       Enter: the window is in agent-expert
@@ -19,8 +19,7 @@ SHOTS="$HOME/folio/shots"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 ROOT="/private/tmp/folio-tests/m2-$STAMP"
 CODE="$ROOT/Code"
-# shellcheck disable=SC2088  # a literal ~: the app is what expands it
-TYPED="~/../../private/tmp/folio-tests/m2-$STAMP/Code/a"
+TYPED="$CODE/a"
 FILLED="$CODE/agent-expert/"
 fails=0
 
@@ -36,8 +35,13 @@ fi
 pass() { echo "step $1 $2: ok - $3"; }
 fail() { echo "step $1 $2: FAILED - $3"; fails=$((fails + 1)); }
 
-# Keys and clicks go to Folio only.
-keys() { osascript -e "tell application \"System Events\" to tell process \"Folio\" to $1" >/dev/null 2>&1; }
+frontmost() { osascript -e 'tell application "System Events" to get name of first process whose frontmost is true' 2>&1; }
+
+# Keys go to the frontmost app, so each one says which app that is.
+keys() {
+    echo "  key: $1 (frontmost: $(frontmost))"
+    osascript -e "tell application \"System Events\" to tell process \"Folio\" to $1" >/dev/null 2>&1
+}
 
 window_names() {
     osascript -e 'tell application "System Events" to tell process "Folio" to get name of every window' 2>/dev/null \
@@ -58,18 +62,28 @@ wait_window() {
     return 1
 }
 
-# Full-screen capture; prints the path when a new non-empty PNG was written.
+# Full-screen capture, taken whatever the step's outcome; prints the path when the PNG was written.
+# (The old one is removed first: bash 3.2's -nt compares whole seconds, so it cannot tell them apart.)
 shot() {
-    local f="$SHOTS/$1.png" mark="$ROOT/.shot-mark"
-    touch "$mark"
-    sleep 0.1
+    local f="$SHOTS/$1.png"
+    rm -f "$f"
     screencapture -x "$f" 2>/dev/null
-    if [ -s "$f" ] && [ "$f" -nt "$mark" ]; then echo "$f"; fi
+    if [ -s "$f" ]; then echo "$f"; fi
 }
 
-# ax value|press <AXRole> <description> <window>: reads or presses the first matching element.
+# ax value|press <AXRole> <description> <window>: reads or presses the first matching element among the
+# window's UI elements and theirs (`entire contents` comes back empty for this window in the VM).
 ax() {
     osascript - "$@" 2>&1 <<'OSA'
+on matches(e, wantRole, wantDesc)
+    tell application "System Events"
+        try
+            return (role of e is wantRole) and (description of e is wantDesc)
+        end try
+    end tell
+    return false
+end matches
+
 on run argv
     set act to item 1 of argv
     set wantRole to item 2 of argv
@@ -77,24 +91,39 @@ on run argv
     set winName to item 4 of argv
     tell application "System Events" to tell process "Folio"
         if not (exists window winName) then return "no window " & winName
-        repeat with e in (entire contents of window winName)
-            try
-                if (role of e is wantRole) and (description of e is wantDesc) then
-                    if act is "value" then return (value of e) as text
-                    try
-                        perform action "AXPress" of e
-                        return "pressed"
-                    on error
-                        set {px, py} to position of e
-                        set {sx, sy} to size of e
-                        click at {px + (sx div 2), py + (sy div 2)}
-                        return "clicked"
-                    end try
-                end if
-            end try
+        set found to missing value
+        set top to UI elements of window winName
+        repeat with e in top
+            if my matches(e, wantRole, wantDesc) then
+                set found to contents of e
+                exit repeat
+            end if
         end repeat
+        if found is missing value then
+            repeat with c in top
+                try
+                    repeat with e in (UI elements of c)
+                        if my matches(e, wantRole, wantDesc) then
+                            set found to contents of e
+                            exit repeat
+                        end if
+                    end repeat
+                end try
+                if found is not missing value then exit repeat
+            end repeat
+        end if
+        if found is missing value then return "missing"
+        if act is "value" then return (value of found) as text
+        try
+            perform action "AXPress" of found
+            return "pressed"
+        on error
+            set {px, py} to position of found
+            set {sx, sy} to size of found
+            click at {px + (sx div 2), py + (sy div 2)}
+            return "clicked"
+        end try
     end tell
-    return "missing"
 end run
 OSA
 }
@@ -104,11 +133,29 @@ mkdir -p "$SHOTS"
 for d in agent-expert agent-expert-tests ai-harness alpha beta; do mkdir -p "$CODE/$d/sub"; done
 echo "setup: $CODE with agent-expert, agent-expert-tests, ai-harness, alpha, beta (each with sub)"
 
-# A clean start: no Folio running and an empty address history, so the F4 list is this run's only.
+# A clean start: no Folio running, an empty address history (the F4 list is this run's only), the dark
+# theme of D1's reference, and no macOS notification banner over the toolbar.
 osascript -e 'quit app "Folio"' >/dev/null 2>&1
 sleep 1
 pkill -x Folio 2>/dev/null
 defaults delete com.anshul.folio addressHistory >/dev/null 2>&1
+defaults write com.anshul.folio theme dark
+osascript >/dev/null 2>&1 <<'OSA'
+tell application "System Events" to tell process "NotificationCenter"
+    repeat 5 times
+        if not (exists window 1) then exit repeat
+        try
+            set banner to group 1 of scroll area 1 of group 1 of group 1 of window 1
+            repeat with a in (actions of banner)
+                if name of a starts with "Name:Close" then perform a
+            end repeat
+        on error
+            exit repeat
+        end try
+        delay 0.3
+    end repeat
+end tell
+OSA
 
 open -a "$APP" "$CODE"
 if wait_window "Code" 15; then
@@ -120,9 +167,11 @@ fi
 osascript -e 'tell application "System Events" to set frontmost of process "Folio" to true' >/dev/null 2>&1
 sleep 1
 
-# --- 1: Cmd+L and type ------------------------------------------------------------------------------
+# --- 1: Cmd+L, select the path, type ----------------------------------------------------------------
 keys 'keystroke "l" using command down'
 sleep 0.6
+keys 'keystroke "a" using command down'
+sleep 0.2
 keys "keystroke \"$TYPED\""
 sleep 1.5
 f=$(shot m2-1-typeahead)
