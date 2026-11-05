@@ -16,6 +16,11 @@ enum MainMenu {
         add(name, to: main, [
             item("About \(name)", #selector(NSApplication.orderFrontStandardAboutPanel(_:))),
             .separator(),
+            // Milestone 9: Folio and macOS (also in View > Options > General).
+            item("Open Folders in Folio Instead of Finder", #selector(AppDelegate.toggleFolderHandler(_:))),
+            item("Launch at Login", #selector(AppDelegate.toggleLaunchAtLogin(_:))),
+            item("Keep Running When the Last Window Closes", #selector(AppDelegate.toggleKeepRunning(_:))),
+            .separator(),
             servicesItem,
             .separator(),
             item("Hide \(name)", #selector(NSApplication.hide(_:)), "h"),
@@ -39,19 +44,22 @@ enum MainMenu {
             .separator(),
             item("Save Search...", #selector(BrowserWindowController.saveSearch(_:))),
             .separator(),
-            // Explorer's Alt+Enter is Option+Return (bound in BrowserWindow); Cmd+I is Finder's.
-            item("Properties", #selector(BrowserWindowController.showProperties(_:)), "i"),
-            item("Quick Look", #selector(BrowserWindowController.toggleQuickLook(_:)), "y"),
+            // Explorer's Alt+Enter is Option+Return (Anshul's Cmd+Enter); Finder's Cmd+I works too (BrowserWindow).
+            item("Properties", #selector(BrowserWindowController.showProperties(_:)), "\r", .option),
+            // Space, in the list (a menu key would take Space from the rename field). Cmd+Y is Redo.
+            item("Quick Look", #selector(BrowserWindowController.toggleQuickLook(_:))),
             item("Add to Favorites", #selector(BrowserWindowController.toggleFavorite(_:))),
             .separator(),
             item("Close Tab", #selector(BrowserWindowController.closeTab(_:)), "w"),
-            item("Close Window", #selector(NSWindow.performClose(_:)), "w", [.command, .shift]),
+            // Explorer's Alt+F4 (Anshul's Cmd+F4); Cmd+Shift+W works too (BrowserWindow).
+            item("Close Window", #selector(NSWindow.performClose(_:)), key(NSF4FunctionKey), .option),
         ])
         // File commands go to the window controller; while a name or the address is being edited the
         // text field takes Cut, Copy, Paste and Select All, and Undo and Redo undo the typing.
         add("Edit", to: main, [
             item("Undo", #selector(BrowserWindowController.undoOperation(_:)), "z"),
-            item("Redo", #selector(BrowserWindowController.redoOperation(_:)), "z", [.command, .shift]),
+            // Explorer's Ctrl+Y; Cmd+Shift+Z works too (BrowserWindow).
+            item("Redo", #selector(BrowserWindowController.redoOperation(_:)), "y"),
             .separator(),
             item("Cut", #selector(NSText.cut(_:)), "x"),
             item("Copy", #selector(NSText.copy(_:)), "c"),
@@ -110,11 +118,12 @@ enum MainMenu {
             // Explorer's See more > Options (Folder Options).
             item("Options...", #selector(BrowserWindowController.showFolderOptions(_:)), ",", [.command, .option]),
         ])
-        // Finder shortcuts here; Option+arrows (Anshul's Karabiner-swapped Cmd) live in BrowserWindow.
+        // Explorer's Alt+arrows, which Anshul's Cmd+arrows send after Karabiner; Finder's Cmd+[, Cmd+] and
+        // Cmd+Up work too (BrowserWindow). docs/KEYS.md lists every key.
         add("Go", to: main, [
-            item("Back", #selector(BrowserWindowController.goBack(_:)), "["),
-            item("Forward", #selector(BrowserWindowController.goForward(_:)), "]"),
-            item("Up", #selector(BrowserWindowController.goUp(_:)), key(NSUpArrowFunctionKey)),
+            item("Back", #selector(BrowserWindowController.goBack(_:)), key(NSLeftArrowFunctionKey), .option),
+            item("Forward", #selector(BrowserWindowController.goForward(_:)), key(NSRightArrowFunctionKey), .option),
+            item("Up", #selector(BrowserWindowController.goUp(_:)), key(NSUpArrowFunctionKey), .option),
             item("Home", #selector(BrowserWindowController.goHome(_:)), "h", [.command, .shift]),
             item("Home Folder", #selector(BrowserWindowController.goHomeFolder(_:))),
             item("Refresh", #selector(BrowserWindowController.refresh(_:)), key(NSF5FunctionKey), []),

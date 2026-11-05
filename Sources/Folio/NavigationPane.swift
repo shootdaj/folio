@@ -172,7 +172,8 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
     private var noticeNode: SideNode?
     private var dirNodes: [String: SideNode] = [:]
     private var collapsed: Set<String>
-    private static let collapsedKey = "navPaneCollapsed"
+    /// A tree folder opened or closed (the window's session keeps which).
+    var onTreeChanged: (() -> Void)?
     /// Folder Options' navigation pane settings, and the volumes as last given (for Hide empty drives).
     private(set) var layoutOptions = NavigationLayout()
     private var allVolumes: [VolumeCapacity] = []
@@ -197,7 +198,7 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
     var browseStatus = "Browse network" { didSet { if browseStatus != oldValue { reload(.network) } } }
 
     override init() {
-        collapsed = Set(UserDefaults.standard.stringArray(forKey: Self.collapsedKey) ?? [])
+        collapsed = SidebarStore(defaults: .standard).collapsed
         super.init()
         for s in SideNode.Section.allCases {
             headers[s] = SideNode(.header(s))
@@ -408,10 +409,11 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
         guard let node = notification.userInfo?["NSObject"] as? SideNode, case .header(let s) = node.kind,
               let outline, let footer = footers[s] else {
             outline?.redrawRows()
+            onTreeChanged?()
             return
         }
         if open { collapsed.remove(s.rawValue) } else { collapsed.insert(s.rawValue) }
-        UserDefaults.standard.set(Array(collapsed).sorted(), forKey: Self.collapsedKey)
+        SidebarStore(defaults: .standard).setCollapsed(collapsed)
         let row = outline.row(forItem: footer)
         if row >= 0 { outline.noteHeightOfRows(withIndexesChanged: IndexSet(integer: row)) }
         outline.redrawRows()
@@ -497,6 +499,40 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
         for p in tree.descendants(of: path, limit: 400).dropFirst() {
             if let n = dirNodes[p] { outline.expandItem(n) }
         }
+    }
+
+    // MARK: The tree's open folders (saved with the window)
+
+    /// Every open drive, share, cloud folder and tree folder, top to bottom (at most 300).
+    func expandedFolders() -> [String] {
+        guard let outline else { return [] }
+        var out: [String] = []
+        for row in 0..<outline.numberOfRows where out.count < 300 {
+            guard let node = outline.item(atRow: row) as? SideNode, outline.isItemExpanded(node) else { continue }
+            switch node.kind {
+            case .volume, .share, .cloud, .folder: if let p = node.path, !out.contains(p) { out.append(p) }
+            default: break
+            }
+        }
+        return out
+    }
+
+    /// Opens these folders again, parents first; folders that are gone are skipped.
+    func expandFolders(_ paths: [String]) {
+        guard let outline else { return }
+        let roots = volumeNodes + shareNodes + cloudNodes
+        let fm = FileManager.default
+        for path in paths.sorted(by: { $0.split(separator: "/").count < $1.split(separator: "/").count }) {
+            if let root = roots.first(where: { $0.path == path }) {
+                outline.expandItem(root)
+                continue
+            }
+            guard fm.fileExists(atPath: path) else { continue }
+            reveal(path)
+            if let node = dirNodes[path] { outline.expandItem(node) }
+        }
+        outline.scrollRowToVisible(0)
+        outline.redrawRows()
     }
 
     // MARK: Expand to current folder

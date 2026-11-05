@@ -1,5 +1,11 @@
 import AppKit
 
+// `Folio --version`: the version and commit `make app` wrote into Info.plist, nothing else runs.
+if CommandLine.arguments.dropFirst().contains("--version") {
+    print(BuildInfo.line)
+    exit(0)
+}
+
 if let flag = CommandLine.arguments.firstIndex(of: "--selftest") {
     let folder = CommandLine.arguments.dropFirst(flag + 1).first
     exit(SelfTest.run(folder))

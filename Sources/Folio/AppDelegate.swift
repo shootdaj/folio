@@ -1,5 +1,6 @@
 import AppKit
 import FolioCore
+import FolioLink
 import os
 
 let perfLog = Logger(subsystem: "com.anshul.folio", category: "perf")
@@ -69,11 +70,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
             return
         }
-        // Folders passed with `open -a` or dropped on the Dock icon arrive in application(_:open:) first;
-        // then those windows open and the saved session does not. Otherwise the last session comes back.
+        // Folders passed with `open -a`, `ff` or dropped on the Dock icon arrive in application(_:open:)
+        // first; then those windows open and the saved session does not. Otherwise the last session comes back.
         if windows.isEmpty && !restoreSession() { openWindow(at: Self.startPlace) }
         VolumeCenter.shared.remountMappedShares()
+        NotificationCenter.default.addObserver(self, selector: #selector(viewChanged(_:)), name: ViewCenter.didChange, object: nil)
+        DockIcon.start()
         NSApp.activate()
+    }
+
+    @objc private func viewChanged(_ note: Notification) { scheduleSessionSave() }
+
+    /// Folder Options > Keep running when the last window closes (on: Explorer stays alive; Cmd+Q quits).
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        uitest == nil && !ListOptions.folder.keepRunning
     }
 
     // MARK: View > Theme, View > Accent
@@ -96,6 +106,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case #selector(closeTab(_:)): return NSApp.keyWindow != nil
         case #selector(reopenClosedTab(_:)): return closedTabs.count > 0
         case #selector(tileWindows(_:)): return !windows.isEmpty
+        case #selector(toggleFolderHandler(_:)): item.state = SystemSettings.foldersOpenInFolio ? .on : .off
+        case #selector(toggleLaunchAtLogin(_:)): item.state = SystemSettings.launchesAtLogin ? .on : .off
+        case #selector(toggleKeepRunning(_:)): item.state = ListOptions.folder.keepRunning ? .on : .off
         default: break
         }
         return true
@@ -109,18 +122,77 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         return .terminateNow
     }
 
+    /// folio: URLs from `ff`, and folders or files sent by other apps (Launch Services, `open -a`, the Dock).
     func application(_ sender: NSApplication, open urls: [URL]) {
         guard uitest == nil else { return }
         for url in urls {
+            if let request = FolioRequest.parse(url) {
+                open(request)
+                continue
+            }
+            guard url.isFileURL else { continue }
             // A saved search runs again, live.
             if url.pathExtension.lowercased() == SavedSearch.fileExtension, let saved = try? SavedSearch.read(from: url) {
                 openSavedSearch(saved)
                 continue
             }
-            var isDirectory: ObjCBool = false
-            FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
-            openWindow(at: isDirectory.boolValue ? url : url.deletingLastPathComponent())
+            open(FolioRequest(path: url.path))
         }
+        NSApp.activate()
+    }
+
+    /// A folder (or a file, selected in its folder, or a search) in the window and tab the request asks
+    /// for. Usually: a tab already on that folder comes to the front; otherwise a new tab in the front
+    /// window (Folder Options > Open external folder links in a new tab) or a new window.
+    func open(_ request: FolioRequest) {
+        guard let plan = request.plan(kind: Self.kind) else {
+            let alert = NSAlert()
+            alert.messageText = "Folio can't find \u{201C}\(request.resolvedPath ?? "")\u{201D}"
+            alert.informativeText = "Check the spelling and try again."
+            alert.runModal()
+            return
+        }
+        let folder = plan.folder.map { URL(fileURLWithPath: $0, isDirectory: true) } ?? Self.startPlace
+        let select = plan.select.map { FilePaths.itemKey(URL(fileURLWithPath: $0)) }
+        let front = NSApp.orderedWindows.compactMap { $0.windowController as? BrowserWindowController }
+            .first { c in windows.contains { $0 === c } }
+        var tab = BrowserTab(folder: folder)
+        if let search = plan.search { tab.history.push(folder, search: HistorySearch(text: search)) }
+        if let select { tab.selection = [select] }
+        var placement = plan.placement
+        if placement == .usual {
+            if let (controller, index) = existingTab(on: folder) {
+                controller.showExisting(tab: index, selecting: select, search: plan.search)
+                return
+            }
+            placement = ListOptions.folder.externalFoldersInNewTab ? .newTab : .newWindow
+        }
+        if placement == .newTab, let front {
+            front.openRequestedTab(tab)
+            return
+        }
+        openWindow(with: [tab], active: 0, near: nil, size: nil).window?.makeKeyAndOrderFront(nil)
+    }
+
+    /// The first tab (front window first) showing this folder, not a search.
+    private func existingTab(on folder: URL) -> (BrowserWindowController, Int)? {
+        let key = FilePaths.folderKey(folder)
+        let ordered = NSApp.orderedWindows.compactMap { $0.windowController as? BrowserWindowController }
+            .filter { c in windows.contains { $0 === c } }
+        for c in ordered + windows.filter({ c in !ordered.contains { $0 === c } }) {
+            if let i = c.tabs.tabs.firstIndex(where: { t in
+                t.history.search == nil && (NavigationHistory.isHome(folder) ? t.history.isHome
+                    : !t.history.isHome && FilePaths.folderKey(t.current) == key)
+            }) { return (c, i) }
+        }
+        return nil
+    }
+
+    /// A package (an app, a bundle) is an item to select, not a folder to open.
+    nonisolated private static func kind(_ path: String) -> FolioRequest.ItemKind {
+        var dir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &dir) else { return .missing }
+        return dir.boolValue && !NSWorkspace.shared.isFilePackage(atPath: path) ? .folder : .file
     }
 
     /// A window on the saved search's place with the search shown (Back goes to the plain folder).
@@ -239,11 +311,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     // MARK: Session
 
-    /// Saves the windows and their tabs a moment after a change (Explorer's restore at logon).
+    /// Saves the windows and their tabs half a second after the last change (Explorer's restore at logon).
     func scheduleSessionSave() {
         guard uitest == nil, !terminating else { return }
         sessionTimer?.invalidate()
-        let timer = Timer(timeInterval: 0.4, repeats: false) { _ in
+        let timer = Timer(timeInterval: SessionStore.coalesce, repeats: false) { _ in
             MainActor.assumeIsolated { (NSApp.delegate as? AppDelegate)?.saveSession() }
         }
         RunLoop.main.add(timer, forMode: .common)
@@ -256,23 +328,89 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         sessionTimer = nil
         let ordered = NSApp.orderedWindows.compactMap { $0.windowController as? BrowserWindowController }
         let all = ordered.filter { c in windows.contains { $0 === c } } + windows.filter { c in !ordered.contains { $0 === c } }
-        SessionStore(defaults: .standard).save(Session(windows: all.compactMap { $0.windowSession() }))
+        let session = Session(windows: all.compactMap { $0.windowSession() }, viewMode: ViewCenter.shared.mode.rawValue)
+        do {
+            try SessionStore().save(session)
+        } catch {
+            perfLog.error("session not saved: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
-    /// Opens the saved windows, back to front so the front one ends up in front. False when none.
+    /// Opens the saved windows, back to front so the front one ends up in front, each on the display it
+    /// was on. False when there is nothing to restore (no file, Reopen windows off, or a damaged file,
+    /// which is moved aside so the app starts on its start place).
     private func restoreSession() -> Bool {
-        guard let session = SessionStore(defaults: .standard).load(), !session.windows.isEmpty else { return false }
-        let fm = FileManager.default
-        func exists(_ path: String) -> Bool {
-            var dir: ObjCBool = false
-            return fm.fileExists(atPath: path, isDirectory: &dir) && dir.boolValue
+        switch SessionStore().load() {
+        case .none:
+            return false
+        case .corrupt(let aside):
+            perfLog.error("session file did not read; moved to \(aside?.path ?? "nowhere", privacy: .public)")
+            return false
+        case .session(let session):
+            guard ListOptions.folder.reopenWindows, !session.windows.isEmpty else { return false }
+            if let raw = session.viewMode, let mode = ViewMode(rawValue: raw) { ViewCenter.shared.set(mode) }
+            let fm = FileManager.default
+            func exists(_ path: String) -> Bool {
+                var dir: ObjCBool = false
+                return fm.fileExists(atPath: path, isDirectory: &dir) && dir.boolValue
+            }
+            let screens = NSScreen.screens.map { s in
+                ScreenInfo(name: s.localizedName, frame: SessionFrame(s.frame), visible: SessionFrame(s.visibleFrame))
+            }
+            for saved in session.windows.reversed() where !saved.tabs.isEmpty {
+                let tabs = saved.tabs.map { $0.tab(exists: exists) }
+                let f = WindowPlacement.place(saved.frame, display: saved.display, screens: screens)
+                let controller = openWindow(with: tabs, active: saved.clampedActive, near: nil, size: nil,
+                                            frame: NSRect(x: f.x, y: f.y, width: f.width, height: f.height))
+                controller.restoreTree(saved.expandedFolders ?? [])
+            }
+            return !windows.isEmpty
         }
-        for saved in session.windows.reversed() where !saved.tabs.isEmpty {
-            let tabs = saved.tabs.map { $0.tab(exists: exists) }
-            let f = saved.frame
-            openWindow(with: tabs, active: saved.clampedActive, near: nil, size: nil,
-                       frame: NSRect(x: f.x, y: f.y, width: f.width, height: f.height))
+    }
+
+    // MARK: Folio and macOS (the Folio menu, Folder Options > General)
+
+    /// Open folders in Folio instead of Finder: asks Launch Services, reads back what it kept, and says so.
+    @objc func toggleFolderHandler(_ sender: Any?) {
+        setFolderHandler(on: !SystemSettings.foldersOpenInFolio, sheetOn: nil)
+    }
+
+    func setFolderHandler(on: Bool, sheetOn window: NSWindow?, done: (() -> Void)? = nil) {
+        let report = SystemSettings.setFoldersOpenInFolio(on)
+        let alert = NSAlert()
+        alert.messageText = report.headline
+        alert.informativeText = report.details + "\n\n" + report.note
+        alert.alertStyle = report.allAccepted ? .informational : .warning
+        alert.addButton(withTitle: "OK")
+        if let window {
+            alert.beginSheetModal(for: window) { _ in MainActor.assumeIsolated { done?() } }
+        } else {
+            alert.runModal()
+            done?()
         }
-        return !windows.isEmpty
+    }
+
+    @objc func toggleLaunchAtLogin(_ sender: Any?) {
+        setLaunchAtLogin(!SystemSettings.launchesAtLogin, sheetOn: nil)
+    }
+
+    func setLaunchAtLogin(_ on: Bool, sheetOn window: NSWindow?, done: (() -> Void)? = nil) {
+        guard let problem = SystemSettings.setLaunchAtLogin(on) else { done?(); return }
+        let alert = NSAlert()
+        alert.messageText = on ? "Folio was not added to your login items" : "Folio was not taken out of your login items"
+        alert.informativeText = problem
+        alert.addButton(withTitle: "OK")
+        if let window {
+            alert.beginSheetModal(for: window) { _ in MainActor.assumeIsolated { done?() } }
+        } else {
+            alert.runModal()
+            done?()
+        }
+    }
+
+    @objc func toggleKeepRunning(_ sender: Any?) {
+        var options = ListOptions.folder
+        options.keepRunning.toggle()
+        ListOptions.apply(options)
     }
 }

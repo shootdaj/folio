@@ -80,6 +80,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     let options: Options
     /// The row to bring back to the top once a tab's listing lands (switching back to a tab).
     var restoreRow: Int?
+    /// The navigation pane's open folders from the session, waiting for the drives (milestone 9).
+    var pendingTreeFolders: [String]?
     /// The folder as listed (or the search results), before filters, sort and groups.
     var listing: [FileEntry] = []
     /// Header filters: transient, dropped on navigating away and never saved.
@@ -284,7 +286,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         header.sort = sortSpec
         applyViewMode()
         applyFolderOptions()
-        load()
+        // A restored tab comes back with its selection and scroll place; a folder from ff with its item.
+        let first = tabs.active
+        if first.selection.isEmpty && first.scrollRow == 0 { load() } else { load(restoring: (Set(first.selection), first.scrollRow)) }
         startWatching()
     }
 
@@ -509,9 +513,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     }
 
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
-        switch item.action {
-        case #selector(goBack(_:)): history.canGoBack
-        case #selector(goForward(_:)): history.canGoForward
+        // Option+Left, Option+Right (Back, Forward) and Option+Return (Properties) are the menus' keys; while
+        // a name, the address or a search is typed they belong to the text instead.
+        let editingText = window?.firstResponder is NSTextView
+        return switch item.action {
+        case #selector(goBack(_:)): history.canGoBack && !editingText
+        case #selector(goForward(_:)): history.canGoForward && !editingText
+        case #selector(showProperties(_:)) where editingText: false
         case #selector(goUp(_:)): history.canGoUp
         case #selector(saveSearch(_:)): isSearching
         case #selector(openFileLocation(_:)): isSearching && !selectedEntries.isEmpty
@@ -633,6 +641,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         chassis.sidebar.pane.setVolumes(volumes)
         toolbar.address.volumes = volumes
         chassis.sidebar.needsLayout = true
+        if !volumes.isEmpty { applyPendingTree() }
         if !history.isHome, ListOptions.expandToCurrent { revealCurrentFolder(select: false) }
         updateWatches()
     }
@@ -663,6 +672,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         if !keepingState {
             if let row = restoreRow, row > 0, row < layout.rows.count {
                 tableView.scroll(NSPoint(x: 0, y: tableView.rect(ofRow: row).minY - (header.frame.height)))
+            } else if !select.isEmpty, let first = selection.rows.first {
+                // Open file location, ff --reveal: the selected item is in view.
+                scrollToItem(first)
             } else {
                 tableView.scrollRowToVisible(0)
                 grid.scroll(.zero)
@@ -891,7 +903,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     var shownItems: [FileEntry] { layout.isGrouped ? layout.groups.flatMap(\.items) : entries }
     var shownCount: Int { layout.isGrouped ? layout.groups.reduce(0) { $0 + $1.items.count } : entries.count }
 
-    @objc private func listScrolled(_ note: Notification) { updateVisibleRange() }
+    @objc private func listScrolled(_ note: Notification) {
+        updateVisibleRange()
+        // The scroll place is part of the session (written half a second after the last change).
+        if !isLoading { sessionChanged() }
+    }
 
     /// The rename box is down: a refresh that waited for it runs now.
     func renameEnded() {
@@ -1063,6 +1079,14 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         case (126, .option): goUp(nil)                          // Option+Up (Cmd+Up after Karabiner)
         case (123, .option) where !editingText: goBack(nil)     // Option+Left
         case (124, .option) where !editingText: goForward(nil)  // Option+Right
+        // Finder's keys still work; the Go menu shows Explorer's (Option+arrows).
+        case (33, .command) where !editingText: goBack(nil)     // Cmd+[
+        case (30, .command) where !editingText: goForward(nil)  // Cmd+]
+        case (126, .command) where !editingText: goUp(nil)      // Cmd+Up
+        case (34, .command) where !editingText: showProperties(nil) // Cmd+I (the menu shows Option+Return)
+        case (13, [.command, .shift]): window?.performClose(nil) // Cmd+Shift+W (the menu shows Option+F4)
+        case (6, [.command, .shift]): redoOperation(nil)        // Cmd+Shift+Z (the menu shows Cmd+Y)
+        case (2, .command) where tableFocused: moveToTrash(nil) // Cmd+D, Explorer's Ctrl+D
         case (2, .option): focusAddressBar(nil)                 // Option+D (Cmd+D after Karabiner)
         case (14, .command), (3, .command), (99, []): focusSearch(nil) // Explorer's Ctrl+E, Ctrl+F (Cmd after Karabiner), F3
         case (51, []) where !editingText: goBack(nil)           // Backspace, even with files selected
@@ -1099,7 +1123,6 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
              (51, [.command, .shift]) where tableFocused:
             deletePermanently(nil)                                             // Shift+Delete
         case (53, []) where !editingText && FileClipboard.hasPendingCut: FileClipboard.endCut() // Esc
-        case (16, .command) where !editingText: redoOperation(nil)             // Cmd+Y (Explorer's Ctrl+Y)
         case (114, .control) where !editingText: copy(nil)                     // Ctrl+Insert
         case (114, .shift) where !editingText: paste(nil)                      // Shift+Insert
         case (103, []): toggleFullScreenWindow(nil)             // F11, when it reaches the app

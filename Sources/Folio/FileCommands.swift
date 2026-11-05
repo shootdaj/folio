@@ -10,7 +10,6 @@ enum ListOptions {
     static let hiddenKey = "showHiddenItems"
     static let expandKey = "navPaneExpandToCurrent"
     static let navPaneKey = "navPaneShown"
-    static let navPaneWidthKey = "navPaneWidth"
     static let extensionsKey = "showFileExtensions"
     static let thumbnailsKey = "showThumbnails"
     static let compactKey = "compactView"
@@ -69,8 +68,8 @@ enum ListOptions {
     }
 
     static var navPaneWidth: CGFloat {
-        let w = UserDefaults.standard.double(forKey: navPaneWidthKey)
-        return w > 0 ? min(ChassisView.sideMax, max(ChassisView.sideMin, CGFloat(w))) : ChassisView.sideW
+        guard let w = SidebarStore(defaults: .standard).width else { return ChassisView.sideW }
+        return min(ChassisView.sideMax, max(ChassisView.sideMin, CGFloat(w)))
     }
 
     private static func set(_ value: Bool, _ key: String) {

@@ -33,7 +33,8 @@ extension BrowserWindowController {
 
     /// The shown tab's selection and scroll place, kept for when it is shown again.
     func stashActiveTab() {
-        guard !tabs.isEmpty, !history.isHome else { return }
+        // While the folder is still being read the list is empty: the tab keeps what it had.
+        guard !tabs.isEmpty, !history.isHome, !isLoading else { return }
         tabs.active.selection = selectedKeys
         let clip = chassis.pane.scrollView.contentView.bounds
         tabs.active.scrollRow = max(0, tableView.row(at: NSPoint(x: 1, y: clip.minY + header.frame.height + 1)))
@@ -258,8 +259,26 @@ extension BrowserWindowController {
         guard let window, !tabs.isEmpty else { return nil }
         stashActiveTab()
         let f = window.frame
-        return WindowSession(frame: SessionFrame(x: f.minX, y: f.minY, width: f.width, height: f.height),
-                             tabs: tabs.tabs.map(TabSession.init), active: tabs.activeIndex)
+        let display = window.screen.map { s in
+            SessionDisplay(name: s.localizedName, frame: SessionFrame(x: s.frame.minX, y: s.frame.minY,
+                                                                      width: s.frame.width, height: s.frame.height))
+        }
+        return WindowSession(frame: SessionFrame(x: f.minX, y: f.minY, width: f.width, height: f.height), display: display,
+                             tabs: tabs.tabs.map(TabSession.init), active: tabs.activeIndex,
+                             expandedFolders: pendingTreeFolders ?? chassis.sidebar.pane.expandedFolders())
+    }
+
+    /// The tree's open folders from the session, opened once the drives are known.
+    func restoreTree(_ folders: [String]) {
+        guard !folders.isEmpty else { return }
+        pendingTreeFolders = folders
+        if !volumes.isEmpty { applyPendingTree() }
+    }
+
+    func applyPendingTree() {
+        guard let folders = pendingTreeFolders else { return }
+        pendingTreeFolders = nil
+        chassis.sidebar.pane.expandFolders(folders)
     }
 
     func sessionChanged() {
@@ -301,8 +320,9 @@ extension BrowserWindowController {
         pane.setCloud(CloudFolders.locations(home: FileManager.default.homeDirectoryForCurrentUser))
         pane.menuProvider = { [weak self] node in self?.nodeMenu(node) }
         pane.dropHost = self
+        pane.onTreeChanged = { [weak self] in self?.sessionChanged() }
         chassis.onSidebarResized = { [weak self] width in
-            UserDefaults.standard.set(Double(width), forKey: ListOptions.navPaneWidthKey)
+            SidebarStore(defaults: .standard).setWidth(Double(width))
             self?.chassis.needsLayout = true
         }
         applyNavigationPaneOptions()
