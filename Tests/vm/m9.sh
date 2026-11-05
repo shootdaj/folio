@@ -19,6 +19,7 @@
 #   m9-6-restored.png         quit, open -b com.anshul.folio: the front window as it was
 #   m9-6b-restored-other.png  the other window raised: its tabs, sort and selection
 #   m9-7-corrupt-home.png     `echo garbage > session.json`, relaunch: Home, no crash, the file moved aside
+#   m9-8a-options-general.png View > Options > General: Folio and macOS, before the click
 #   m9-8-default-handler.png  Options > General > Open folders in Folio instead of Finder: what macOS kept
 #   m9-9-open-folder.png      `open <work>` from the shell: the app macOS chose
 #   m9-10-dock.png            the Dock, Folio's icon in it
@@ -723,6 +724,8 @@ before_ls="folder=$("$LSH" get public.folder) volume=$("$LSH" get public.volume)
 keys 'keystroke "," using {command down, option down}'
 if wait_window "Folder Options" 6; then
     sleep 0.8
+    general=$(shot m9-8a-options-general)
+    echo "  Folder Options, General (Folio and macOS): $general"
     click_at "$(ax_find AXCheckBox "Open folders in Folio instead of Finder" "Folder Options")"
     i=0
     while [ "$i" -lt 24 ]; do
