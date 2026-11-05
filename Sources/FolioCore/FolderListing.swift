@@ -17,6 +17,11 @@ public enum FolderListing {
         return urls.map { entry(for: $0, kinds: &kinds) }
     }
 
+    /// What a window shows: the listing in display order. `Folio --selftest` uses the same call.
+    public static func list(_ folder: URL, sortedBy spec: SortSpec) throws -> [FileEntry] {
+        SortEngine.sort(try list(folder), by: spec)
+    }
+
     static func entry(for url: URL, kinds: inout [String: String]) -> FileEntry {
         let values = try? url.resourceValues(forKeys: Set(resourceKeys))
         var isDirectory = values?.isDirectory ?? false

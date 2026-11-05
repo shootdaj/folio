@@ -170,7 +170,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         updateChrome()
         let started = Date()
         Task.detached(priority: .userInitiated) { [weak self] in
-            let result = Result { SortEngine.sort(try FolderListing.list(folder), by: spec) }
+            let result = Result { try FolderListing.list(folder, sortedBy: spec) }
             await self?.finishLoad(result, id: id, spec: spec, folder: folder, started: started)
         }
     }

@@ -83,6 +83,20 @@ private func trash(_ url: URL) {
         }
     }
 
+    @Test func sortedListingPutsFoldersFirstWithNaturalNames() throws {
+        let dir = try makeTempFolder()
+        defer { trash(dir) }
+        for name in ["file10.txt", "file2.txt", "File1.txt"] {
+            try Data().write(to: dir.appendingPathComponent(name))
+        }
+        try FileManager.default.createDirectory(
+            at: dir.appendingPathComponent("zebra"), withIntermediateDirectories: false)
+
+        let rows = try FolderListing.list(dir, sortedBy: .standard)
+
+        #expect(rows.map(\.name) == ["zebra", "File1.txt", "file2.txt", "file10.txt"])
+    }
+
     @Test func emptyFolderGivesNoEntries() throws {
         let dir = try makeTempFolder()
         defer { trash(dir) }
