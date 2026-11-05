@@ -28,6 +28,12 @@
 	<string>NSApplication</string>
 	<key>NSSupportsAutomaticTermination</key>
 	<false/>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Folio lists the file servers on your network under Network, as Finder does.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_smb._tcp</string>
+	</array>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>

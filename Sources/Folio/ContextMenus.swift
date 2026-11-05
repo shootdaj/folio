@@ -68,9 +68,14 @@ extension BrowserWindowController {
 
         let folders = items.filter(\.isFolder)
         let oneFolder = items.count == 1 && folders.count == 1
+        if isTrashView {
+            add(menu, "Restore", #selector(restoreFromTrash(_:)))
+            menu.addItem(.separator())
+        }
         add(menu, "Open", #selector(openSelection(_:)))
         if !oneFolder || items.count > 1 { submenu(menu, "Open with", openWithMenu(for: urls)) }
         if !folders.isEmpty {
+            add(menu, "Open in new tab", #selector(openSelectionInNewTab(_:)))
             add(menu, "Open in new window", #selector(openInNewWindow(_:)))
             add(menu, "Open in Terminal", #selector(openInTerminal(_:)))
         }
@@ -82,6 +87,10 @@ extension BrowserWindowController {
             } else {
                 add(menu, "Pin to Quick access", #selector(pinFolder(_:)), object: path)
             }
+        }
+        if items.count == 1, let path = urls.first?.path {
+            let starred = FavoritesStore(defaults: options.historyDefaults).contains(path)
+            add(menu, starred ? "Remove from Favorites" : "Add to Favorites", #selector(toggleFavorite(_:)))
         }
         menu.addItem(.separator())
         add(menu, "Cut", #selector(cut(_:)), key: "x")
@@ -148,6 +157,7 @@ extension BrowserWindowController {
         for item in MainMenu.newItems() { item.target = self; new.addItem(item) }
         submenu(menu, "New", new)
         add(menu, "Open in Terminal", #selector(openInTerminal(_:)))
+        if isTrashView { add(menu, "Empty Recycle Bin", #selector(emptyRecycleBin(_:))) }
         let here = history.current.path
         if pins.isPinned(here) {
             add(menu, "Unpin from Quick access", #selector(unpinFolder(_:)), object: here)
@@ -192,7 +202,7 @@ extension BrowserWindowController {
         zip.toolTip = "Arrives with milestone 8"
         menu.addItem(zip)
         let here = VolumeCapacity.read(history.current)?.path
-        let drives = chassis.sidebar.content.volumes.filter { $0.path != here }
+        let drives = volumes.filter { $0.path != here && $0.isLocal }
         if !drives.isEmpty {
             menu.addItem(.separator())
             for drive in drives { add(menu, drive.name, #selector(sendToFolder(_:)), object: URL(fileURLWithPath: drive.path)) }
@@ -541,8 +551,9 @@ final class MenuIconRow: NSView {
 /// Quick access edits from the sidebar, its menu, and the address bar's commands.
 extension BrowserWindowController {
     @objc func pinsChanged(_ note: Notification) {
-        chassis.sidebar.content.places = pins.places
-        chassis.sidebar.needsLayout = true
+        chassis.sidebar.pane.setPlaces(pins.places)
+        if !history.isHome, ListOptions.expandToCurrent { revealCurrentFolder(select: false) }
+        homeDataChanged(note)
     }
 
     func editPins(_ edit: PinEdit) {
@@ -552,59 +563,6 @@ extension BrowserWindowController {
         case .unpin(let path): pins.unpin(path)
         }
         PinsChanged.post()
-    }
-
-    func sidebarMenu(path: String, isPin: Bool) -> NSMenu {
-        let menu = NSMenu(title: "Sidebar")
-        menu.font = Typeface.mono(13)
-        let url = URL(fileURLWithPath: path, isDirectory: true)
-        func add(_ title: String, _ action: Selector) {
-            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
-            item.target = self
-            item.representedObject = url
-            menu.addItem(item)
-        }
-        add("Open", #selector(sidebarOpen(_:)))
-        add("Open in new window", #selector(sidebarOpenWindow(_:)))
-        add("Open in Terminal", #selector(sidebarTerminal(_:)))
-        menu.addItem(.separator())
-        if isPin {
-            add("Unpin from Quick access", #selector(sidebarUnpin(_:)))
-            add("Move up", #selector(sidebarMoveUp(_:)))
-            add("Move down", #selector(sidebarMoveDown(_:)))
-        } else {
-            add("Pin to Quick access", #selector(sidebarPin(_:)))
-        }
-        menu.addItem(.separator())
-        add("Copy as path", #selector(sidebarCopyPath(_:)))
-        add("Properties", #selector(sidebarProperties(_:)))
-        return menu
-    }
-
-    private func sidebarURL(_ sender: Any?) -> URL? { (sender as? NSMenuItem)?.representedObject as? URL }
-
-    @objc func sidebarOpen(_ sender: Any?) { if let url = sidebarURL(sender) { navigate(to: url) } }
-    @objc func sidebarOpenWindow(_ sender: Any?) {
-        if let url = sidebarURL(sender) { (NSApp.delegate as? AppDelegate)?.openWindow(at: url) }
-    }
-    @objc func sidebarTerminal(_ sender: Any?) { if let url = sidebarURL(sender) { openTerminal(at: [url]) } }
-    @objc func sidebarUnpin(_ sender: Any?) { if let url = sidebarURL(sender) { editPins(.unpin(url.path)) } }
-    @objc func sidebarPin(_ sender: Any?) { if let url = sidebarURL(sender) { editPins(.pin(url.path, at: Int.max)) } }
-    @objc func sidebarMoveUp(_ sender: Any?) { movePin(sender, by: -1) }
-    @objc func sidebarMoveDown(_ sender: Any?) { movePin(sender, by: 2) }
-    @objc func sidebarCopyPath(_ sender: Any?) {
-        guard let url = sidebarURL(sender) else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(PathText.quoted([url]), forType: .string)
-    }
-    @objc func sidebarProperties(_ sender: Any?) {
-        if let url = sidebarURL(sender) { PropertiesWindowController.show([url], near: window) }
-    }
-
-    /// Up is one place earlier; down is the insertion place two on (after the next pin).
-    private func movePin(_ sender: Any?, by step: Int) {
-        guard let url = sidebarURL(sender), let i = pins.paths.firstIndex(of: url.path) else { return }
-        editPins(.move(from: i, to: max(0, min(pins.paths.count, i + step))))
     }
 
     /// terminal, cmd, wt: Terminal in this folder; notepad, calc or an app's name: that app.

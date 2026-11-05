@@ -109,7 +109,8 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
     /// Folder contents and multi-selection totals, counted off the main thread; the numbers tick up.
     private func startCounting() {
         let needs = infos.count > 1 || infos.first?.isFolder == true
-        guard needs else { return }
+        // A whole drive is not walked: its used and free space come from the volume.
+        guard needs, driveVolume == nil else { return }
         counting = true
         let roots = urls
         let single = infos.count == 1
@@ -222,7 +223,24 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
                 .init("Contains", SelectionText.contains(t) + suffix, live: counting)]
     }
 
+    /// The drive when the one item is a volume's root (Explorer's drive Properties).
+    private var driveVolume: VolumeCapacity? {
+        guard infos.count == 1, let info = infos.first, info.isFolder, let v = VolumeCapacity.read(info.url) else { return nil }
+        return v.path == info.url.standardizedFileURL.path || v.path == FilePaths.folderKey(info.url) ? v : nil
+    }
+
+    private func driveLines(_ v: VolumeCapacity) -> [PropertySheet.Line] {
+        let kind = v.isNetwork ? "Network share" : v.isRoot ? "Startup disk" : v.isEjectable || v.isRemovable ? "Removable drive" : "Local disk"
+        return [.init("Type", kind, mono: false), .separator,
+                .init("Used space", ByteText.storage(v.used) + "  (" + ByteText.grouped(v.used) + " bytes)"),
+                .init("Free space", ByteText.storage(v.free) + "  (" + ByteText.grouped(v.free) + " bytes)"),
+                .init("Capacity", ByteText.storage(v.total)),
+                .init("", "", control: DriveChartView(volume: v), controlWidth: 320), .separator,
+                .init("Location", v.path)]
+    }
+
     private func general(_ info: ItemInfo) -> [PropertySheet.Line] {
+        if let v = driveVolume { return driveLines(v) }
         var lines: [PropertySheet.Line] = [.init("Type", info.link == .alias ? "Alias" : info.kind, mono: false)]
         if !info.isFolder {
             let app = OpenWith.defaultApp(for: info.url)?.name ?? "No app"
@@ -596,6 +614,7 @@ final class PropertySheet: NSView {
                                                           options: [.usesLineFragmentOrigin], attributes: [.font: font])
             return max(28, ceil(r.height) + 10)
         }
+        if line.control is DriveChartView { return 112 }
         return line.control is D1Button || line.control is NSPopUpButton || line.control is TagField ? 40 : 28
     }
 
@@ -620,7 +639,7 @@ final class PropertySheet: NSView {
         super.layout()
         for (line, r) in zip(lines, frames()) {
             guard let c = line.control else { continue }
-            let h: CGFloat = c is D1Button || c is NSPopUpButton || c is TagField ? 32 : 22
+            let h: CGFloat = c is DriveChartView ? 100 : c is D1Button || c is NSPopUpButton || c is TagField ? 32 : 22
             let x = controlX(line)
             c.frame = NSRect(x: x, y: r.midY - h / 2, width: min(line.controlWidth, bounds.width - x - 24), height: h)
         }

@@ -56,6 +56,12 @@ public struct TabList: Sendable {
 
     public func index(of id: UUID) -> Int? { tabs.firstIndex { $0.id == id } }
 
+    /// Changes a tab in place without showing it (a background tab whose drive went away).
+    public mutating func modify(at index: Int, _ body: (inout BrowserTab) -> Void) {
+        guard tabs.indices.contains(index) else { return }
+        body(&tabs[index])
+    }
+
     public mutating func select(_ index: Int) {
         guard tabs.indices.contains(index), index != activeIndex else { return }
         activeIndex = index

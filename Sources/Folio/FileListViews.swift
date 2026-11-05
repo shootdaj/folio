@@ -31,6 +31,8 @@ protocol FileListDelegate: AnyObject {
     func listDragExited(_ list: FolioTableView)
     /// Services: the selected items' file URLs.
     func listSelectedURLs(_ list: FolioTableView) -> [URL]
+    /// The middle button on a row: a folder opens in a background tab.
+    func list(_ list: FolioTableView, middleClicked row: Int)
 }
 
 /// The table, with hover tracking for the 5.5% row wash, Explorer clicks (Cmd+click toggles, Shift+click
@@ -151,6 +153,12 @@ final class FolioTableView: NSTableView {
     override func menu(for event: NSEvent) -> NSMenu? {
         let row = row(at: convert(event.locationInWindow, from: nil))
         return listDelegate?.list(self, menuFor: row, event: event)
+    }
+
+    override func otherMouseDown(with event: NSEvent) {
+        let row = row(at: convert(event.locationInWindow, from: nil))
+        guard event.buttonNumber == 2, row >= 0, let delegate = listDelegate else { return super.otherMouseDown(with: event) }
+        delegate.list(self, middleClicked: row)
     }
 
     override func draggingExited(_ sender: NSDraggingInfo?) {
@@ -429,8 +437,13 @@ final class NameCellView: NSTableCellView, RowCellView, ThemeAware {
             ItemIcon.drawFile(named: entry.name, in: NSRect(x: iconX, y: mid - 7.5, width: 15, height: 15), palette: p)
             textX = iconX + 15 + 8
         }
-        drawLine(entry.name, font: Typeface.ui(13, weight: selected ? 600 : 400),
-                 color: selected ? p.accent : p.txt, x: textX, midY: mid, maxWidth: max(0, bounds.width - textX))
+        let nameW = drawLine(entry.name, font: Typeface.ui(13, weight: selected ? 600 : 400),
+                             color: selected ? p.accent : p.txt, x: textX, midY: mid,
+                             maxWidth: max(0, bounds.width - textX - (entry.isCloudOnly ? 22 : 0)))
+        if entry.isCloudOnly {
+            // Online only: a cloud after the name, as Explorer marks OneDrive files.
+            Glyph.cloud.draw(in: NSRect(x: textX + nameW + 6, y: mid - 7, width: 14, height: 14), color: p.txt3.ns, lineWidth: 1.6)
+        }
     }
 }
 

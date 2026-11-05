@@ -9,7 +9,7 @@ final class BrowserWindow: NSWindow {
     override func sendEvent(_ event: NSEvent) {
         if let controller = windowController as? BrowserWindowController {
             if event.type == .keyDown, controller.handleKeyDown(event) { return }
-            // Mouse buttons 4 and 5 go back and forward.
+            // Mouse buttons 4 and 5 go back and forward (the middle button, 2, opens tabs where it lands).
             if event.type == .otherMouseDown, event.buttonNumber == 3 { controller.goBack(nil); return }
             if event.type == .otherMouseDown, event.buttonNumber == 4 { controller.goForward(nil); return }
         }
@@ -42,7 +42,8 @@ final class BrowserWindow: NSWindow {
     }
 }
 
-/// One window showing one folder in a Details view, in the D1 control-room chassis.
+/// One window in the D1 control-room chassis: tabs, each showing a folder in a Details view (or Home),
+/// with the navigation pane's tree beside them.
 @MainActor
 final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     NSTableViewDataSource, NSTableViewDelegate, NSMenuItemValidation {
@@ -55,7 +56,17 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         var historyDefaults: UserDefaults = .standard
     }
 
-    private(set) var history: NavigationHistory
+    /// The window's tabs; the shown one owns the history, sort and selection the list works with.
+    var tabs: TabList
+    var history: NavigationHistory {
+        get { tabs.active.history }
+        set { tabs.active.history = newValue }
+    }
+    let options: Options
+    /// The row to bring back to the top once a tab's listing lands (switching back to a tab).
+    var restoreRow: Int?
+    /// While the table restores its saved columns: their saved sort does not replace the tab's.
+    private var ignoringSortChanges = false
     private(set) var entries: [FileEntry] = []
     /// `FilePaths.itemKey` of each entry: selection, dimming and refreshes match on these.
     private(set) var entryKeys: [String] = []
@@ -73,15 +84,32 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     /// Several selected and F2: the items Enter renames to "Name (1)", "Name (2)".
     var renameBatch: [URL]?
     private var refreshAfterRename = false
-    private(set) var sortSpec = SortSpec.standard
-    private var isLoading = false
+    var sortSpec: SortSpec {
+        get { tabs.active.sort }
+        set { tabs.active.sort = newValue }
+    }
+    var isLoading = false
     private var isResorting = false
-    private var loadError: String?
+    var loadError: String?
     /// The share button, for anchoring the share picker.
     var shareButton: ChromeButton?
     private var volume: VolumeCapacity?
+    /// Every mounted volume, for the address bar, Send to and File > Eject.
+    var volumes: [VolumeCapacity] = []
+    /// The list shows the Trash: Date deleted and Original location columns, Restore in the menus.
+    var isTrashView = false {
+        didSet {
+            guard isTrashView != oldValue else { return }
+            let titles: [SortKey: String] = isTrashView ? [.modified: "Date deleted", .kind: "Original location"]
+                : [.modified: "Date modified", .kind: "Type"]
+            for column in tableView.tableColumns {
+                if let key = SortKey(rawValue: column.identifier.rawValue), let title = titles[key] { column.title = title }
+            }
+            header.needsDisplay = true
+        }
+    }
     /// Bumped on every load or re-sort; results for an older value are dropped.
-    private var requestID = 0
+    var requestID = 0
     private var isFittingColumns = false
     /// The one dropdown this window shows at a time (typeahead, history, crumb folders, Back list).
     let dropdown = Dropdown()
@@ -127,8 +155,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     /// True once the listing and any re-sort have landed.
     var isIdle: Bool { !isLoading && !isResorting }
 
-    init(folder: URL, options: Options = Options()) {
-        history = NavigationHistory(start: folder)
+    convenience init(folder: URL, options: Options = Options()) {
+        self.init(tabs: [BrowserTab(folder: folder)], active: 0, options: options)
+    }
+
+    init(tabs list: [BrowserTab], active: Int, options: Options = Options()) {
+        tabs = TabList(list, active: active)
+        self.options = options
         addressHistory = AddressHistory(defaults: options.historyDefaults)
         pins = PinStore(defaults: options.historyDefaults, home: FileManager.default.homeDirectoryForCurrentUser)
         let window = BrowserWindow(
@@ -139,7 +172,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.titlebarSeparatorStyle = .none
-        window.minSize = NSSize(width: 760, height: 480)
+        // Small enough for two windows side by side on a 1024 pt screen (Window > Tile).
+        window.minSize = NSSize(width: 500, height: 480)
         window.backgroundColor = Palette.current.bg.ns
         window.allowsOffscreen = options.uitest
         if options.uitest { window.isRestorable = false }
@@ -155,7 +189,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         center.addObserver(self, selector: #selector(jobsChanged(_:)), name: OperationCenter.jobsChanged, object: nil)
         center.addObserver(self, selector: #selector(listOptionsChanged(_:)), name: ListOptions.didChange, object: nil)
         center.addObserver(self, selector: #selector(pinsChanged(_:)), name: PinsChanged.name, object: nil)
+        center.addObserver(self, selector: #selector(volumesChanged(_:)), name: VolumeCenter.didChange, object: nil)
+        center.addObserver(self, selector: #selector(serversChanged(_:)), name: VolumeCenter.serversChanged, object: nil)
+        center.addObserver(self, selector: #selector(homeDataChanged(_:)), name: HomeData.didChange, object: nil)
         loadVolumes()
+        updateTabStrip()
+        tableView.sortDescriptors = [descriptor(for: sortSpec)]
+        header.sort = sortSpec
         load()
     }
 
@@ -192,12 +232,12 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         dropdown.onClose = { [weak self] in self?.toolbar.address.needsDisplay = true }
         toolbar.back.onHold = { [weak self] in self?.showHistoryList(back: true) }
         toolbar.forward.onHold = { [weak self] in self?.showHistoryList(back: false) }
-        chassis.sidebar.content.onNavigate = { [weak self] url in self?.navigate(to: url) }
-        chassis.sidebar.content.places = pins.places
-        chassis.sidebar.content.dropHost = self
-        chassis.sidebar.content.onPinsEdited = { [weak self] edit in self?.editPins(edit) }
-        chassis.sidebar.content.menuProvider = { [weak self] path, isPin in self?.sidebarMenu(path: path, isPin: isPin) }
+        wireNavigationPane()
+        wireTabStrip()
+        wireHome()
         address.dropHost = self
+        address.onMiddleClick = { [weak self] url in self?.openInNewTab(url, activate: false) }
+        address.onServer = { [weak self] target in self?.connect(to: target) ?? false }
         address.onCommand = { [weak self] command in self?.runAddressCommand(command) ?? false }
         chassis.rail.onJump = { [weak self] fraction in self?.jump(to: fraction) }
 
@@ -245,9 +285,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         tableView.draggingDestinationFeedbackStyle = .none
         dropTip.isHidden = true
         if !options.uitest {
-            // After the columns exist, so saved widths and order are applied to them.
+            // After the columns exist, so saved widths and order are applied to them. The sort is the
+            // tab's own (kept in the session), so a sort the autosave brings back is ignored.
+            ignoringSortChanges = true
             tableView.autosaveName = "DetailsColumnsD1"
             tableView.autosaveTableColumns = true
+            tableView.sortDescriptors = [descriptor(for: sortSpec)]
+            ignoringSortChanges = false
         }
         header.sort = sortSpec
 
@@ -276,10 +320,27 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         load()
     }
 
+    /// Goes to the folder with one item selected (Open file location).
+    func navigate(to folder: URL, selecting key: String) {
+        history.push(folder)
+        load(restoring: ([key], 0))
+    }
+
+    /// The list empties (Home has no rows).
+    func showEmptyList() {
+        entries = []
+        entryKeys = []
+        selection = ListSelection(count: 0)
+        tableView.reloadData()
+        updateFocusRow()
+    }
+
     @objc func goBack(_ sender: Any?) { if history.goBack() != nil { load() } }
     @objc func goForward(_ sender: Any?) { if history.goForward() != nil { load() } }
     @objc func goUp(_ sender: Any?) { if history.goUp() != nil { load() } }
-    @objc func goHome(_ sender: Any?) { navigate(to: FileManager.default.homeDirectoryForCurrentUser) }
+    /// Go > Home (Cmd+Shift+H) and Quick access's Home: the Home view.
+    @objc func goHome(_ sender: Any?) { navigate(to: NavigationHistory.home) }
+    @objc func goHomeFolder(_ sender: Any?) { navigate(to: FileManager.default.homeDirectoryForCurrentUser) }
     @objc func refresh(_ sender: Any?) { load() }
 
     /// Cmd+L, and Option+D (Anshul's Cmd+D): the crumbs become an editable path.
@@ -322,7 +383,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     }
 
     func displayName(_ url: URL) -> String {
-        url.path == "/" ? (toolbar.address.volumes.first { $0.path == "/" }?.name ?? Breadcrumbs.rootTitle)
+        if NavigationHistory.isHome(url) { return "Home" }
+        if RecycleBin.isTrash(url, home: FileManager.default.homeDirectoryForCurrentUser) { return "Recycle Bin" }
+        return url.path == "/" ? (toolbar.address.volumes.first { $0.path == "/" }?.name ?? Breadcrumbs.rootTitle)
             : FileManager.default.displayName(atPath: url.path)
     }
 
@@ -332,7 +395,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
 
     private var focusedPane: Pane {
         if toolbar.address.isEditing { return .address }
-        return window?.firstResponder === chassis.sidebar.content ? .sidebar : .list
+        return window?.firstResponder === chassis.sidebar.outline ? .sidebar : .list
     }
 
     private func cycleFocus(forward: Bool) {
@@ -345,7 +408,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         if pane != .address, toolbar.address.isEditing { toolbar.address.endEditing(focus: .stay) }
         switch pane {
         case .address: toolbar.address.beginEditing()
-        case .sidebar: chassis.sidebar.content.takeKeyboardFocus()
+        case .sidebar: chassis.sidebar.takeKeyboardFocus()
         case .list: window?.makeFirstResponder(tableView)
         }
     }
@@ -373,16 +436,28 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
 
     /// `keepingState` is a refresh of the same folder: selection, scroll, focus and an open address
     /// edit stay as they are.
-    private func load(keepingState: Bool = false) {
+    /// `restoring` puts a tab's selection and scroll place back once its folder is listed.
+    func load(keepingState: Bool = false, restoring: (select: Set<String>, row: Int)? = nil) {
+        if history.isHome {
+            if !keepingState { showHome() }
+            return
+        }
+        chassis.showsHome = false
         let folder = history.current
         let spec = sortSpec
+        let hidden = ListOptions.showHidden
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let trash = RecycleBin.isTrash(folder, home: home)
+        let cloud = CloudFolders.isCloud(folder, home: home)
+        isTrashView = trash
         requestID += 1
         let id = requestID
         isLoading = true
         if !keepingState {
             loadError = nil
             statusMessage = nil
-            pendingSelect = nil
+            pendingSelect = restoring.map(\.select)
+            restoreRow = restoring?.row
             pendingRenamePath = nil
             renamer.cancel()
             dropdown.close()
@@ -390,7 +465,14 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         }
         let started = Date()
         Task.detached(priority: .userInitiated) { [weak self] in
-            let result = Result { try FolderListing.list(folder, sortedBy: spec) }
+            let result = Result {
+                guard trash else { return try FolderListing.list(folder, sortedBy: spec, includeHidden: hidden, cloud: cloud) }
+                // The Recycle Bin: Date deleted and Original location in the Date and Type columns.
+                let origins = TrashOrigins(defaults: .standard)
+                let rows = RecycleBin.rows(try FolderListing.list(folder), original: { origins.original(of: $0) },
+                                           deleted: { (try? $0.resourceValues(forKeys: [.addedToDirectoryDateKey]))?.addedToDirectoryDate })
+                return SortEngine.sort(rows, by: spec)
+            }
             let volume = VolumeCapacity.read(folder)
             await self?.finishLoad(result, volume: volume, id: id, spec: spec, folder: folder, started: started,
                                    keepingState: keepingState)
@@ -410,16 +492,23 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     }
 
     private func loadVolumes() {
-        Task.detached(priority: .utility) { [weak self] in
-            let volumes = VolumeCapacity.mounted()
-            await self?.showVolumes(volumes)
+        let shared = VolumeCenter.shared
+        if !shared.volumes.isEmpty {
+            showVolumes(shared.volumes)
+        } else {
+            Task.detached(priority: .utility) { [weak self] in
+                let volumes = VolumeCapacity.mounted()
+                await self?.showVolumes(volumes)
+            }
         }
     }
 
-    private func showVolumes(_ volumes: [VolumeCapacity]) {
-        chassis.sidebar.content.volumes = volumes
+    func showVolumes(_ volumes: [VolumeCapacity]) {
+        self.volumes = volumes
+        chassis.sidebar.pane.setVolumes(volumes)
         toolbar.address.volumes = volumes
         chassis.sidebar.needsLayout = true
+        if !history.isHome, ListOptions.expandToCurrent { revealCurrentFolder(select: false) }
     }
 
     private func finishLoad(_ result: Result<[FileEntry], any Error>, volume: VolumeCapacity?, id: Int,
@@ -436,11 +525,19 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             show(list, selecting: select)
             if !keepingState { addressHistory.record(folder.path) }
         case .failure(let error):
-            loadError = error.localizedDescription
+            loadError = isTrashView && (error as NSError).code == NSFileReadNoPermissionError
+                ? "Folio needs Full Disk Access to show the Recycle Bin (System Settings, Privacy & Security)"
+                : error.localizedDescription
             show([], selecting: [])
         }
         if !keepingState {
-            tableView.scrollRowToVisible(0)
+            if let row = restoreRow, row > 0, row < entries.count {
+                tableView.scroll(NSPoint(x: 0, y: tableView.rect(ofRow: row).minY - (header.frame.height)))
+            } else {
+                tableView.scrollRowToVisible(0)
+            }
+            restoreRow = nil
+            didNavigate()
         } else if scroll, let first = tableView.selectedRowIndexes.first {
             tableView.scrollRowToVisible(first)
         }
@@ -515,18 +612,20 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         tableView.enumerateAvailableRowViews { view, row in (view as? FolioRowView)?.isFocusRow = row == focus }
     }
 
-    private func updateChrome() {
+    func updateChrome() {
         let folder = history.current
         let name = displayName(folder)
         window?.title = name
         titleBar.folderName = name
-        titleBar.folderPath = folder.path
+        titleBar.folderPath = history.isHome ? "Quick access, Favorites, Recent" : folder.path
         toolbar.back.isEnabled = history.canGoBack
         toolbar.forward.isEnabled = history.canGoForward
         toolbar.up.isEnabled = history.canGoUp
         toolbar.address.show(folder)
         toolbar.search.folderName = name
-        chassis.sidebar.content.currentPath = folder.path
+        chassis.sidebar.pane.isHome = history.isHome
+        chassis.sidebar.pane.currentPath = history.isHome ? "" : FilePaths.folderKey(folder)
+        updateTabStrip()
         updateStatus()
     }
 
@@ -536,11 +635,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
 
     func updateStatus() {
         let selection = SelectionSummary(selectedEntries)
-        let path = history.current.path
+        let path = history.isHome ? "Home" : history.current.path
         if let statusMessage {
             chassis.status.countText = statusMessage
         } else if let loadError {
             chassis.status.countText = loadError
+        } else if history.isHome {
+            chassis.status.countText = homeStatusText
         } else if isLoading {
             chassis.status.countText = "Loading " + (path as NSString).lastPathComponent
         } else {
@@ -574,6 +675,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     // MARK: Notifications from file operations
 
     @objc private func filesChanged(_ note: Notification) {
+        refreshTree(note)
+        guard !history.isHome else { return }
         // A periodic refresh while a job runs only concerns windows on its destination.
         let here = FilePaths.folderKey(history.current)
         if let folders = note.userInfo?["folders"] as? Set<String>, !folders.contains(here) { return }
@@ -596,6 +699,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     }
 
     @objc private func listOptionsChanged(_ note: Notification) {
+        if chassis.sidebar.pane.tree.showHidden != ListOptions.showHidden {
+            chassis.sidebar.pane.setShowHidden(ListOptions.showHidden)
+            if !history.isHome { reloadContents() }
+        }
+        applyNavigationPaneOptions()
         tableView.showsCheckboxes = ListOptions.checkboxes
         if !entries.isEmpty {
             tableView.reloadData(forRowIndexes: IndexSet(entries.indices), columnIndexes: IndexSet(tableView.tableColumns.indices))
@@ -655,9 +763,19 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             if item.isFolder {
                 (NSApp.delegate as? AppDelegate)?.openWindow(at: item.url)
             } else {
-                NSWorkspace.shared.open(item.url)
+                openFile(item.url)
             }
         }
+    }
+
+    /// A file opens in its app and goes on Home's Recent files; a disk image is mounted and opened here.
+    func openFile(_ url: URL) {
+        if VolumeCenter.isDiskImage(url) {
+            VolumeCenter.shared.mountImage(url, window: window) { [weak self] mount in self?.navigate(to: mount) }
+            return
+        }
+        NSWorkspace.shared.open(url)
+        HomeData.noteOpened(url, defaults: options.historyDefaults)
     }
 
     // MARK: Keyboard
@@ -678,6 +796,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             default: break
             }
         }
+        if handleTabKey(event, modifiers: modifiers, editingText: editingText) { return true }
         switch (event.keyCode, modifiers) {
         case (126, .option): goUp(nil)                          // Option+Up (Cmd+Up after Karabiner)
         case (123, .option) where !editingText: goBack(nil)     // Option+Left
@@ -796,7 +915,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     }
 
     func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
-        guard let first = tableView.sortDescriptors.first,
+        guard !ignoringSortChanges, let first = tableView.sortDescriptors.first,
               let key = first.key.flatMap(SortKey.init(rawValue:)) else { return }
         guard SortSpec(key: key, ascending: first.ascending) != sortSpec else { return } // our own update
         sortSpec = sortSpec.clicking(key)
@@ -826,7 +945,12 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     func windowDidResize(_ notification: Notification) {
         (window as? BrowserWindow)?.placeTrafficLights()
         dropdown.close()
+        sessionChanged()
     }
+
+    func windowDidMove(_ notification: Notification) { sessionChanged() }
+
+    func windowDidBecomeMain(_ notification: Notification) { sessionChanged() }
 
     func windowDidResignKey(_ notification: Notification) {
         dropdown.close()
@@ -839,6 +963,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     func windowWillClose(_ notification: Notification) {
         dropdown.close()
         renamer.end()
+        // Cmd+Shift+T can bring back the tabs of a closed window too.
+        if !tabs.isEmpty, let app = NSApp.delegate as? AppDelegate {
+            stashActiveTab()
+            for (i, tab) in tabs.tabs.enumerated() { app.closedTabs.push(tab, index: i) }
+        }
         NotificationCenter.default.removeObserver(self)
         (NSApp.delegate as? AppDelegate)?.windowClosed(self)
     }

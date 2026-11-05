@@ -1,27 +1,55 @@
 import AppKit
 import FolioCore
 
-/// D1's window grid: title 44, toolbar 56, HUD 30, body, status 32. The body is the 248 pt sidebar,
-/// the list pane (8 pt margin top, left and bottom) and the 34 pt tick strip.
+/// D1's window grid: title 44, tabs 36, toolbar 56, HUD 30, body, status 32. The body is the sidebar
+/// (248 pt unless resized from its right edge, hidden from View > Navigation pane), the list pane
+/// (8 pt margin top, left and bottom) or Home in its place, and the 34 pt tick strip.
 final class ChassisView: NSView {
-    static let titleH: CGFloat = 44, toolH: CGFloat = 56, hudH: CGFloat = 30, statusH: CGFloat = 32
+    static let titleH: CGFloat = 44, tabH: CGFloat = 36, toolH: CGFloat = 56, hudH: CGFloat = 30, statusH: CGFloat = 32
     static let sideW: CGFloat = 248, railW: CGFloat = 34, paneMargin: CGFloat = 8
+    static let sideMin: CGFloat = 180, sideMax: CGFloat = 480
     /// Space between the list's vertical scroller and the tick strip, so neither sits on the other.
     static let railGutter: CGFloat = 14
 
     let titleBar: TitleBarView
+    let tabStrip = TabStripView(frame: .zero)
     let toolbar: ToolbarView
     let hud = HudView(frame: .zero)
     let sidebar = SidebarView(frame: .zero)
     let pane = ListPaneView(frame: .zero)
+    let home = HomePaneView(frame: .zero)
     let rail = TickStripView(frame: .zero)
     let status = StatusBarView(frame: .zero)
+    private let handle = SidebarHandle(frame: .zero)
+
+    /// The navigation pane's width, dragged at its right edge and kept in the defaults.
+    var sideWidth: CGFloat = ChassisView.sideW { didSet { if sideWidth != oldValue { needsLayout = true } } }
+    var sidebarShown = true { didSet { if sidebarShown != oldValue { needsLayout = true } } }
+    /// Home instead of the file list (the tick strip goes with the list).
+    var showsHome = false {
+        didSet {
+            guard showsHome != oldValue else { return }
+            pane.isHidden = showsHome
+            rail.isHidden = showsHome
+            home.isHidden = !showsHome
+            needsLayout = true
+        }
+    }
+    /// The sidebar edge was dragged to a new width (saved and the columns refitted by the window).
+    var onSidebarResized: ((CGFloat) -> Void)?
 
     init(titleBar: TitleBarView, toolbar: ToolbarView) {
         self.titleBar = titleBar
         self.toolbar = toolbar
         super.init(frame: .zero)
-        for view in [sidebar, pane, rail, hud, toolbar, status, titleBar] as [NSView] { addSubview(view) }
+        home.isHidden = true
+        // The sidebar's scroll view comes first and the list's second (the VM scripts find them so).
+        for view in [sidebar, pane, home, rail, hud, toolbar, status, tabStrip, titleBar, handle] as [NSView] { addSubview(view) }
+        handle.onDrag = { [weak self] x in
+            guard let self else { return }
+            self.sideWidth = min(Self.sideMax, max(Self.sideMin, x))
+            self.onSidebarResized?(self.sideWidth)
+        }
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
@@ -33,19 +61,28 @@ final class ChassisView: NSView {
         windowWidth - sideW - paneMargin - railGutter - railW - 2
     }
 
+    static var bodyTop: CGFloat { titleH + tabH + toolH + hudH }
+
     override func layout() {
         super.layout()
         let w = bounds.width, h = bounds.height
         titleBar.frame = NSRect(x: 0, y: 0, width: w, height: Self.titleH)
-        toolbar.frame = NSRect(x: 0, y: Self.titleH, width: w, height: Self.toolH)
-        hud.frame = NSRect(x: 0, y: Self.titleH + Self.toolH, width: w, height: Self.hudH)
-        let top = Self.titleH + Self.toolH + Self.hudH
+        tabStrip.frame = NSRect(x: 0, y: Self.titleH, width: w, height: Self.tabH)
+        toolbar.frame = NSRect(x: 0, y: Self.titleH + Self.tabH, width: w, height: Self.toolH)
+        hud.frame = NSRect(x: 0, y: Self.titleH + Self.tabH + Self.toolH, width: w, height: Self.hudH)
+        let top = Self.bodyTop
         let bodyH = max(0, h - top - Self.statusH)
-        sidebar.frame = NSRect(x: 0, y: top, width: Self.sideW, height: bodyH)
+        let side = sidebarShown ? sideWidth : 0
+        sidebar.isHidden = !sidebarShown
+        handle.isHidden = !sidebarShown
+        sidebar.frame = NSRect(x: 0, y: top, width: side, height: bodyH)
+        handle.frame = NSRect(x: side - 3, y: top, width: 6, height: bodyH)
         rail.frame = NSRect(x: w - Self.railW, y: top, width: Self.railW, height: bodyH)
-        pane.frame = NSRect(x: Self.sideW + Self.paneMargin, y: top + Self.paneMargin,
-                            width: max(0, w - Self.sideW - Self.paneMargin - Self.railGutter - Self.railW),
+        pane.frame = NSRect(x: side + Self.paneMargin, y: top + Self.paneMargin,
+                            width: max(0, w - side - Self.paneMargin - Self.railGutter - Self.railW),
                             height: max(0, bodyH - 2 * Self.paneMargin))
+        home.frame = NSRect(x: side + Self.paneMargin, y: top + Self.paneMargin,
+                            width: max(0, w - side - 2 * Self.paneMargin), height: max(0, bodyH - 2 * Self.paneMargin))
         status.frame = NSRect(x: 0, y: h - Self.statusH, width: w, height: Self.statusH)
     }
 
@@ -56,5 +93,20 @@ final class ChassisView: NSView {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         ThemeController.shared.systemAppearanceMayHaveChanged()
+    }
+}
+
+/// The navigation pane's right edge: drag it to resize the pane.
+final class SidebarHandle: NSView {
+    var onDrag: ((CGFloat) -> Void)?
+
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .resizeLeftRight) }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let window, let host = superview else { return }
+        while let next = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
+            if next.type == .leftMouseUp { break }
+            onDrag?(host.convert(next.locationInWindow, from: nil).x)
+        }
     }
 }
