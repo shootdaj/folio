@@ -72,7 +72,18 @@ enum MainMenu {
             item("Select None", #selector(BrowserWindowController.selectNone(_:))),
             item("Invert Selection", #selector(BrowserWindowController.invertSelection(_:))),
         ])
-        add("View", to: main, [
+        add("View", to: main, viewItems(compactMenu: false) + [
+            .separator(),
+            submenu("Sort By", sortItems()),
+            submenu("Group By", groupItems()),
+            item("Collapse All Groups", #selector(BrowserWindowController.collapseAllGroups(_:))),
+            item("Expand All Groups", #selector(BrowserWindowController.expandAllGroups(_:))),
+            .separator(),
+            item("Choose Details...", #selector(BrowserWindowController.chooseDetails(_:))),
+            // Explorer's Ctrl+Numpad +, as Cmd+= (Cmd+Numpad + works too, in BrowserWindow).
+            item("Size All Columns to Fit", #selector(BrowserWindowController.sizeAllColumnsToFit(_:)), "="),
+            item("Clear Filters", #selector(BrowserWindowController.clearAllFilters(_:))),
+            .separator(),
             submenu("Theme", ThemeChoice.allCases.map {
                 choice($0.title, #selector(AppDelegate.selectTheme(_:)), $0.rawValue)
             }),
@@ -85,9 +96,6 @@ enum MainMenu {
                 item("Expand to Current Folder", #selector(BrowserWindowController.expandToCurrentFolder(_:)), "e", [.control, .shift]),
                 item("Always Expand to Current Folder", #selector(BrowserWindowController.toggleExpandToCurrent(_:))),
             ]),
-            item("Hidden Items", #selector(BrowserWindowController.toggleHiddenItems(_:)), ".", [.command, .shift]),
-            item("Item Check Boxes", #selector(BrowserWindowController.toggleItemCheckBoxes(_:))),
-            submenu("Sort By", sortItems()),
             .separator(),
             item("Enter Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control]),
         ])
@@ -131,8 +139,54 @@ enum MainMenu {
          item("Text Document", #selector(BrowserWindowController.newTextDocument(_:)))]
     }
 
+    /// The layouts (Ctrl+Shift+1 to 8, Explorer's numbers), Gallery, Compact view, Show, and the one view
+    /// setting: Make this the default view. The main menu, the command bar's View and the background menu.
+    static func viewItems(compactMenu: Bool) -> [NSMenuItem] {
+        var items: [NSMenuItem] = ViewMode.allCases.map { mode in
+            let it = choice(mode.title, #selector(BrowserWindowController.setViewMode(_:)), mode.rawValue)
+            if let n = mode.shortcut {
+                it.keyEquivalent = "\(n)"
+                it.keyEquivalentModifierMask = [.control, .shift]
+            }
+            return it
+        }
+        items.append(.separator())
+        items.append(item("Compact View", #selector(BrowserWindowController.toggleCompactView(_:))))
+        items.append(submenu("Show", showItems()))
+        items.append(.separator())
+        items.append(item("Make This the Default View", #selector(BrowserWindowController.makeDefaultView(_:))))
+        if compactMenu {
+            items.append(.separator())
+            items.append(item("Choose Details...", #selector(BrowserWindowController.chooseDetails(_:))))
+        }
+        return items
+    }
+
+    /// View > Show: the panes and what the list shows (Explorer's View > Show).
+    static func showItems() -> [NSMenuItem] {
+        [item("Preview Pane", #selector(BrowserWindowController.togglePreviewPane(_:)), "p", .option),
+         item("Details Pane", #selector(BrowserWindowController.toggleDetailsPane(_:)), "p", [.option, .shift]),
+         .separator(),
+         item("Item Check Boxes", #selector(BrowserWindowController.toggleItemCheckBoxes(_:))),
+         item("File Name Extensions", #selector(BrowserWindowController.toggleFileExtensions(_:))),
+         item("Hidden Items", #selector(BrowserWindowController.toggleHiddenItems(_:)), ".", [.command, .shift]),
+         .separator(),
+         choice("Thumbnails", #selector(BrowserWindowController.toggleThumbnails(_:)), "thumbnails"),
+         choice("Always Show Icons, Never Thumbnails", #selector(BrowserWindowController.toggleThumbnails(_:)), "iconsOnly")]
+    }
+
+    /// Group by: (None), every column, then Ascending and Descending.
+    static func groupItems() -> [NSMenuItem] {
+        var items = [choice("(None)", #selector(BrowserWindowController.groupByColumn(_:)), "none")]
+        items += ColumnID.allCases.map { choice($0.title, #selector(BrowserWindowController.groupByColumn(_:)), $0.rawValue) }
+        items.append(.separator())
+        items.append(item("Ascending", #selector(BrowserWindowController.groupAscending(_:))))
+        items.append(item("Descending", #selector(BrowserWindowController.groupDescending(_:))))
+        return items
+    }
+
     static func sortItems() -> [NSMenuItem] {
-        var items = SortKey.allCases.map { key in
+        var items = ColumnID.allCases.map { key in
             choice(sortTitle(key), #selector(BrowserWindowController.sortByColumn(_:)), key.rawValue)
         }
         items.append(.separator())
@@ -141,14 +195,7 @@ enum MainMenu {
         return items
     }
 
-    private static func sortTitle(_ key: SortKey) -> String {
-        switch key {
-        case .name: "Name"
-        case .modified: "Date modified"
-        case .kind: "Type"
-        case .size: "Size"
-        }
-    }
+    private static func sortTitle(_ key: SortKey) -> String { key.title }
 
     @discardableResult
     private static func add(_ title: String, to main: NSMenu, _ items: [NSMenuItem]) -> NSMenu {

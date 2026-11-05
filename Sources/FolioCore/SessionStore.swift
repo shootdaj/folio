@@ -19,6 +19,9 @@ public struct TabSession: Codable, Equatable, Sendable {
     public var forward: [String]
     public var sortKey: String
     public var ascending: Bool
+    /// Shift+click sort keys and Group by (absent in sessions saved before milestone 6).
+    public var thenKeys: [SortTerm]?
+    public var group: GroupSpec?
 
     public init(_ tab: BrowserTab) {
         path = Self.text(tab.history.current)
@@ -26,6 +29,8 @@ public struct TabSession: Codable, Equatable, Sendable {
         forward = tab.history.forwardStackURLs.map(Self.text)
         sortKey = tab.sort.key.rawValue
         ascending = tab.sort.ascending
+        thenKeys = tab.sort.then.isEmpty ? nil : tab.sort.then
+        group = tab.group
     }
 
     private static func text(_ url: URL) -> String {
@@ -43,10 +48,12 @@ public struct TabSession: Codable, Equatable, Sendable {
             while place != "/" && !exists(place) { place = (place as NSString).deletingLastPathComponent }
             if place.isEmpty { place = "/" }
         }
-        let sort = SortSpec(key: SortKey(rawValue: sortKey) ?? .name, ascending: ascending)
+        let sort = SortSpec(key: SortKey(rawValue: sortKey) ?? .name, ascending: ascending, then: thenKeys ?? [])
         let history = NavigationHistory(current: Self.url(place), back: back.map(Self.url),
                                         forward: place == path ? forward.map(Self.url) : [])
-        return BrowserTab(history: history, sort: sort)
+        var tab = BrowserTab(history: history, sort: sort)
+        tab.group = group
+        return tab
     }
 }
 

@@ -31,7 +31,7 @@ extension BrowserWindowController {
     /// The shown tab's selection and scroll place, kept for when it is shown again.
     func stashActiveTab() {
         guard !tabs.isEmpty, !history.isHome else { return }
-        tabs.active.selection = tableView.selectedRowIndexes.compactMap { entryKeys.indices.contains($0) ? entryKeys[$0] : nil }
+        tabs.active.selection = selectedKeys
         let clip = chassis.pane.scrollView.contentView.bounds
         tabs.active.scrollRow = max(0, tableView.row(at: NSPoint(x: 1, y: clip.minY + header.frame.height + 1)))
     }
@@ -39,7 +39,6 @@ extension BrowserWindowController {
     /// Shows the active tab: its sort on the header, its folder listed, its selection and scroll back.
     func showActiveTab() {
         let tab = tabs.active
-        tableView.sortDescriptors = [NSSortDescriptor(key: tab.sort.key.rawValue, ascending: tab.sort.ascending)]
         header.sort = tab.sort
         load(restoring: (Set(tab.selection), tab.scrollRow))
         updateTabStrip()
@@ -58,14 +57,18 @@ extension BrowserWindowController {
     /// Cmd+T: a new tab on the folder this tab shows.
     @objc func newTab(_ sender: Any?) {
         stashActiveTab()
-        tabs.append(BrowserTab(history: NavigationHistory(start: history.current), sort: sortSpec))
+        var tab = BrowserTab(history: NavigationHistory(start: history.current), sort: sortSpec)
+        tab.group = group
+        tabs.append(tab)
         showActiveTab()
     }
 
     /// Open in new tab and middle-click: a tab next to this one, in the background unless `activate`.
     func openInNewTab(_ url: URL, activate: Bool) {
         if activate { stashActiveTab() }
-        tabs.openNext(BrowserTab(folder: url, sort: sortSpec), activate: activate)
+        var tab = BrowserTab(folder: url, sort: sortSpec)
+        tab.group = group
+        tabs.openNext(tab, activate: activate)
         if activate { showActiveTab() } else { updateTabStrip(); sessionChanged() }
     }
 

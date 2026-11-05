@@ -7,7 +7,7 @@ public enum FolderListing {
     /// prefetched. The kind depends only on the content type, so it is read once per type instead.
     public static let resourceKeys: [URLResourceKey] = [
         .nameKey, .isDirectoryKey, .isPackageKey, .isSymbolicLinkKey,
-        .contentModificationDateKey, .fileSizeKey, .contentTypeKey,
+        .contentModificationDateKey, .fileSizeKey, .contentTypeKey, .isHiddenKey, .isAliasFileKey,
     ]
 
     /// `includeHidden` is View > Hidden items: dot files and items with the hidden flag too.
@@ -22,7 +22,7 @@ public enum FolderListing {
             let status = (try? e.url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey]))?.ubiquitousItemDownloadingStatus
             guard let status, status != .current, status != .downloaded else { return e }
             return FileEntry(url: e.url, name: e.name, isFolder: e.isFolder, modified: e.modified, size: e.size, kind: e.kind,
-                             isCloudOnly: true)
+                             isCloudOnly: true, isHidden: e.isHidden, isLink: e.isLink)
         }
     }
 
@@ -47,7 +47,9 @@ public enum FolderListing {
             isFolder: isDirectory && !isPackage,
             modified: values?.contentModificationDate,
             size: isDirectory ? nil : values?.fileSize.map(Int64.init),
-            kind: kind(of: url, type: values?.contentType?.identifier, cache: &kinds))
+            kind: kind(of: url, type: values?.contentType?.identifier, cache: &kinds),
+            isHidden: values?.isHidden ?? false,
+            isLink: values?.isSymbolicLink == true || values?.isAliasFile == true)
     }
 
     private static func kind(of url: URL, type: String?, cache: inout [String: String]) -> String {

@@ -9,6 +9,15 @@ final class BrowserWindow: NSWindow {
     override func sendEvent(_ event: NSEvent) {
         if let controller = windowController as? BrowserWindowController {
             if event.type == .keyDown, controller.handleKeyDown(event) { return }
+            // Explorer's Ctrl+wheel (Cmd+scroll here) and a trackpad pinch step through the views.
+            if event.type == .scrollWheel, event.modifierFlags.contains(.command), controller.zoomsWithScroll {
+                controller.grid.zoom(with: event)
+                return
+            }
+            if event.type == .magnify, controller.zoomsWithScroll {
+                controller.pinch(event)
+                return
+            }
             // Mouse buttons 4 and 5 go back and forward (the middle button, 2, opens tabs where it lands).
             if event.type == .otherMouseDown, event.buttonNumber == 3 { controller.goBack(nil); return }
             if event.type == .otherMouseDown, event.buttonNumber == 4 { controller.goForward(nil); return }
@@ -65,8 +74,17 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     let options: Options
     /// The row to bring back to the top once a tab's listing lands (switching back to a tab).
     var restoreRow: Int?
-    /// While the table restores its saved columns: their saved sort does not replace the tab's.
-    private var ignoringSortChanges = false
+    /// The folder as listed, before filters, sort and groups.
+    private(set) var listing: [FileEntry] = []
+    /// Header filters: transient, dropped on navigating away and never saved.
+    var filters = FilterSet()
+    /// Group by groups folded shut (bucket ids), until the folder changes.
+    var collapsedGroups: Set<String> = []
+    /// What the list shows: the shown items in order and, when grouped, the header rows between them.
+    private(set) var layout = ListLayout(items: [])
+    /// The inputs `layout` was arranged from, to tell when it must be arranged again.
+    private var arrangedWith: ArrangeKey?
+    /// The shown items in order (collapsed groups' items left out); selection indexes these.
     private(set) var entries: [FileEntry] = []
     /// `FilePaths.itemKey` of each entry: selection, dimming and refreshes match on these.
     private(set) var entryKeys: [String] = []
@@ -88,6 +106,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         get { tabs.active.sort }
         set { tabs.active.sort = newValue }
     }
+    /// Group by of the shown tab; nil is (None).
+    var group: GroupSpec? {
+        get { tabs.active.group }
+        set { tabs.active.group = newValue }
+    }
     var isLoading = false
     private var isResorting = false
     var loadError: String?
@@ -100,10 +123,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     var isTrashView = false {
         didSet {
             guard isTrashView != oldValue else { return }
-            let titles: [SortKey: String] = isTrashView ? [.modified: "Date deleted", .kind: "Original location"]
-                : [.modified: "Date modified", .kind: "Type"]
             for column in tableView.tableColumns {
-                if let key = SortKey(rawValue: column.identifier.rawValue), let title = titles[key] { column.title = title }
+                if let key = SortKey(rawValue: column.identifier.rawValue) { column.title = columnTitle(key) }
             }
             header.needsDisplay = true
         }
@@ -123,34 +144,48 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     var springTarget: URL?
     var springTimer: Timer?
     /// The folder row lit under a drag (-1 for none); the list draws D1's feedback, not AppKit's.
+    /// The folder item lit under a drag (-1 for none); the list draws D1's feedback, not AppKit's.
     var dropTargetRow = -1 {
         didSet {
             guard dropTargetRow != oldValue else { return }
-            tableView.enumerateAvailableRowViews { view, row in (view as? FolioRowView)?.isDropTarget = row == dropTargetRow }
+            tableView.enumerateAvailableRowViews { view, row in
+                (view as? FolioRowView)?.isDropTarget = dropTargetRow >= 0 && layout.item(atRow: row) == dropTargetRow
+            }
+            grid.forEachVisibleCell { cell, i in cell.isDropTarget = i == dropTargetRow }
         }
     }
+    /// The open header filter, and Choose details while it is up.
+    var filterPanel: FilterPanelController?
+    var columnChooser: ColumnChooserPanel?
     /// What Quick Look shows: the selection when it opened.
     var quickLookItems: [URL] = []
 
     let tableView = FolioTableView()
+    /// Every view but Details.
+    let grid = FileGridView()
+    /// The list the keyboard and menus act on: the table in Details, the grid otherwise.
+    var listView: NSView { viewMode.usesTable ? tableView : grid }
+    var viewMode: ViewMode { ViewCenter.shared.mode }
+    /// The Recycle Bin's Date and Type columns read Date deleted and Original location.
+    func columnTitle(_ key: SortKey) -> String {
+        guard isTrashView else { return key.title }
+        return key == .modified ? "Date deleted" : key == .kind ? "Original location" : key.title
+    }
+    /// Metadata reads waiting to be sent off the main thread, and those already on their way.
+    var metadataQueue: [FileEntry] = []
+    var metadataInFlight: Set<String> = []
+    var metadataFlushScheduled = false
+    private var isRebuildingColumns = false
+    var typeSelectBuffer = ""
+    var typeSelectTime: TimeInterval = 0
+    var pinchTotal: CGFloat = 0
     let header = FolioHeaderView(frame: NSRect(x: 0, y: 0, width: 100,
                                                        height: ListMetrics.headerHeight + ListMetrics.listTopPad))
     private(set) var chassis: ChassisView!
     private var titleBar: TitleBarView { chassis.titleBar }
     var toolbar: ToolbarView { chassis.toolbar }
 
-    private static let nameMinWidth: CGFloat = 120
-    private static let columns: [(key: SortKey, title: String, width: CGFloat)] = [
-        (.name, "Name", 320), (.modified, "Date modified", 150), (.kind, "Type", 132), (.size, "Size", 88),
-    ]
-    /// D1 shows dates as 2026-05-22 21:28 in local time, each date with its own daylight-saving rule.
-    private static let dateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = .current
-        formatter.dateFormat = "yyyy-MM-dd HH:mm"
-        return formatter
-    }()
+    static let nameMinWidth: CGFloat = 120
 
     /// True once the listing and any re-sort have landed.
     var isIdle: Bool { !isLoading && !isResorting }
@@ -192,10 +227,12 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         center.addObserver(self, selector: #selector(volumesChanged(_:)), name: VolumeCenter.didChange, object: nil)
         center.addObserver(self, selector: #selector(serversChanged(_:)), name: VolumeCenter.serversChanged, object: nil)
         center.addObserver(self, selector: #selector(homeDataChanged(_:)), name: HomeData.didChange, object: nil)
+        center.addObserver(self, selector: #selector(viewModeChanged(_:)), name: ViewCenter.didChange, object: nil)
+        center.addObserver(self, selector: #selector(columnsChanged(_:)), name: ColumnCenter.didChange, object: nil)
         loadVolumes()
         updateTabStrip()
-        tableView.sortDescriptors = [descriptor(for: sortSpec)]
         header.sort = sortSpec
+        applyViewMode()
         load()
     }
 
@@ -241,24 +278,16 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         address.onCommand = { [weak self] command in self?.runAddressCommand(command) ?? false }
         chassis.rail.onJump = { [weak self] fraction in self?.jump(to: fraction) }
 
-        // Date, Type and Size keep D1's widths; Name takes the rest of the list (fitColumns), so the
-        // four columns always fit and there is never a horizontal scroller.
-        let nameWidth = CGFloat(ColumnFit.nameWidth(
-            clipWidth: Double(ChassisView.listWidth(windowWidth: options.size.width)),
-            otherWidths: Self.columns.dropFirst().map { Double($0.width) },
-            gap: Double(ListMetrics.columnGap), minimum: Double(Self.nameMinWidth)))
-        for column in Self.columns {
-            let tableColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(column.key.rawValue))
-            tableColumn.title = column.title
-            tableColumn.width = column.key == .name ? nameWidth : column.width
-            tableColumn.minWidth = column.key == .name ? Self.nameMinWidth : 40
-            tableColumn.sortDescriptorPrototype = descriptor(for: SortSpec(key: column.key, ascending: column.key.defaultAscending))
-            tableView.addTableColumn(tableColumn)
-        }
+        // The shown columns keep their widths; Name takes the rest of the list (fitColumns), so the
+        // standard four always fit with no horizontal scroller.
+        rebuildColumns(windowWidth: options.size.width)
         tableView.headerView = header
         tableView.cornerView = nil
         tableView.style = .plain
-        tableView.rowHeight = ListMetrics.rowHeight
+        tableView.rowHeight = ListOptions.compact ? ListMetrics.compactRowHeight : ListMetrics.rowHeight
+        // Group headers scroll with their rows; a header click sorts or adds a sort key, never selects a column.
+        tableView.floatsGroupRows = false
+        tableView.allowsColumnSelection = false
         tableView.intercellSpacing = NSSize(width: ListMetrics.columnGap, height: 0)
         tableView.backgroundColor = .clear
         tableView.gridStyleMask = []
@@ -274,25 +303,29 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         tableView.listDelegate = self
         tableView.showsCheckboxes = ListOptions.checkboxes
         header.onToggleAll = { [weak self] in self?.toggleAllFromHeader() }
+        header.onFilter = { [weak self] column, rect in self?.showFilter(column, below: rect) }
+        header.onMenu = { [weak self] column in self?.headerMenu(column) }
+        tableView.itemAtRow = { [weak self] row in self?.layout.item(atRow: row) }
+        tableView.groupAtRow = { [weak self] row in self?.layout.group(atRow: row) }
+        tableView.rowOfItem = { [weak self] item in self?.tableRow(ofItem: item) ?? item }
+        grid.host = self
+        grid.listDelegate = self
+        grid.registerForDraggedTypes(droppableTypes)
+        grid.setDraggingSourceOperationMask([.copy, .move, .link, .generic], forLocal: true)
+        chassis.pane.gridScroll.documentView = grid
+        chassis.sidePane.onClose = { ListOptions.sidePane = .none }
+        chassis.sidePane.onEdit = { [weak self] url, tags, comment in self?.editMetadata(url, tags: tags, comment: comment) }
+        chassis.sidePaneKind = ListOptions.sidePane
+        toolbar.address.onClearToken = { [weak self] column in self?.clearFilter(column) }
         renamer.onCommit = { [weak self] name, move in self?.commitRename(name, move: move) ?? true }
         renamer.onEnd = { [weak self] in self?.renameEnded() }
         chassis.status.chip.onPress = { OperationCenter.shared.showProgress() }
         toolbar.commands = makeCommandBar()
         toolbar.groupEnds = [6, 8]
-        tableView.sortDescriptors = [descriptor(for: sortSpec)]
         tableView.setAccessibilityLabel("Files")
         tableView.registerForDraggedTypes(droppableTypes)
         tableView.draggingDestinationFeedbackStyle = .none
         dropTip.isHidden = true
-        if !options.uitest {
-            // After the columns exist, so saved widths and order are applied to them. The sort is the
-            // tab's own (kept in the session), so a sort the autosave brings back is ignored.
-            ignoringSortChanges = true
-            tableView.autosaveName = "DetailsColumnsD1"
-            tableView.autosaveTableColumns = true
-            tableView.sortDescriptors = [descriptor(for: sortSpec)]
-            ignoringSortChanges = false
-        }
         header.sort = sortSpec
 
         let scrollView = chassis.pane.scrollView
@@ -307,10 +340,6 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
 
         window.contentView = chassis
         window.initialFirstResponder = tableView
-    }
-
-    private func descriptor(for spec: SortSpec) -> NSSortDescriptor {
-        NSSortDescriptor(key: spec.key.rawValue, ascending: spec.ascending)
     }
 
     // MARK: Navigation
@@ -328,10 +357,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
 
     /// The list empties (Home has no rows).
     func showEmptyList() {
+        listing = []
+        layout = ListLayout(items: [])
         entries = []
         entryKeys = []
         selection = ListSelection(count: 0)
         tableView.reloadData()
+        grid.reloadData()
         updateFocusRow()
     }
 
@@ -409,7 +441,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         switch pane {
         case .address: toolbar.address.beginEditing()
         case .sidebar: chassis.sidebar.takeKeyboardFocus()
-        case .list: window?.makeFirstResponder(tableView)
+        case .list: window?.makeFirstResponder(listView)
         }
     }
 
@@ -444,7 +476,12 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         }
         chassis.showsHome = false
         let folder = history.current
-        let spec = sortSpec
+        if !keepingState {
+            // A filter and folded groups belong to the folder on screen.
+            filters.clearAll()
+            collapsedGroups = []
+        }
+        let key = arrangeKey
         let hidden = ListOptions.showHidden
         let home = FileManager.default.homeDirectoryForCurrentUser
         let trash = RecycleBin.isTrash(folder, home: home)
@@ -465,16 +502,20 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         }
         let started = Date()
         Task.detached(priority: .userInitiated) { [weak self] in
-            let result = Result {
-                guard trash else { return try FolderListing.list(folder, sortedBy: spec, includeHidden: hidden, cloud: cloud) }
-                // The Recycle Bin: Date deleted and Original location in the Date and Type columns.
-                let origins = TrashOrigins(defaults: .standard)
-                let rows = RecycleBin.rows(try FolderListing.list(folder), original: { origins.original(of: $0) },
+            let result = Result { () -> ([FileEntry], ListLayout) in
+                let rows: [FileEntry]
+                if trash {
+                    // The Recycle Bin: Date deleted and Original location in the Date and Type columns.
+                    let origins = TrashOrigins(defaults: .standard)
+                    rows = RecycleBin.rows(try FolderListing.list(folder), original: { origins.original(of: $0) },
                                            deleted: { (try? $0.resourceValues(forKeys: [.addedToDirectoryDateKey]))?.addedToDirectoryDate })
-                return SortEngine.sort(rows, by: spec)
+                } else {
+                    rows = try FolderListing.list(folder, includeHidden: hidden, cloud: cloud)
+                }
+                return (rows, Self.arrange(rows, key))
             }
             let volume = VolumeCapacity.read(folder)
-            await self?.finishLoad(result, volume: volume, id: id, spec: spec, folder: folder, started: started,
+            await self?.finishLoad(result, volume: volume, id: id, key: key, folder: folder, started: started,
                                    keepingState: keepingState)
         }
     }
@@ -486,7 +527,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             if let select { pendingSelect = select }
             return
         }
-        pendingSelect = select ?? pendingSelect ?? Set(tableView.selectedRowIndexes.compactMap { entryKeys.indices.contains($0) ? entryKeys[$0] : nil })
+        pendingSelect = select ?? pendingSelect ?? Set(selectedKeys)
         scrollToPending = scrollToPending || (select?.isEmpty == false)
         load(keepingState: true)
     }
@@ -511,8 +552,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         if !history.isHome, ListOptions.expandToCurrent { revealCurrentFolder(select: false) }
     }
 
-    private func finishLoad(_ result: Result<[FileEntry], any Error>, volume: VolumeCapacity?, id: Int,
-                            spec: SortSpec, folder: URL, started: Date, keepingState: Bool) {
+    private func finishLoad(_ result: Result<([FileEntry], ListLayout), any Error>, volume: VolumeCapacity?, id: Int,
+                            key: ArrangeKey, folder: URL, started: Date, keepingState: Bool) {
         guard id == requestID else { return }
         isLoading = false
         self.volume = volume
@@ -521,25 +562,30 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         pendingSelect = nil
         scrollToPending = false
         switch result {
-        case .success(let list):
-            show(list, selecting: select)
+        case .success(let (rows, arranged)):
+            listing = rows
+            arrangedWith = key
+            show(arranged, selecting: select)
             if !keepingState { addressHistory.record(folder.path) }
         case .failure(let error):
             loadError = isTrashView && (error as NSError).code == NSFileReadNoPermissionError
                 ? "Folio needs Full Disk Access to show the Recycle Bin (System Settings, Privacy & Security)"
                 : error.localizedDescription
-            show([], selecting: [])
+            listing = []
+            arrangedWith = key
+            show(ListLayout(items: []), selecting: [])
         }
         if !keepingState {
-            if let row = restoreRow, row > 0, row < entries.count {
+            if let row = restoreRow, row > 0, row < layout.rows.count {
                 tableView.scroll(NSPoint(x: 0, y: tableView.rect(ofRow: row).minY - (header.frame.height)))
             } else {
                 tableView.scrollRowToVisible(0)
+                grid.scroll(.zero)
             }
             restoreRow = nil
             didNavigate()
-        } else if scroll, let first = tableView.selectedRowIndexes.first {
-            tableView.scrollRowToVisible(first)
+        } else if scroll, let first = selection.rows.first {
+            scrollToItem(first)
         }
         if let path = pendingRenamePath {
             pendingRenamePath = nil
@@ -549,6 +595,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
                 beginRename(row: row, batch: nil)
             }
         }
+        if arrangeKey != key { rearrange() }
         window?.displayIfNeeded()
         let now = Date()
         perfLog.notice("""
@@ -556,60 +603,125 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             list+sort \(Int(now.timeIntervalSince(started) * 1000), privacy: .public) ms; \
             \(Int(now.timeIntervalSince(processStartDate) * 1000), privacy: .public) ms since launch
             """)
-        if spec != sortSpec { resort() }
     }
 
-    private func resort() {
-        guard !isLoading else { return } // the pending load re-sorts when it lands
-        let spec = sortSpec
-        let current = entries
-        let selected = Set(tableView.selectedRowIndexes.map { entryKeys[$0] })
+    // MARK: Arranging: filters, sort and groups, off the main thread
+
+    /// Everything the shown list depends on besides the folder's items.
+    struct ArrangeKey: Equatable, Sendable {
+        var filters: FilterSet
+        var sort: SortSpec
+        var group: GroupSpec?
+        var collapsed: Set<String>
+    }
+
+    var arrangeKey: ArrangeKey { ArrangeKey(filters: filters, sort: sortSpec, group: group, collapsed: collapsedGroups) }
+
+    /// Filters, then groups (sorted inside) or a plain sort. Columns that need metadata (Dimensions,
+    /// Tags...) read it for every item first, through the shared cache.
+    nonisolated static func arrange(_ rows: [FileEntry], _ key: ArrangeKey) -> ListLayout {
+        let context = BucketContext()
+        let wantsMeta = key.filters.columns.contains { $0.needsMetadata } || key.sort.terms.contains { $0.key.needsMetadata }
+            || key.group?.key.needsMetadata == true
+        if wantsMeta { MetadataCache.shared.fill(rows) }
+        let meta: (FileEntry) -> ItemMetadata? = wantsMeta ? { MetadataCache.shared.cached($0) } : { _ in nil }
+        let shown = key.filters.apply(rows, context: context, metadata: meta)
+        if let group = key.group {
+            return ListLayout(groups: GroupBuilder.build(shown, by: group, sort: key.sort, context: context, metadata: meta),
+                              collapsed: key.collapsed)
+        }
+        return ListLayout(items: SortEngine.sort(shown, by: key.sort, metadata: meta))
+    }
+
+    /// The list again from the folder's items, after a sort, filter or Group by change; the selection stays.
+    func rearrange() {
+        guard !isLoading else { return } // the pending load arranges again when it lands
+        let key = arrangeKey
+        // Folding a group needs no new sort: the groups stay, only their rows change.
+        if let old = arrangedWith, layout.isGrouped, old.filters == key.filters, old.sort == key.sort, old.group == key.group {
+            arrangedWith = key
+            show(ListLayout(groups: layout.groups, collapsed: key.collapsed), selecting: Set(selectedKeys))
+            return
+        }
+        let rows = listing
+        let selected = Set(selectedKeys)
         requestID += 1
         let id = requestID
         isResorting = true
         updateStatus()
         Task.detached(priority: .userInitiated) { [weak self] in
-            let sorted = SortEngine.sort(current, by: spec)
-            await self?.finishResort(sorted, id: id, selecting: selected)
+            let arranged = Self.arrange(rows, key)
+            await self?.finishRearrange(arranged, key: key, id: id, selecting: selected)
         }
     }
 
-    private func finishResort(_ sorted: [FileEntry], id: Int, selecting selected: Set<String>) {
+    private func finishRearrange(_ arranged: ListLayout, key: ArrangeKey, id: Int, selecting selected: Set<String>) {
         guard id == requestID else { return }
         isResorting = false
-        show(sorted, selecting: selected)
-        if let first = tableView.selectedRowIndexes.first { tableView.scrollRowToVisible(first) }
+        arrangedWith = key
+        show(arranged, selecting: selected)
+        if let first = selection.rows.first { scrollToItem(first) }
+        if arrangeKey != key { rearrange() }
     }
 
-    private func show(_ list: [FileEntry], selecting selected: Set<String>) {
-        entries = list
-        entryKeys = list.map { FilePaths.itemKey($0.url) }
+    /// The selected items' keys, in list order.
+    var selectedKeys: [String] { selection.rows.compactMap { entryKeys.indices.contains($0) ? entryKeys[$0] : nil } }
+
+    private func show(_ arranged: ListLayout, selecting selected: Set<String>) {
+        layout = arranged
+        entries = arranged.items
+        entryKeys = entries.map { FilePaths.itemKey($0.url) }
         dimmed = FileClipboard.dimmedPaths
         let rows = IndexSet(entries.indices.filter { selected.contains(entryKeys[$0]) })
         selection = ListSelection(count: entries.count)
         selection.adopt(rows, focus: rows.first)
         applyingSelection = true
         tableView.reloadData()
-        tableView.selectRowIndexes(rows, byExtendingSelection: false)
+        grid.reloadData()
+        tableView.selectRowIndexes(tableRows(of: rows), byExtendingSelection: false)
         applyingSelection = false
+        header.filtered = Set(filters.columns)
+        updateFilterTokens()
         updateFocusRow()
         updateStatus()
         updateVisibleRange()
+        selectionDidChange()
     }
 
-    /// Shows `selection` in the table (and scrolls to `scrollTo`, or the focus row, unless told not to).
+    // MARK: Items and rows
+
+    /// The table row of an item (rows include group headers when grouped).
+    func tableRow(ofItem i: Int) -> Int { layout.rowOfItem.indices.contains(i) ? layout.rowOfItem[i] : i }
+
+    func tableRows(of items: IndexSet) -> IndexSet { IndexSet(items.map(tableRow(ofItem:))) }
+
+    func scrollToItem(_ i: Int) {
+        guard entries.indices.contains(i) else { return }
+        if viewMode.usesTable { tableView.scrollRowToVisible(tableRow(ofItem: i)) } else { grid.scrollToItem(i) }
+    }
+
+    /// Where item `i` is on screen, in the list view's coordinates.
+    func frameOfItem(_ i: Int) -> NSRect? {
+        if viewMode.usesTable { return entries.indices.contains(i) ? tableView.rect(ofRow: tableRow(ofItem: i)) : nil }
+        return grid.frame(ofItem: i)
+    }
+
+    /// Shows `selection` in the list (and scrolls to `scrollTo`, or the focus row, unless told not to).
     func applySelection(scrollTo: Int? = nil, scroll: Bool = true) {
         applyingSelection = true
-        tableView.selectRowIndexes(selection.rows, byExtendingSelection: false)
+        tableView.selectRowIndexes(tableRows(of: selection.rows), byExtendingSelection: false)
         applyingSelection = false
-        if scroll, let row = scrollTo ?? selection.focus { tableView.scrollRowToVisible(row) }
+        grid.forEachVisibleCell { cell, i in cell.isSelected = selection.rows.contains(i) }
+        if scroll, let row = scrollTo ?? selection.focus { scrollToItem(row) }
         updateFocusRow()
         updateStatus()
+        selectionDidChange()
     }
 
     func updateFocusRow() {
         let focus = selection.focus
-        tableView.enumerateAvailableRowViews { view, row in (view as? FolioRowView)?.isFocusRow = row == focus }
+        tableView.enumerateAvailableRowViews { view, row in (view as? FolioRowView)?.isFocusRow = layout.item(atRow: row) == focus && focus != nil }
+        grid.forEachVisibleCell { cell, i in cell.isFocusItem = i == focus }
     }
 
     func updateChrome() {
@@ -630,7 +742,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     }
 
     var selectedEntries: [FileEntry] {
-        tableView.selectedRowIndexes.compactMap { entries.indices.contains($0) ? entries[$0] : nil }
+        selection.rows.compactMap { entries.indices.contains($0) ? entries[$0] : nil }
     }
 
     func updateStatus() {
@@ -645,21 +757,26 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         } else if isLoading {
             chassis.status.countText = "Loading " + (path as NSString).lastPathComponent
         } else {
-            chassis.status.countText = StatusText.count(items: entries.count, selection: selection)
+            chassis.status.countText = StatusText.count(items: shownCount, selection: selection,
+                                                        total: filters.isEmpty ? nil : listing.count)
         }
         chassis.status.ticker.items = Ticker.items(volume: volume, selection: selection, sort: sortSpec, path: path)
         let address = toolbar.address
         chassis.hud.segments = address.isEditing
             ? Hud.editingSegments(shown: address.matchCount.shown, total: address.matchCount.total, path: path, selection: selection)
-            : Hud.segments(path: path, entries: entries, sort: sortSpec, selection: selection)
+            : Hud.segments(path: path, entries: shownItems, sort: sortSpec, selection: selection, view: viewMode.title)
         chassis.rail.rowCount = entries.count
-        chassis.rail.selected = tableView.selectedRowIndexes
+        chassis.rail.selected = self.selection.rows
         header.sort = sortSpec
-        let n = tableView.selectedRowIndexes.count
+        let n = self.selection.rows.count
         header.checkState = ListOptions.checkboxes ? (all: n > 0 && n == entries.count, some: n > 0) : nil
         chassis.status.chipText = OperationCenter.shared.chipText
         updateCommandBar()
     }
+
+    /// Items that pass the filters, collapsed groups' items included (the status bar counts these).
+    var shownItems: [FileEntry] { layout.isGrouped ? layout.groups.flatMap(\.items) : entries }
+    var shownCount: Int { layout.isGrouped ? layout.groups.reduce(0) { $0 + $1.items.count } : entries.count }
 
     @objc private func listScrolled(_ note: Notification) { updateVisibleRange() }
 
@@ -691,7 +808,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         guard now != dimmed else { return }
         dimmed = now
         guard !entries.isEmpty else { return }
-        tableView.reloadData(forRowIndexes: IndexSet(entries.indices), columnIndexes: IndexSet(tableView.tableColumns.indices))
+        reloadVisibleItems()
     }
 
     @objc private func jobsChanged(_ note: Notification) {
@@ -705,10 +822,19 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         }
         applyNavigationPaneOptions()
         tableView.showsCheckboxes = ListOptions.checkboxes
+        let rowH = ListOptions.compact ? ListMetrics.compactRowHeight : ListMetrics.rowHeight
+        if tableView.rowHeight != rowH {
+            tableView.rowHeight = rowH
+            tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<layout.rows.count))
+        }
+        grid.compact = ListOptions.compact
+        chassis.sidePaneKind = ListOptions.sidePane
         if !entries.isEmpty {
-            tableView.reloadData(forRowIndexes: IndexSet(entries.indices), columnIndexes: IndexSet(tableView.tableColumns.indices))
+            tableView.reloadData(forRowIndexes: IndexSet(integersIn: 0..<layout.rows.count), columnIndexes: IndexSet(tableView.tableColumns.indices))
+            grid.reloadData()
         }
         updateStatus()
+        selectionDidChange()
     }
 
     @objc private func listResized(_ note: Notification) {
@@ -717,9 +843,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     }
 
     /// Name gets the list width the fixed columns leave, whatever the scroller style.
-    private func fitColumns() {
+    func fitColumns() {
         let nameID = NSUserInterfaceItemIdentifier(SortKey.name.rawValue)
-        guard !isFittingColumns, let name = tableView.tableColumn(withIdentifier: nameID) else { return }
+        guard !isFittingColumns, !isRebuildingColumns, let name = tableView.tableColumn(withIdentifier: nameID) else { return }
         let clip = chassis.pane.scrollView.contentView.bounds.width
         guard clip > 0 else { return }
         let others = tableView.tableColumns.filter { $0 !== name }.map { Double($0.width) }
@@ -740,7 +866,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     private func jump(to fraction: Double) {
         guard !entries.isEmpty else { return }
         let row = min(entries.count - 1, Int(fraction * Double(entries.count)))
-        tableView.scrollRowToVisible(row)
+        scrollToItem(row)
     }
 
     @objc private func themeChanged(_ note: Notification) {
@@ -748,6 +874,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         if let content = window?.contentView { refreshTheme(in: content) }
         tableView.enumerateAvailableRowViews { rowView, _ in refreshTheme(in: rowView) }
         header.needsDisplay = true
+        grid.forEachVisibleCell { cell, _ in cell.needsDisplay = true }
+        grid.reloadData()
     }
 
     // MARK: Opening
@@ -784,7 +912,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     /// key map). Returns true when the key was handled.
     func handleKeyDown(_ event: NSEvent) -> Bool {
         let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
-        let tableFocused = window?.firstResponder === tableView
+        let tableFocused = window?.firstResponder === tableView || window?.firstResponder === grid
+        let gridFocused = window?.firstResponder === grid
         let editingText = window?.firstResponder is NSTextView
         // An open crumb, « or Back list takes the arrows, Return and Esc (the address field drives its own).
         if dropdown.isOpen, !editingText {
@@ -797,6 +926,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             }
         }
         if handleTabKey(event, modifiers: modifiers, editingText: editingText) { return true }
+        if handleViewKey(event, modifiers: modifiers, editingText: editingText) { return true }
+        if gridFocused, handleGridArrow(event, modifiers: modifiers) { return true }
         switch (event.keyCode, modifiers) {
         case (126, .option): goUp(nil)                          // Option+Up (Cmd+Up after Karabiner)
         case (123, .option) where !editingText: goBack(nil)     // Option+Left
@@ -804,7 +935,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         case (2, .option): focusAddressBar(nil)                 // Option+D (Cmd+D after Karabiner)
         case (51, []) where !editingText: goBack(nil)           // Backspace, even with files selected
         case (36, []) where tableFocused, (76, []) where tableFocused:
-            open(rows: tableView.selectedRowIndexes)            // Return, Enter
+            open(rows: selection.rows)                          // Return, Enter
         case (36, .option) where !editingText, (76, .option) where !editingText:
             showProperties(nil)                                 // Option+Return (Explorer's Alt+Enter)
         case (49, []) where tableFocused: toggleQuickLook(nil)  // Space: Quick Look
@@ -852,92 +983,203 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     }
 
     private var pageRows: Int {
-        max(1, Int(chassis.pane.scrollView.contentView.bounds.height / ListMetrics.rowHeight) - 1)
+        if !viewMode.usesTable {
+            let size = grid.itemSize
+            let clip = chassis.pane.gridScroll.contentView.bounds
+            let lines = grid.isHorizontal ? max(1, Int(clip.width / max(1, size.width)) - 1) : max(1, Int(clip.height / max(1, size.height)) - 1)
+            return lines * grid.itemsPerLine
+        }
+        return max(1, Int(chassis.pane.scrollView.contentView.bounds.height / tableView.rowHeight) - 1)
     }
 
-    private func moveSelection(_ move: ListSelection.Move, extend: Bool) {
+    func moveSelection(_ move: ListSelection.Move, extend: Bool) {
         selection.move(move, extend: extend)
         applySelection()
     }
 
     private func moveFocus(_ move: ListSelection.Move) {
         selection.moveFocus(move)
-        if let f = selection.focus { tableView.scrollRowToVisible(f) }
+        if let f = selection.focus { scrollToItem(f) }
         updateFocusRow()
+    }
+
+    /// The icon grid's arrows: along a line by one, across lines by a line's worth (List flows down
+    /// its columns, so there Up and Down step by one).
+    private func handleGridArrow(_ event: NSEvent, modifiers: NSEvent.ModifierFlags) -> Bool {
+        guard modifiers.isEmpty || modifiers == .shift else { return false }
+        let extend = modifiers == .shift
+        let line = grid.itemsPerLine
+        let along: (back: UInt16, next: UInt16) = grid.isHorizontal ? (126, 125) : (123, 124)
+        let across: (back: UInt16, next: UInt16) = grid.isHorizontal ? (123, 124) : (126, 125)
+        switch event.keyCode {
+        case along.back: moveSelection(.up, extend: extend)
+        case along.next: moveSelection(.down, extend: extend)
+        case across.back: moveSelection(selection.focus == nil ? .home : .pageUp(line), extend: extend)
+        case across.next: moveSelection(selection.focus == nil ? .home : .pageDown(line), extend: extend)
+        default: return false
+        }
+        return true
     }
 
     // MARK: Table data
 
-    func numberOfRows(in tableView: NSTableView) -> Int { entries.count }
+    func numberOfRows(in tableView: NSTableView) -> Int { layout.rows.count }
+
+    func tableView(_ tableView: NSTableView, isGroupRow row: Int) -> Bool { layout.group(atRow: row) != nil }
+
+    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+        layout.group(atRow: row) != nil ? ListMetrics.groupRowHeight : tableView.rowHeight
+    }
+
+    func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool { layout.item(atRow: row) != nil }
 
     func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
         let id = NSUserInterfaceItemIdentifier("row")
         let view = tableView.makeView(withIdentifier: id, owner: self) as? FolioRowView
             ?? { let v = FolioRowView(); v.identifier = id; return v }()
-        view.isFocusRow = row == selection.focus
-        view.isDropTarget = row == dropTargetRow
+        let item = layout.item(atRow: row)
+        view.isFocusRow = item != nil && item == selection.focus
+        view.isDropTarget = item != nil && item == dropTargetRow
         return view
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        guard let tableColumn, let key = SortKey(rawValue: tableColumn.identifier.rawValue) else { return nil }
-        let entry = entries[row]
+        if let g = layout.group(atRow: row) {
+            let id = NSUserInterfaceItemIdentifier("groupHeader")
+            let cell = tableView.makeView(withIdentifier: id, owner: self) as? GroupHeaderCellView
+                ?? { let c = GroupHeaderCellView(); c.identifier = id; return c }()
+            cell.title = layout.groups[g].bucket.title
+            cell.count = layout.groups[g].items.count
+            cell.collapsed = layout.isCollapsed(g)
+            return cell
+        }
+        guard let tableColumn, let key = SortKey(rawValue: tableColumn.identifier.rawValue),
+              let i = layout.item(atRow: row), entries.indices.contains(i) else { return nil }
+        let entry = entries[i]
+        let faded = dimmed.contains(entryKeys[i])
         if key == .name {
             let cell = tableView.makeView(withIdentifier: tableColumn.identifier, owner: self) as? NameCellView
                 ?? { let c = NameCellView(); c.identifier = tableColumn.identifier; return c }()
             cell.entry = entry
-            cell.isCut = dimmed.contains(entryKeys[row])
+            cell.isCut = faded
+            cell.showsExtension = ListOptions.showExtensions
             cell.showsCheckbox = self.tableView.showsCheckboxes
             cell.themeDidChange()
             return cell
         }
         let cell = tableView.makeView(withIdentifier: tableColumn.identifier, owner: self) as? TextCellView
             ?? { let c = TextCellView(); c.identifier = tableColumn.identifier; return c }()
-        cell.isCut = dimmed.contains(entryKeys[row])
-        switch key {
-        case .modified:
-            cell.mono = true
-            cell.text = entry.modified.map(Self.dateFormatter.string(from:)) ?? ""
-        case .kind:
-            cell.text = entry.kind
-        case .size:
-            cell.mono = true
-            cell.alignRight = true
-            cell.text = entry.size.map(ByteText.kilobytes) ?? ""
-        case .name:
-            break
+        cell.isCut = faded || entry.isHidden
+        cell.mono = key.isMono
+        cell.alignRight = key.alignsRight
+        var meta: ItemMetadata?
+        if key.needsMetadata {
+            meta = MetadataCache.shared.cached(entry)
+            if meta == nil { requestMetadata(entry) }
         }
+        cell.pending = key.needsMetadata && meta == nil
+        cell.text = ColumnValues.text(entry, key, meta)
         return cell
     }
 
     func tableView(_ tableView: NSTableView, typeSelectStringFor tableColumn: NSTableColumn?, row: Int) -> String? {
-        tableColumn == nil || tableColumn?.identifier.rawValue == SortKey.name.rawValue ? entries[row].name : nil
+        guard let i = layout.item(atRow: row), entries.indices.contains(i) else { return nil }
+        return tableColumn == nil || tableColumn?.identifier.rawValue == SortKey.name.rawValue ? entries[i].name : nil
     }
 
-    func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
-        guard !ignoringSortChanges, let first = tableView.sortDescriptors.first,
-              let key = first.key.flatMap(SortKey.init(rawValue:)) else { return }
-        guard SortSpec(key: key, ascending: first.ascending) != sortSpec else { return } // our own update
-        sortSpec = sortSpec.clicking(key)
-        tableView.sortDescriptors = [descriptor(for: sortSpec)]
-        header.sort = sortSpec
-        resort()
+    /// A header click (not a drag or a resize): sort on it; Shift+click adds it as another key.
+    func tableView(_ tableView: NSTableView, didClick tableColumn: NSTableColumn) {
+        guard let key = SortKey(rawValue: tableColumn.identifier.rawValue) else { return }
+        let shift = NSApp.currentEvent?.modifierFlags.contains(.shift) == true
+        applySort(shift ? sortSpec.shiftClicking(key) : sortSpec.clicking(key))
+    }
+
+    /// Every sort change lands here: the header, the menus, the session.
+    func applySort(_ spec: SortSpec) {
+        guard spec != sortSpec else { return }
+        sortSpec = spec
+        header.sort = spec
+        rearrange()
+        sessionChanged()
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
         // Type to select and the table's own Select All change the rows behind the model's back.
-        if !applyingSelection, tableView.selectedRowIndexes != selection.rows {
-            let row = tableView.selectedRow
-            selection.adopt(tableView.selectedRowIndexes, focus: row >= 0 ? row : nil)
+        let items = IndexSet(tableView.selectedRowIndexes.compactMap { layout.item(atRow: $0) })
+        if !applyingSelection, items != selection.rows {
+            let focus = layout.item(atRow: tableView.selectedRow)
+            selection.adopt(items, focus: focus)
             updateFocusRow()
+            grid.forEachVisibleCell { cell, i in cell.isSelected = items.contains(i) }
+            selectionDidChange()
         }
         updateStatus()
     }
 
-    /// Dragging the Date, Type or Size divider gives or takes the space from Name.
+    /// Dragging a divider gives or takes the space from Name; the width is kept for every folder.
     func tableViewColumnDidResize(_ notification: Notification) {
-        let column = notification.userInfo?["NSTableColumn"] as? NSTableColumn
-        if column?.identifier.rawValue != SortKey.name.rawValue { fitColumns() }
+        guard !isRebuildingColumns, let column = notification.userInfo?["NSTableColumn"] as? NSTableColumn,
+              let key = ColumnID(rawValue: column.identifier.rawValue) else { return }
+        guard key != .name else { return }
+        let width = Double(column.width)
+        ColumnCenter.shared.update({ $0.setWidth(width, of: key) }, post: false)
+        fitColumns()
+    }
+
+    /// A header dragged to a new place: the order is kept for every folder.
+    func tableViewColumnDidMove(_ notification: Notification) {
+        guard !isRebuildingColumns else { return }
+        let order = tableView.tableColumns.compactMap { ColumnID(rawValue: $0.identifier.rawValue) }
+        ColumnCenter.shared.update({ set in for (i, c) in order.enumerated() { set.move(c, to: i) } }, post: false)
+        header.needsDisplay = true
+    }
+
+    /// A divider double-click: the widest value in the column (and its header).
+    func tableView(_ tableView: NSTableView, sizeToFitWidthOfColumn column: Int) -> CGFloat {
+        guard tableView.tableColumns.indices.contains(column),
+              let key = ColumnID(rawValue: tableView.tableColumns[column].identifier.rawValue) else { return 100 }
+        return fitWidth(of: key)
+    }
+
+    // MARK: Columns
+
+    /// Makes the table's columns match the shared column set (order, which are shown, widths).
+    func rebuildColumns(windowWidth: CGFloat? = nil) {
+        let set = ColumnCenter.shared.set
+        let now = tableView.tableColumns.compactMap { ColumnID(rawValue: $0.identifier.rawValue) }
+        if now == set.visible {
+            for column in tableView.tableColumns {
+                guard let key = ColumnID(rawValue: column.identifier.rawValue), key != .name else { continue }
+                let w = CGFloat(set.width(of: key))
+                if abs(column.width - w) > 0.5 { column.width = w }
+            }
+            fitColumns()
+            return
+        }
+        isRebuildingColumns = true
+        for column in tableView.tableColumns { tableView.removeTableColumn(column) }
+        for key in set.visible {
+            let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(key.rawValue))
+            column.title = columnTitle(key)
+            column.width = key == .name ? CGFloat(set.width(of: .name)) : CGFloat(set.width(of: key))
+            column.minWidth = key == .name ? Self.nameMinWidth : 40
+            column.resizingMask = .userResizingMask
+            tableView.addTableColumn(column)
+        }
+        isRebuildingColumns = false
+        if let windowWidth, let name = tableView.tableColumn(withIdentifier: NSUserInterfaceItemIdentifier(ColumnID.name.rawValue)) {
+            let others = set.visible.filter { $0 != .name }.map { set.width(of: $0) }
+            name.width = CGFloat(ColumnFit.nameWidth(clipWidth: Double(ChassisView.listWidth(windowWidth: windowWidth)), otherWidths: others,
+                                                     gap: Double(ListMetrics.columnGap), minimum: Double(Self.nameMinWidth)))
+        }
+        fitColumns()
+        header.needsDisplay = true
+        if !entries.isEmpty { tableView.reloadData() }
+    }
+
+    @objc func columnsChanged(_ note: Notification) {
+        rebuildColumns()
+        if arrangeKey != arrangedWith { rearrange() }
     }
 
     // MARK: Window

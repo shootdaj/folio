@@ -74,3 +74,78 @@ private func names(_ entries: [FileEntry]) -> [String] { entries.map(\.name) }
         #expect(SortEngine.sort([], by: .standard).isEmpty)
     }
 }
+
+@Suite struct MultiKeySortTests {
+    @Test func shiftClickAddsKeysUpToFourAndReversesOnesAlreadyThere() {
+        var s = SortSpec(key: .modified, ascending: false)
+        s = s.shiftClicking(.kind)
+        #expect(s.terms == [SortTerm(key: .modified, ascending: false), SortTerm(key: .kind, ascending: true)])
+        s = s.shiftClicking(.name)
+        #expect(s.rank(of: .modified) == 1)
+        #expect(s.rank(of: .kind) == 2)
+        #expect(s.rank(of: .name) == 3)
+        #expect(s.rank(of: .size) == nil)
+        s = s.shiftClicking(.kind)
+        #expect(s.isAscending(.kind) == false)
+        s = s.shiftClicking(.size).shiftClicking(.created)
+        #expect(s.terms.count == SortSpec.maxKeys)
+        #expect(s.terms.map(\.key) == [.modified, .kind, .name, .created])
+        #expect(s.isAscending(.created) == false)
+        s = s.shiftClicking(.modified)
+        #expect(s.ascending)
+        #expect(s.then.count == 3)
+    }
+
+    @Test func plainClickOnThePrimaryReversesItAndKeepsTheOthersAnotherColumnStartsOver() {
+        let s = SortSpec(key: .modified, ascending: false).shiftClicking(.name)
+        let flipped = s.clicking(.modified)
+        #expect(flipped == SortSpec(key: .modified, ascending: true, then: [SortTerm(key: .name, ascending: true)]))
+        #expect(s.clicking(.size) == SortSpec(key: .size, ascending: true))
+    }
+
+    @Test func secondaryKeysBreakTiesInTheirOwnDirection() {
+        let sameDay = base.addingTimeInterval(-day)
+        let items = [
+            FileEntry(url: URL(fileURLWithPath: "/f/b.txt"), name: "b.txt", isFolder: false, modified: sameDay, size: 5, kind: "Plain Text"),
+            FileEntry(url: URL(fileURLWithPath: "/f/a.png"), name: "a.png", isFolder: false, modified: sameDay, size: 7, kind: "PNG image"),
+            FileEntry(url: URL(fileURLWithPath: "/f/c.txt"), name: "c.txt", isFolder: false, modified: sameDay, size: 9, kind: "Plain Text"),
+            FileEntry(url: URL(fileURLWithPath: "/f/d.png"), name: "d.png", isFolder: false, modified: base, size: 1, kind: "PNG image"),
+            FileEntry(url: URL(fileURLWithPath: "/f/F"), name: "F", isFolder: true, modified: base, size: nil, kind: "Folder"),
+        ]
+        let byDateThenType = SortSpec(key: .modified, ascending: false).shiftClicking(.kind)
+        // Newest first; folders go last because the first key is descending; same day: Plain Text before
+        // PNG, and the two text files break their tie on Name in the first key's direction (descending).
+        #expect(names(SortEngine.sort(items, by: byDateThenType)) == ["d.png", "c.txt", "b.txt", "a.png", "F"])
+        let thenSizeUp = byDateThenType.shiftClicking(.size)
+        #expect(thenSizeUp.isAscending(.size) == true)
+        #expect(names(SortEngine.sort(items, by: thenSizeUp)) == ["d.png", "b.txt", "c.txt", "a.png", "F"])
+    }
+
+    @Test func typeTiesBreakByNameReversingWithTheSort() {
+        let items = ["file1.txt", "file2.txt", "file10.txt"].map {
+            FileEntry(url: URL(fileURLWithPath: "/f/" + $0), name: $0, isFolder: false, modified: base, size: 1, kind: "Plain Text")
+        }
+        #expect(names(SortEngine.sort(items, by: SortSpec(key: .kind, ascending: true))) == ["file1.txt", "file2.txt", "file10.txt"])
+        #expect(names(SortEngine.sort(items, by: SortSpec(key: .kind, ascending: false))) == ["file10.txt", "file2.txt", "file1.txt"])
+    }
+
+    @Test func metadataColumnsSortThroughTheProvider() {
+        let a = FileEntry(url: URL(fileURLWithPath: "/f/a.png"), name: "a.png", isFolder: false, modified: base, size: 1, kind: "PNG image")
+        let b = FileEntry(url: URL(fileURLWithPath: "/f/b.png"), name: "b.png", isFolder: false, modified: base, size: 1, kind: "PNG image")
+        var big = ItemMetadata(); big.pixelWidth = 4000; big.pixelHeight = 3000
+        var small = ItemMetadata(); small.pixelWidth = 64; small.pixelHeight = 64
+        let meta = [a.url.path: big, b.url.path: small]
+        let sorted = SortEngine.sort([a, b], by: SortSpec(key: .dimensions, ascending: true)) { meta[$0.url.path] }
+        #expect(names(sorted) == ["b.png", "a.png"])
+    }
+
+    @Test func labelsNameEveryKey() {
+        #expect(SortLabel.label(SortSpec(key: .size, ascending: false)) == "Size, largest first")
+        #expect(SortLabel.label(SortSpec(key: .modified, ascending: false).shiftClicking(.kind).shiftClicking(.name))
+            == "Date modified, newest first, then Type, Name")
+        #expect(SortLabel.label(SortSpec(key: .created, ascending: true)) == "Date created, oldest first")
+        #expect(SortLabel.short(SortSpec(key: .modified, ascending: false).shiftClicking(.kind).shiftClicking(.name))
+            == "Date modified, newest first +2")
+        #expect(SortLabel.short(.standard) == "Name, A to Z")
+    }
+}

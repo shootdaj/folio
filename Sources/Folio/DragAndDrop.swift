@@ -123,23 +123,50 @@ let droppableTypes: [NSPasteboard.PasteboardType] =
 extension BrowserWindowController: NSDraggingSource, DropHost {
     // MARK: Dragging out
 
-    func list(_ list: FolioTableView, beginDragWith event: NSEvent, rightButton: Bool) {
-        let rows = tableView.selectedRowIndexes
+    func list(_ list: NSView, beginDragWith event: NSEvent, rightButton: Bool) {
+        let rows = selection.rows
         guard !rows.isEmpty else { return }
-        let nameColumn = tableView.tableColumns.firstIndex { $0.identifier.rawValue == SortKey.name.rawValue } ?? 0
-        let items = rows.map { row -> NSDraggingItem in
-            let item = NSDraggingItem(pasteboardWriter: FileDragProvider(url: entries[row].url))
-            var frame = tableView.frameOfCell(atColumn: nameColumn, row: row)
-            frame.size.width = min(frame.width, 320)
-            item.setDraggingFrame(frame, contents: dragImage(row: row, column: nameColumn, size: frame.size))
-            return item
+        let items: [NSDraggingItem]
+        let source: NSView
+        if list === grid {
+            source = grid
+            items = rows.compactMap { i -> NSDraggingItem? in
+                guard entries.indices.contains(i) else { return nil }
+                let item = NSDraggingItem(pasteboardWriter: FileDragProvider(url: entries[i].url))
+                let frame = grid.frame(ofItem: i) ?? NSRect(x: 0, y: 0, width: 64, height: 64)
+                item.setDraggingFrame(frame, contents: gridDragImage(i, size: frame.size))
+                return item
+            }
+        } else {
+            source = tableView
+            let nameColumn = tableView.tableColumns.firstIndex { $0.identifier.rawValue == SortKey.name.rawValue } ?? 0
+            items = rows.compactMap { i -> NSDraggingItem? in
+                guard entries.indices.contains(i) else { return nil }
+                let row = tableRow(ofItem: i)
+                let item = NSDraggingItem(pasteboardWriter: FileDragProvider(url: entries[i].url))
+                var frame = tableView.frameOfCell(atColumn: nameColumn, row: row)
+                frame.size.width = min(frame.width, 320)
+                item.setDraggingFrame(frame, contents: dragImage(row: row, column: nameColumn, size: frame.size))
+                return item
+            }
         }
+        guard !items.isEmpty else { return }
         DragState.rightButton = rightButton
         DragState.droppedInFolio = false
-        let session = tableView.beginDraggingSession(with: items, event: event, source: self)
+        let session = source.beginDraggingSession(with: items, event: event, source: self)
         session.animatesToStartingPositionsOnCancelOrFail = true
         session.draggingFormation = .stack
         DragState.ownedChangeCount = session.draggingPasteboard.changeCount
+    }
+
+    /// A grid cell as it looks now.
+    private func gridDragImage(_ i: Int, size: NSSize) -> NSImage {
+        let image = NSImage(size: size)
+        guard let cell = grid.cell(ofItem: i),
+              let rep = cell.bitmapImageRepForCachingDisplay(in: NSRect(origin: .zero, size: size)) else { return image }
+        cell.cacheDisplay(in: NSRect(origin: .zero, size: size), to: rep)
+        image.addRepresentation(rep)
+        return image
     }
 
     /// The row's name cell (icon and name) as the drag image.
@@ -172,12 +199,34 @@ extension BrowserWindowController: NSDraggingSource, DropHost {
 
     // MARK: Dropping onto the list
 
-    /// The folder row under the drag, or -1 for the list background (the current folder).
+    /// The folder item under the drag, or -1 for the list background (the current folder).
     private func dropRow(_ info: NSDraggingInfo) -> Int {
-        let row = tableView.row(at: tableView.convert(info.draggingLocation, from: nil))
-        guard entries.indices.contains(row) else { return -1 }
-        let e = entries[row]
-        return e.isFolder || DropRules.isApp(e.url) ? row : -1
+        let row = layout.item(atRow: tableView.row(at: tableView.convert(info.draggingLocation, from: nil))) ?? -1
+        return dropTarget(row)
+    }
+
+    private func dropTarget(_ item: Int?) -> Int {
+        guard let item, entries.indices.contains(item) else { return -1 }
+        let e = entries[item]
+        return e.isFolder || DropRules.isApp(e.url) ? item : -1
+    }
+
+    func gridValidateDrop(_ info: NSDraggingInfo, item: Int?) -> NSDragOperation {
+        let target = dropTarget(item)
+        let url = target >= 0 ? entries[target].url : history.current
+        let action = dropAction(info, onto: url)
+        dropTargetRow = action == .none ? -1 : target
+        chassis.pane.isDropTarget = target < 0 && action != .none
+        springLoad(target >= 0 && entries[target].isFolder ? url : nil)
+        showDropTip(action, target: url, info: info)
+        return dragOperation(for: action, info)
+    }
+
+    func gridAcceptDrop(_ info: NSDraggingInfo, item: Int?) -> Bool {
+        let target = dropTarget(item)
+        chassis.pane.isDropTarget = false
+        dropTargetRow = -1
+        return performDrop(info, onto: target >= 0 ? entries[target].url : history.current)
     }
 
     func tableView(_ tableView: NSTableView, validateDrop info: NSDraggingInfo, proposedRow row: Int,
@@ -185,7 +234,7 @@ extension BrowserWindowController: NSDraggingSource, DropHost {
         let target = dropRow(info)
         let url = target >= 0 ? entries[target].url : history.current
         let action = dropAction(info, onto: url)
-        tableView.setDropRow(target, dropOperation: .on)
+        tableView.setDropRow(target >= 0 ? tableRow(ofItem: target) : -1, dropOperation: .on)
         dropTargetRow = action == .none ? -1 : target
         chassis.pane.isDropTarget = target < 0 && action != .none
         springLoad(target >= 0 && entries[target].isFolder ? url : nil)
@@ -201,14 +250,14 @@ extension BrowserWindowController: NSDraggingSource, DropHost {
         return performDrop(info, onto: target >= 0 ? entries[target].url : history.current)
     }
 
-    func listDragExited(_ list: FolioTableView) {
+    func listDragExited(_ list: NSView) {
         chassis.pane.isDropTarget = false
         dropTargetRow = -1
         springLoad(nil)
         hideDropTip()
     }
 
-    func listSelectedURLs(_ list: FolioTableView) -> [URL] { selectedURLs }
+    func listSelectedURLs(_ list: NSView) -> [URL] { selectedURLs }
 
     // MARK: DropHost
 
