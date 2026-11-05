@@ -5,10 +5,13 @@ if let flag = CommandLine.arguments.firstIndex(of: "--selftest") {
     exit(SelfTest.run(folder))
 }
 
+let uitest = UITestConfig.parse(CommandLine.arguments)
+
 MainActor.assumeIsolated {
     let app = NSApplication.shared
-    let delegate = AppDelegate()
+    let delegate = AppDelegate(uitest: uitest)
     app.delegate = delegate
-    app.setActivationPolicy(.regular)
+    // A --uitest run stays in the background: no Dock icon, no activation, no focus taken.
+    app.setActivationPolicy(uitest == nil ? .regular : .accessory)
     app.run()
 }

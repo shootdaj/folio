@@ -1,4 +1,5 @@
 import AppKit
+import FolioCore
 
 /// The main menu, built in code (no nib).
 @MainActor
@@ -38,6 +39,13 @@ enum MainMenu {
             item("Select All", #selector(NSResponder.selectAll(_:)), "a"),
         ])
         add("View", to: main, [
+            submenu("Theme", ThemeChoice.allCases.map {
+                choice($0.title, #selector(AppDelegate.selectTheme(_:)), $0.rawValue)
+            }),
+            submenu("Accent", AccentChoice.allCases.map {
+                choice($0.title, #selector(AppDelegate.selectAccent(_:)), $0.rawValue)
+            }),
+            .separator(),
             item("Enter Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control]),
         ])
         // Finder shortcuts here; Option+arrows (Anshul's Karabiner-swapped Cmd) live in BrowserWindow.
@@ -46,6 +54,9 @@ enum MainMenu {
             item("Forward", #selector(BrowserWindowController.goForward(_:)), "]"),
             item("Up", #selector(BrowserWindowController.goUp(_:)), key(NSUpArrowFunctionKey)),
             item("Home", #selector(BrowserWindowController.goHome(_:)), "h", [.command, .shift]),
+            .separator(),
+            // Anshul's Cmd+D reaches the app as Option+D (bound in BrowserWindow) or, via BTT, as Cmd+L.
+            item("Edit Address", #selector(BrowserWindowController.focusAddressBar(_:)), "l"),
         ])
         let window = add("Window", to: main, [
             item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m"),
@@ -71,6 +82,21 @@ enum MainMenu {
                              _ modifiers: NSEvent.ModifierFlags = .command) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
         item.keyEquivalentModifierMask = modifiers
+        return item
+    }
+
+    private static func submenu(_ title: String, _ items: [NSMenuItem]) -> NSMenuItem {
+        let menu = NSMenu(title: title)
+        items.forEach(menu.addItem)
+        let holder = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        holder.submenu = menu
+        return holder
+    }
+
+    /// A ticked choice; the AppDelegate validates which one is on.
+    private static func choice(_ title: String, _ action: Selector, _ value: String) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        item.representedObject = value
         return item
     }
 
