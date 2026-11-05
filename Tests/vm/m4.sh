@@ -344,15 +344,21 @@ end run
 OSA
 }
 
-# quick_access_gap <window> <k>: "x y" on the line between Quick access rows k-1 and k.
+# quick_access_gap <window> <k>: "x y" on the line between Quick access pins k-1 and k. The navigation
+# pane is scrolled to the top first (milestone 5's tree scrolls it to the current folder), and Home is
+# the row above the first pin.
 quick_access_gap() {
     osascript - "$1" "$2" 2>/dev/null <<'OSA'
 on run argv
     tell application "System Events" to tell process "Folio"
         set s to scroll area 1 of window (item 1 of argv)
+        try
+            set value of scroll bar 1 of s to 0
+        end try
+        delay 0.4
         set {px, py} to position of s
         set k to (item 2 of argv) as integer
-        return ((px + 130) as text) & " " & ((py + 12 + 1 + 36 + 30 * k) as text)
+        return ((px + 130) as text) & " " & ((py + 12 + 1 + 36 + 30 + 30 * k) as text)
     end tell
 end run
 OSA
