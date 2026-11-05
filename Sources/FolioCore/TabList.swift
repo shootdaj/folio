@@ -1,10 +1,13 @@
 import Foundation
 
-/// One tab of a window: its own Back and Forward history, sort, selection and scroll place.
+/// One tab of a window: its own Back and Forward history, sort, grouping, selection and scroll place.
+/// The sort and grouping stay as the tab moves between folders (no folder keeps a view of its own).
 public struct BrowserTab: Sendable, Equatable {
     public let id: UUID
     public var history: NavigationHistory
     public var sort: SortSpec
+    /// Group by; nil is (None).
+    public var group: GroupSpec?
     /// The selected items (`FilePaths.itemKey`), put back when the tab is shown again.
     public var selection: [String]
     /// The first row in view when the tab was left.
@@ -25,9 +28,11 @@ public struct BrowserTab: Sendable, Equatable {
 
     public var current: URL { history.current }
 
-    /// Duplicate tab: the same place, history and sort under a new identity.
+    /// Duplicate tab: the same place, history, sort and grouping under a new identity.
     public func duplicated() -> BrowserTab {
-        BrowserTab(history: history, sort: sort, selection: selection, scrollRow: scrollRow)
+        var copy = BrowserTab(history: history, sort: sort, selection: selection, scrollRow: scrollRow)
+        copy.group = group
+        return copy
     }
 }
 

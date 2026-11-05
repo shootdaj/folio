@@ -25,18 +25,24 @@ public struct SelectionSummary: Sendable, Equatable {
 }
 
 public enum SortLabel {
-    /// "Name, A to Z", as the HUD shows it.
+    /// "Name, A to Z", as the HUD shows it; Shift+click keys follow as "then Type, Name".
     public static func label(_ spec: SortSpec) -> String {
-        switch (spec.key, spec.ascending) {
-        case (.name, true): "Name, A to Z"
-        case (.name, false): "Name, Z to A"
-        case (.modified, true): "Date modified, oldest first"
-        case (.modified, false): "Date modified, newest first"
-        case (.kind, true): "Type, A to Z"
-        case (.kind, false): "Type, Z to A"
-        case (.size, true): "Size, smallest first"
-        case (.size, false): "Size, largest first"
+        let first = term(spec.key, spec.ascending)
+        return spec.then.isEmpty ? first : first + ", then " + spec.then.map(\.key.title).joined(separator: ", ")
+    }
+
+    /// "Date modified, newest first".
+    public static func term(_ key: SortKey, _ ascending: Bool) -> String {
+        let way: String = if key.isDate {
+            ascending ? "oldest first" : "newest first"
+        } else if key == .size {
+            ascending ? "smallest first" : "largest first"
+        } else if key == .duration || key == .bitRate || key == .frameRate || key == .dimensions {
+            ascending ? "lowest first" : "highest first"
+        } else {
+            ascending ? "A to Z" : "Z to A"
         }
+        return key.title + ", " + way
     }
 
     /// "Sorted by name, A to Z", as the ticker shows it.
@@ -51,8 +57,10 @@ public enum StatusText {
     public static let noSuchFolder = "No such folder"
 
     /// The left of the status bar: "28 items, 1 selected", plus the selected files' size when there is one.
-    public static func count(items: Int, selection: SelectionSummary) -> String {
+    /// With a header filter on, `total` is the folder's count: "3 items (filtered from 12), 0 selected".
+    public static func count(items: Int, selection: SelectionSummary, total: Int? = nil) -> String {
         var text = ByteText.grouped(items) + (items == 1 ? " item" : " items")
+        if let total { text += " (filtered from " + ByteText.grouped(total) + ")" }
         text += ", " + ByteText.grouped(selection.count) + " selected"
         if selection.hasSize { text += ", " + ByteText.kilobytes(selection.bytes) }
         return text
@@ -129,7 +137,7 @@ public struct HudSegment: Sendable, Equatable {
 
 public enum Hud {
     public static func segments(path: String, entries: [FileEntry], sort: SortSpec,
-                                selection: SelectionSummary) -> [HudSegment] {
+                                selection: SelectionSummary, view: String = "Details") -> [HudSegment] {
         let folders = entries.reduce(0) { $0 + ($1.isFolder ? 1 : 0) }
         return [
             HudSegment(key: "Path depth", value: "\(depth(path))", hasLight: true, trailing: false),
@@ -137,7 +145,7 @@ public enum Hud {
             HudSegment(key: "Folders", value: ByteText.grouped(folders), hasLight: false, trailing: false),
             HudSegment(key: "Files", value: ByteText.grouped(entries.count - folders), hasLight: false, trailing: false),
             HudSegment(key: "Sort", value: SortLabel.label(sort), hasLight: false, trailing: false),
-            HudSegment(key: "View", value: "Details", hasLight: false, trailing: false),
+            HudSegment(key: "View", value: view, hasLight: false, trailing: false),
             HudSegment(key: "Selected", value: selectedText(selection), hasLight: false, trailing: true),
         ]
     }

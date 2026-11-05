@@ -141,14 +141,7 @@ enum MainMenu {
         return items
     }
 
-    private static func sortTitle(_ key: SortKey) -> String {
-        switch key {
-        case .name: "Name"
-        case .modified: "Date modified"
-        case .kind: "Type"
-        case .size: "Size"
-        }
-    }
+    private static func sortTitle(_ key: SortKey) -> String { key.title }
 
     @discardableResult
     private static func add(_ title: String, to main: NSMenu, _ items: [NSMenuItem]) -> NSMenu {

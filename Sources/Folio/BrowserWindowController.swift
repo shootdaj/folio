@@ -904,7 +904,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             cell.mono = true
             cell.alignRight = true
             cell.text = entry.size.map(ByteText.kilobytes) ?? ""
-        case .name:
+        default:
             break
         }
         return cell
