@@ -5,6 +5,9 @@ import FolioCore
 enum Glyph: Hashable {
     case back, forward, up, chevron, chevronDown, sort, refresh, search, close
     case sun, moon, star, pc, drive, download, desktop, docs, pics, movies
+    // Milestone 3: D1's copy window icons, and the command bar's (Lucide, like the rest of D1's set).
+    case copy, pause, play, check, arrow, replace, skip, both, compare, minus
+    case cut, paste, rename, trash, newFolder, share, more, sortLines, view
 
     fileprivate enum Part {
         case path(String)
@@ -46,6 +49,29 @@ enum Glyph: Hashable {
         ]
         case .pics: [.rect(3, 3, 18, 18, 2), .circle(9, 9, 2), .path("m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21")]
         case .movies: [.rect(3, 3, 18, 18, 2), .path("M7 3v18M17 3v18M3 7.5h4M3 12h18M3 16.5h4M17 7.5h4M17 16.5h4")]
+        case .copy: [.rect(8, 8, 13, 13, 2), .path("M4 16a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2")]
+        case .pause: [.path("M9 5v14M15 5v14")]
+        case .play: [.path("M7 4.5v15l12-7.5z")]
+        case .check: [.path("M20 6 9 17l-5-5")]
+        case .arrow: [.path("M4 12h15"), .path("m13 6 6 6-6 6")]
+        case .replace: [.path("M4 7h13l-3-3"), .path("M20 17H7l3 3")]
+        case .skip: [.path("m6 5 9 7-9 7z"), .path("M18 5v14")]
+        case .both: [.rect(3, 6, 10, 14, 1.5), .path("M8 3h10.5A1.5 1.5 0 0 1 20 4.5V16")]
+        case .compare: [.rect(3, 4, 18, 16, 1.5), .path("M12 4v16")]
+        case .minus: [.path("M5 12h14")]
+        case .cut: [.circle(6, 6, 3), .path("M8.12 8.12 12 12"), .path("M20 4 8.12 15.88"), .circle(6, 18, 3),
+                    .path("M14.8 14.8 20 20")]
+        case .paste: [.rect(8, 2, 8, 4, 1),
+                      .path("M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2")]
+        case .rename: [.path("M12 20h9"), .path("M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z")]
+        case .trash: [.path("M3 6h18"), .path("M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"),
+                      .path("M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"), .path("M10 11v6M14 11v6")]
+        case .newFolder: [.path("M12 10v6M9 13h6"),
+                          .path("M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z")]
+        case .share: [.path("M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"), .path("m16 6-4-4-4 4"), .path("M12 2v13")]
+        case .more: [.circle(5, 12, 1), .circle(12, 12, 1), .circle(19, 12, 1)]
+        case .sortLines: [.path("m21 16-4 4-4-4"), .path("M17 20V4"), .path("m3 8 4-4 4 4"), .path("M7 4v16")]
+        case .view: [.path("M3 6h.01M3 12h.01M3 18h.01"), .path("M8 6h13M8 12h13M8 18h13")]
         }
     }
 

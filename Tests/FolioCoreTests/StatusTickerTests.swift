@@ -87,6 +87,16 @@ private func entry(_ name: String, folder: Bool = false, size: Int64? = nil) -> 
         #expect(Hud.segments(path: "/", entries: rows, sort: .standard, selection: SelectionSummary(rows)).last?.value == "2 items")
         #expect(Hud.segments(path: "/", entries: [], sort: .standard, selection: SelectionSummary([])).first?.value == "0")
     }
+
+    @Test func selectedCarriesTheTotalSizeOfTheSelectedFiles() {
+        let rows = [entry("a.mov", size: 70_000_000), entry("b.mov", size: 2048), entry("Docs", folder: true)]
+        func selected(_ s: [FileEntry]) -> String? {
+            Hud.segments(path: "/", entries: rows, sort: .standard, selection: SelectionSummary(s)).last?.value
+        }
+        #expect(selected([rows[0]]) == "a.mov, 68,360 KB")
+        #expect(selected(rows) == "3 items, 68,362 KB")
+        #expect(selected([rows[2]]) == "Docs", "a folder has no size to show")
+    }
 }
 
 @Suite struct FileTypeTests {

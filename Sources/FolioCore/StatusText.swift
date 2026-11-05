@@ -157,11 +157,13 @@ public enum Hud {
         path.split(separator: "/", omittingEmptySubsequences: true).count
     }
 
+    /// "Nothing", the one name, or "3 items", each followed by the selected files' size when there is one.
     static func selectedText(_ selection: SelectionSummary) -> String {
+        let size = selection.hasSize ? ", " + ByteText.kilobytes(selection.bytes) : ""
         switch selection.count {
-        case 0: "Nothing"
-        case 1: selection.firstName ?? ""
-        default: ByteText.grouped(selection.count) + " items"
+        case 0: return "Nothing"
+        case 1: return (selection.firstName ?? "") + size
+        default: return ByteText.grouped(selection.count) + " items" + size
         }
     }
 }

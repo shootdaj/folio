@@ -521,7 +521,9 @@ final class SearchBoxView: NSView {
     }
 }
 
-/// The 56 pt toolbar (`.toolbar`): Back, Forward, Up, the address bar, Refresh and the search box.
+/// The 56 pt toolbar (`.toolbar`): Back, Forward, Up, the address bar, the command bar (Explorer's New,
+/// Cut, Copy, Paste, Rename, Share, Delete, Sort, View and See more, as D1 toolbar buttons), Refresh
+/// and the search box. Commands that do not fit fold into See more, which always lists everything.
 final class ToolbarView: NSView {
     let back: ChromeButton
     let forward: ChromeButton
@@ -529,6 +531,18 @@ final class ToolbarView: NSView {
     let refresh: ChromeButton
     let address = AddressBarView(frame: .zero)
     let search = SearchBoxView(frame: .zero)
+    /// Left to right; the last one is See more. Groups end after the indexes in `groupEnds`.
+    var commands: [ChromeButton] = [] {
+        didSet {
+            oldValue.forEach { $0.removeFromSuperview() }
+            commands.forEach { addSubview($0) }
+            needsLayout = true
+        }
+    }
+    var groupEnds: Set<Int> = []
+    private var separators: [CGFloat] = []
+    static let commandW: CGFloat = 36
+    static let addressMin: CGFloat = 300
 
     init(target: AnyObject?, back: Selector, forward: Selector, up: Selector, refresh: Selector) {
         self.back = ChromeButton(glyph: .back, label: "Back (Cmd+Left), hold for history", target: target, action: back)
@@ -553,7 +567,36 @@ final class ToolbarView: NSView {
         let searchW: CGFloat = bounds.width < 1180 ? 220 : 280
         search.frame = NSRect(x: bounds.width - 10 - searchW, y: y, width: searchW, height: 44)
         refresh.frame = NSRect(x: search.frame.minX - 8 - 44, y: y, width: 44, height: 44)
-        address.frame = NSRect(x: 154, y: y, width: max(80, refresh.frame.minX - 8 - 154), height: 44)
+        // The command bar takes what the address bar can spare; See more is always there.
+        var right = refresh.frame.minX - 8
+        separators = []
+        if let more = commands.last {
+            more.frame = NSRect(x: right - Self.commandW, y: y, width: Self.commandW, height: 44)
+            right = more.frame.minX - 6
+            separators.append(right - 0.5)
+            right -= 7
+            let rest = commands.dropLast()
+            let room = right - 154 - Self.addressMin
+            let groups = CGFloat(groupEnds.filter { $0 < rest.count - 1 }.count)
+            var fit = rest.count
+            while fit > 0, CGFloat(fit) * Self.commandW + groups * 13 > room { fit -= 1 }
+            var x = right - CGFloat(fit) * Self.commandW
+                - CGFloat(groupEnds.filter { $0 < fit - 1 }.count) * 13
+            let left = x
+            for (i, button) in rest.enumerated() {
+                button.isHidden = i >= fit
+                guard i < fit else { continue }
+                button.frame = NSRect(x: x, y: y, width: Self.commandW, height: 44)
+                x += Self.commandW
+                if groupEnds.contains(i), i < fit - 1 {
+                    separators.append(x + 6.5)
+                    x += 13
+                }
+            }
+            if fit == 0 { separators.removeAll() }
+            right = fit > 0 ? left - 8 : right + 7
+        }
+        address.frame = NSRect(x: 154, y: y, width: max(80, right - 154), height: 44)
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -563,6 +606,9 @@ final class ToolbarView: NSView {
         if address.isEditing {
             // The 3 pt accent ring around the address bar while editing (`.addr.mode-address`).
             fillRounded(address.frame.insetBy(dx: -3, dy: -3), radius: 8, (address.isInvalid ? p.miss : p.accent).withAlpha(0.16))
+        }
+        for x in separators {
+            fillRect(NSRect(x: x, y: (bounds.height - 1) / 2 - 11, width: 1, height: 22), p.line)
         }
     }
 }

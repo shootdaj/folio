@@ -28,15 +28,26 @@ enum MainMenu {
             item("New Window", #selector(AppDelegate.newWindow(_:)), "n"),
             item("Close Window", #selector(NSWindow.performClose(_:)), "w"),
         ])
+        // File commands go to the window controller; while a name or the address is being edited the
+        // text field takes Cut, Copy, Paste and Select All, and Undo and Redo undo the typing.
         add("Edit", to: main, [
-            item("Undo", Selector(("undo:")), "z"),
-            item("Redo", Selector(("redo:")), "z", [.command, .shift]),
+            item("Undo", #selector(BrowserWindowController.undoOperation(_:)), "z"),
+            item("Redo", #selector(BrowserWindowController.redoOperation(_:)), "z", [.command, .shift]),
             .separator(),
             item("Cut", #selector(NSText.cut(_:)), "x"),
             item("Copy", #selector(NSText.copy(_:)), "c"),
             item("Paste", #selector(NSText.paste(_:)), "v"),
-            item("Delete", #selector(NSText.delete(_:))),
+            item("Copy To...", #selector(BrowserWindowController.copyTo(_:))),
+            item("Move To...", #selector(BrowserWindowController.moveTo(_:))),
+            .separator(),
+            item("Rename", #selector(BrowserWindowController.renameSelection(_:)), key(NSF2FunctionKey), []),
+            item("Move to Trash", #selector(BrowserWindowController.moveToTrash(_:)), "\u{8}"),
+            item("Delete Permanently...", #selector(BrowserWindowController.deletePermanently(_:)), "\u{8}", [.command, .option]),
+            submenu("New", newItems()),
+            .separator(),
             item("Select All", #selector(NSResponder.selectAll(_:)), "a"),
+            item("Select None", #selector(BrowserWindowController.selectNone(_:))),
+            item("Invert Selection", #selector(BrowserWindowController.invertSelection(_:))),
         ])
         add("View", to: main, [
             submenu("Theme", ThemeChoice.allCases.map {
@@ -45,6 +56,9 @@ enum MainMenu {
             submenu("Accent", AccentChoice.allCases.map {
                 choice($0.title, #selector(AppDelegate.selectAccent(_:)), $0.rawValue)
             }),
+            .separator(),
+            item("Item Check Boxes", #selector(BrowserWindowController.toggleItemCheckBoxes(_:))),
+            submenu("Sort By", sortItems()),
             .separator(),
             item("Enter Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control]),
         ])
@@ -70,6 +84,31 @@ enum MainMenu {
         ])
         NSApp.windowsMenu = window
         return main
+    }
+
+    /// Edit > New and the command bar's New: Folder (Explorer's Ctrl+Shift+N) and Text document.
+    static func newItems() -> [NSMenuItem] {
+        [item("Folder", #selector(BrowserWindowController.newFolder(_:)), "n", [.command, .shift]),
+         item("Text Document", #selector(BrowserWindowController.newTextDocument(_:)))]
+    }
+
+    static func sortItems() -> [NSMenuItem] {
+        var items = SortKey.allCases.map { key in
+            choice(sortTitle(key), #selector(BrowserWindowController.sortByColumn(_:)), key.rawValue)
+        }
+        items.append(.separator())
+        items.append(item("Ascending", #selector(BrowserWindowController.sortAscending(_:))))
+        items.append(item("Descending", #selector(BrowserWindowController.sortDescending(_:))))
+        return items
+    }
+
+    private static func sortTitle(_ key: SortKey) -> String {
+        switch key {
+        case .name: "Name"
+        case .modified: "Date modified"
+        case .kind: "Type"
+        case .size: "Size"
+        }
     }
 
     @discardableResult
