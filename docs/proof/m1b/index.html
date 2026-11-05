@@ -1,0 +1,1623 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-palette="slate" data-key="folio-proof-m1b">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Folio milestone 1b: the Control room look, proof</title>
+<meta name="description" content="The D1 Control room design ported into the native Folio app, run and screenshotted inside the test VM.">
+<script>(function(){var r=document.documentElement,k=r.dataset.key||'report';try{var t=localStorage.getItem(k+'-theme');r.dataset.theme=(t==='light')?'light':'dark';var p=localStorage.getItem(k+'-palette');r.dataset.palette=/^(plum|ink|slate|forest|sand)$/.test(p||'')?p:'slate'}catch(e){r.dataset.theme='dark';r.dataset.palette='slate'}if(!matchMedia('(prefers-reduced-motion: reduce)').matches)r.classList.add('anim')})();</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.7/dist/purify.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<script src="https://cdn.jsdelivr.net/npm/d3-sankey@0.12.3/dist/d3-sankey.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/elkjs@0.9.3/lib/elk.bundled.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/motion@11/dist/motion.js"></script>
+<style>
+/* Obsidian spotlight: tokens. Source: Scout (Luminatlas), from the glossary d1.
+   Dark is the default; <html data-theme="light"> switches to light. Components read tokens only, never hex.
+   Fonts: https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500;600;700&display=swap */
+:root, :root[data-theme="dark"] {
+  /* surfaces, one step lighter each, and hairlines */
+  --bg: #08090C; --s1: #0F1116; --s2: #14171E; --s3: #1B1F28; --s4: #232834;
+  --line: #1E222B; --line-2: #2A2F3A; --outline: #3A4050;
+  --glass: color-mix(in srgb, var(--bg) 84%, transparent);
+  /* text: primary, secondary, muted, faint (faint is for placeholders and rules, not reading) */
+  --text: #EDEFF3; --text-2: #C3C8D2; --muted: #8A919E; --faint: #5C6370;
+  /* accent: electric blue; text on it is near black */
+  --accent: #4F8CFF; --accent-ink: #08090C;
+  --accent-soft: color-mix(in srgb, var(--accent) 18%, transparent);
+  --mark: color-mix(in srgb, var(--accent) 34%, transparent);
+  /* elevation */
+  --shadow-1: 0 1px 2px rgba(0,0,0,.4), 0 6px 18px rgba(0,0,0,.35);
+  --shadow-2: 0 10px 30px rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.4);
+  --shadow: 0 18px 44px rgba(0,0,0,.55), 0 2px 6px rgba(0,0,0,.4);
+  --shadow-4: 0 30px 80px rgba(0,0,0,.7), 0 4px 12px rgba(0,0,0,.5);
+  /* strength of the cursor glow a card throws in its own hue */
+  --glow-a: 16%;
+  /* twelve meaning hues, neon on near black: one per category, area or series */
+  --h-blue: #4D9BFF; --h-violet: #A98BFF; --h-amber: #FFB443; --h-teal: #2DD4BF;
+  --h-pink: #FF6BB5; --h-orange: #FF6A3D; --h-cyan: #5EC8E0; --h-lime: #B8E63A;
+  --h-gold: #E8C547; --h-coral: #FF8A80; --h-green: #4ADE80; --h-magenta: #E255FF;
+  color-scheme: dark;
+}
+:root[data-theme="light"] {
+  --bg: #F7F8FA; --s1: #FFFFFF; --s2: #EEF0F4; --s3: #E4E7ED; --s4: #D9DDE5;
+  --line: #E1E4EA; --line-2: #CFD4DD; --outline: #B9BFCB;
+  --glass: color-mix(in srgb, var(--bg) 86%, transparent);
+  --text: #14171E; --text-2: #2E3440; --muted: #5B6270; --faint: #8A919E;
+  --accent: #1F5FE0; --accent-ink: #FFFFFF;
+  --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
+  --mark: color-mix(in srgb, var(--accent) 22%, transparent);
+  --shadow-1: 0 1px 2px rgba(20,23,30,.08), 0 6px 18px rgba(20,23,30,.08);
+  --shadow-2: 0 10px 30px rgba(20,23,30,.12), 0 2px 6px rgba(20,23,30,.06);
+  --shadow: 0 18px 44px rgba(20,23,30,.14), 0 2px 6px rgba(20,23,30,.08);
+  --shadow-4: 0 30px 80px rgba(20,23,30,.2), 0 4px 12px rgba(20,23,30,.1);
+  --glow-a: 12%;
+  --h-blue: #1A5FE0; --h-violet: #6B3FD6; --h-amber: #9A5A00; --h-teal: #0A7C70;
+  --h-pink: #C2187A; --h-orange: #C43B0E; --h-cyan: #0C6F8A; --h-lime: #4C7A00;
+  --h-gold: #8A6500; --h-coral: #C0392B; --h-green: #1B7F3F; --h-magenta: #A21CAF;
+  color-scheme: light;
+}
+:root {
+  /* states: exact, partial, miss */
+  --ok: var(--h-green); --part: var(--h-amber); --miss: var(--h-coral);
+  /* shape */
+  --r-s: 8px; --r: 12px; --r-l: 16px; --r-xl: 22px;
+  /* type: Geist and Geist Mono, upright only */
+  --font: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* motion: Material-style standard curve, a long ease-out, a springy overshoot and a soft spring */
+  --ease: cubic-bezier(.2, 0, 0, 1);
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+  --ease-in: cubic-bezier(.4, 0, 1, 1);
+  --spring: linear(0, .013 .8%, .05 1.7%, .19 3.6%, .64 8.6%, .83 11.2%, .96 13.6%, 1.03 16.1%, 1.05 18.7%, 1.03 24%, .99 30.5%, 1);
+  --spring-soft: linear(0, .2 4%, .5 9%, .8 15%, .96 22%, 1.01 30%, 1);
+  --t-fast: 120ms; --t: 220ms; --t-slow: 420ms;
+  --rise: 8px; /* fade-up distance for entrances */
+}
+
+/* Report recipe names. In a design-flow report, use this file in place of the starter's b1-tokens.css:
+   these map the starter's token names onto the look, so its components work unchanged. */
+:root {
+  --txt: var(--text); --txt2: var(--text-2); --txt3: var(--muted); --line2: var(--line-2);
+  --red: var(--accent); --red-txt: var(--accent); --red-tint: var(--accent-soft);
+  --red-glow: color-mix(in srgb, var(--accent) 55%, transparent);
+  --fill: var(--accent); --on-fill: var(--accent-ink); --on-red: var(--accent-ink);
+  --off: var(--muted); --on-led: var(--bg); --okf: var(--ok); --partf: var(--part); --missf: var(--miss); --newf: var(--h-coral);
+  /* the starter leads with --c4 (current tab, Your call strip, default chip): blue here */
+  --c1: var(--h-violet); --c2: var(--h-teal); --c3: var(--h-pink); --c4: var(--h-blue); --c5: var(--h-amber);
+  --ink: var(--accent-ink); --on-cat: var(--accent-ink);
+  --tip-bg: var(--s4); --tip-fg: var(--text); --pt: var(--s3); --ps: var(--s1); --pline: var(--line-2);
+  --f: var(--font); --track: 0em; --word: 0em; --pill: 999px; --gut: 24px; --maxw: 1240px; --top: 112px;
+}
+/* report recipe component CSS: lights, ruler, top bar, tabs, overview (lead bullets, Your call, side card), panels, figures, chips, shared diagram marks,
+   overlays, entrance states, responsive rules, palette picker, then the LED diet and toned-fill overrides. Keep this order.
+   Figure-specific CSS (stack, sequence, treemap, grid, timelines) goes in b3-figures.css, one block per figure. */
+/* ── base ── */
+*{box-sizing:border-box}
+html{scroll-padding-top:calc(var(--top) + 12px);overflow-x:clip}
+body{margin:0;background:var(--bg);color:var(--txt);font:400 15.5px/1.55 var(--f);letter-spacing:var(--track);word-spacing:var(--word);-webkit-font-smoothing:antialiased}
+::selection{background:var(--fill);color:var(--on-fill)}
+a{color:inherit}
+code{font:500 12px/1.45 var(--mono);background:var(--s3);padding:1px 6px;border-radius:6px;color:var(--txt);word-break:break-word}
+.mono{font-family:var(--mono)}
+.sr{position:absolute;left:-9999px}
+.sr:focus{left:12px;top:12px;z-index:999;background:var(--txt);color:var(--bg);padding:10px 14px;border-radius:var(--pill)}
+:focus-visible{outline:2px solid var(--red);outline-offset:2px}
+.wrap{max-width:var(--maxw);margin:0 auto;padding:0 var(--gut);position:relative;z-index:1}
+svg.i{width:18px;height:18px;flex:none;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+
+
+/* ── LEDs (D4) ── */
+.led{display:inline-block;width:8px;height:8px;border-radius:50%;flex:none;position:relative;background:var(--off);opacity:.25;transition:opacity .25s,box-shadow .25s}
+.led.on{opacity:1}
+.led.ok{background:var(--ok)} .led.part{background:var(--part)} .led.miss{background:var(--miss)} .led.new{background:var(--red)} .led.off{background:var(--off)}
+.led.on.ok{box-shadow:0 0 8px color-mix(in srgb,var(--ok) 70%,transparent)}
+.led.on.part{box-shadow:0 0 8px color-mix(in srgb,var(--part) 70%,transparent)}
+.led.on.miss{box-shadow:0 0 8px color-mix(in srgb,var(--miss) 70%,transparent)}
+.led.on.new{box-shadow:0 0 10px var(--red-glow)}
+.led.new::after{content:"";position:absolute;inset:0;border-radius:50%;border:1.5px solid var(--red);opacity:0}
+.live .led.on.ok{animation:ledBreathe 3.2s ease-in-out infinite}
+.live .led.on.part{animation:ledDouble 1.8s ease-in-out infinite}
+.live .led.on.miss{animation:ledBlink 1.1s steps(2,jump-none) infinite}
+.live .led.on.new::after{animation:ledBeacon 1.6s ease-out infinite}
+@keyframes ledBreathe{0%,100%{opacity:1}50%{opacity:.5}}
+@keyframes ledDouble{0%,40%,100%{opacity:1}20%,60%{opacity:.3}}
+@keyframes ledBlink{0%{opacity:1}100%{opacity:.45}}
+@keyframes ledBeacon{0%{transform:scale(1);opacity:.95}100%{transform:scale(3.4);opacity:0}}
+.sled{transition:opacity .2s}
+.live .sled.ok{animation:ledBreathe 3.2s ease-in-out infinite}
+.live .sled.part{animation:ledDouble 1.8s ease-in-out infinite}
+.live .sled.miss{animation:ledBlink 1.1s steps(2,jump-none) infinite}
+.sbeacon{fill:none;stroke:var(--red);stroke-width:1.5;transform-box:fill-box;transform-origin:center;opacity:0}
+.live .sbeacon{animation:ledBeacon 1.6s ease-out infinite}
+.st{display:inline-flex;align-items:center;gap:7px;font:500 13px var(--f);white-space:nowrap;color:var(--txt2)}
+
+/* ruler ticks (D4) */
+.ruler{height:10px;flex:1;min-width:40px;transform-origin:0 50%;
+  background:repeating-linear-gradient(90deg,var(--line2) 0 1px,transparent 1px 40px) 0 0/100% 10px no-repeat,
+             repeating-linear-gradient(90deg,var(--line) 0 1px,transparent 1px 8px) 0 100%/100% 5px no-repeat}
+
+/* ── top bar ── */
+.top{position:sticky;top:0;z-index:60;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.top-row{display:flex;align-items:center;gap:14px;min-height:58px}
+.brand{display:flex;align-items:center;gap:10px;min-width:0;min-height:44px;text-decoration:none}
+.brand .mk{width:28px;height:28px;border-radius:8px;background:var(--fill);display:grid;place-items:center;color:var(--on-fill);flex:none}
+.brand .mk svg{width:16px;height:16px}
+.brand b{font:700 16px/1.1 var(--f);white-space:nowrap}
+.brand small{display:block;font:500 12.5px var(--f);color:var(--txt2);white-space:nowrap}
+.spacer{flex:1}
+.btn{min-height:44px;padding:0 16px;display:inline-flex;align-items:center;gap:8px;border-radius:var(--pill);border:1px solid var(--line2);background:var(--s1);color:var(--txt);font:500 14px var(--f);cursor:pointer;transition:transform .3s var(--spring),background .15s,border-color .15s;white-space:nowrap}
+.btn:hover{transform:translateY(-2px);border-color:var(--txt3)}
+.btn:active{transform:translateY(1px) scale(.95);transition-duration:.08s}
+.btn.icon{width:44px;padding:0;justify-content:center}
+.btn.red{background:var(--fill);border-color:var(--fill);color:var(--on-fill)}
+.tabs{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none;margin:0 calc(-1*var(--gut));padding:0 var(--gut)}
+.tabs::-webkit-scrollbar{display:none}
+.tab{flex:0 0 auto;min-height:48px;display:inline-flex;align-items:center;gap:7px;padding:0 10px;border:0;border-bottom:2px solid transparent;background:none;color:var(--txt2);cursor:pointer;font:500 14px var(--f);white-space:nowrap;transition:color .15s,border-color .2s}
+.tab .n{font:500 12px var(--mono);color:var(--txt3)}
+.tab .c{font:600 12.5px var(--f);color:var(--txt2);display:inline-flex;align-items:center;gap:6px}
+.tab:hover{color:var(--txt)}
+.tab[aria-current="true"]{color:var(--txt);border-bottom-color:var(--red)}
+.tab[aria-current="true"] .n{color:var(--red-txt)}
+.prog{position:absolute;left:0;right:0;bottom:-1px;height:2px;pointer-events:none}
+.prog i{position:absolute;inset:0;background:var(--red);transform-origin:0 50%;transform:scaleX(0)}
+
+/* ── overview ── */
+.hero{padding:26px 0 8px}
+/* title: a normal page heading, 24 to 28 px at 1440 (never over 32), 600 to 700, never italic or display type (2026-10-08) */
+.title{margin:6px 0 14px;font:700 clamp(22px,1.8vw,28px)/1.25 var(--f);font-style:normal;letter-spacing:-.005em;color:var(--txt)}
+/* lead (2026-10-17): three or four bullets in ul.lead-lines, 19 px (18 px under 900), full text colour, a dot in each bullet's hue (--lc),
+   one to three key words per bullet in bold (700), never an underline. Never --txt2 or --txt3 anywhere in the opening: shoot.mjs fails any
+   overview text under 10:1. Then the Your call strip (.ask) and the side card (.how-card) on the right. Nothing follows the lead. */
+.lead{display:grid;grid-template-columns:minmax(0,2.6fr) minmax(0,1fr);gap:28px;align-items:start;margin:0 0 26px}
+.lead p{margin:0 0 16px;max-width:66ch;font:400 19px/1.7 var(--f);font-style:normal;letter-spacing:var(--track);word-spacing:var(--word);color:var(--txt)}
+.lead-lines{list-style:none;margin:0 0 14px;padding:0;display:grid;gap:6px}
+.lead-lines li{--lc:var(--c4);position:relative;padding-left:18px;font:400 19px/1.55 var(--f);letter-spacing:var(--track);word-spacing:var(--word);color:var(--txt)}
+.lead-lines li::before{content:"";position:absolute;left:0;top:.62em;width:8px;height:8px;border-radius:50%;background:var(--lc)}
+.lead-lines b,.lead .ask b,.how b,.how-card .nb b{font-weight:700;color:var(--txt);text-decoration:none}
+.lead .ask{display:flex;gap:10px;align-items:flex-start;margin-top:6px;padding:10px 14px;border-radius:10px;background:var(--s1);border-left:3px solid var(--c4);font-size:17px;line-height:1.55}
+.lead .ask .i{flex:0 0 18px;width:18px;height:18px;margin-top:3px;color:var(--c4)}
+.how-card{padding:18px 18px 16px;border-radius:14px;background:var(--s1);border:1px solid var(--line)}
+.how-card h3{margin:0 0 12px;font:650 15px/1.3 var(--f);color:var(--txt)}
+.how{list-style:none;margin:0 0 14px;padding:0;display:grid;gap:10px}
+.how li{display:grid;grid-template-columns:26px minmax(0,1fr);gap:10px;align-items:start;font:400 16px/1.45 var(--f);color:var(--txt)}
+.how .hn{display:grid;place-items:center;width:26px;height:26px;border-radius:50%;border:2px solid var(--c1);color:var(--txt);font:700 13px var(--mono)}
+.how-card .nb{margin:0;max-width:none;padding-top:12px;border-top:1px solid var(--line);font:400 15.5px/1.5 var(--f);color:var(--txt)}
+@media (max-width:900px){.lead{grid-template-columns:1fr;gap:16px}.lead p,.lead-lines li{font-size:18px}}
+
+/* ── panels ── */
+.panels{padding:8px 0 40px}
+.panel{margin:0 0 14px;border-radius:var(--r);background:var(--s1);border:1px solid var(--line)}
+.ph{width:100%;display:grid;grid-template-columns:auto auto 1fr auto auto;align-items:center;gap:14px;min-height:72px;padding:12px 14px 12px 20px;border:0;background:none;color:var(--txt);cursor:pointer;text-align:left;border-radius:var(--r)}
+.ph .no{font:600 13px var(--mono);color:var(--red-txt)}
+.ph h2{margin:0;font:700 24px/1.1 var(--f);letter-spacing:-.01em}
+.ph .ruler{min-width:30px}
+.ph .cnt{font:500 13px var(--f);color:var(--txt2);display:inline-flex;gap:8px;align-items:center;white-space:nowrap}
+.ph .chev{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;border:1px solid var(--line2);transition:transform .35s var(--spring),background .15s}
+.ph:hover .chev{background:var(--s2)}
+.panel.open .ph .chev{transform:rotate(180deg)}
+.pb{overflow:hidden;height:0;transition:height .45s var(--ease)}
+.panel.open .pb{height:auto}
+.pbi{padding:4px 20px 22px;border-top:1px solid var(--line)}
+.dek{margin:14px 0 0;color:var(--txt2);max-width:900px;font-size:15px}
+/* appendix: "About this report", the context brief from CONTEXT in d-data.js; always the last entry, collapsed */
+.about{margin:18px 0 0;border:1px solid var(--line);border-radius:var(--r);background:var(--bg)}
+.about>summary{display:flex;align-items:center;gap:10px;min-height:48px;padding:0 16px;cursor:pointer;list-style:none;font:600 15px var(--f);color:var(--txt);border-radius:var(--r)}
+.about>summary::-webkit-details-marker{display:none}
+.about>summary .chev{margin-left:auto;transition:transform .3s var(--spring)}
+.about[open]>summary .chev{transform:rotate(180deg)}
+.ab-b{padding:2px 16px 16px;border-top:1px solid var(--line)}
+.ab-b h4{margin:16px 0 6px;font:600 13px var(--f);color:var(--txt2)}
+.ab-b dl{display:grid;grid-template-columns:minmax(120px,170px) minmax(0,70ch);gap:6px 18px;margin:0}
+.ab-b dt{font:500 14px/1.55 var(--f);color:var(--txt2)}
+.ab-b dd{margin:0;font:400 14px/1.55 var(--f);color:var(--txt)}
+.ab-links{display:flex;flex-wrap:wrap;gap:8px}
+.ab-links a{display:inline-flex;align-items:center;min-height:44px;padding:0 14px;border:1px solid var(--line2);border-radius:var(--pill);color:var(--txt);text-decoration:none}
+.ab-links a:hover{background:var(--s2)}
+
+/* ── figures ── */
+.fg{margin:18px 0 0;padding:16px 18px 16px;border-radius:var(--r);background:var(--bg);border:1px solid var(--line);min-width:0}
+.fg-h{display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap;margin-bottom:12px}
+.fgno{font:600 12px var(--mono);color:var(--red-txt);letter-spacing:.02em}
+.fg-h h3{font:700 19px/1.15 var(--f);margin:0}
+.fg-h .sp{flex:1}
+.fg-h .hint{font:500 13px var(--f);color:var(--txt2)}
+.fg-b{overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}
+.fg-b svg{display:block}
+.fg figcaption{font:500 14.5px/1.5 var(--f);color:var(--txt);margin-top:12px;display:flex;gap:10px;align-items:flex-start}
+.fg figcaption::before{content:"";width:3px;align-self:stretch;border-radius:2px;background:var(--red);flex:none}
+.fg-d{margin-top:10px;min-height:48px;padding:12px 14px;border-radius:10px;background:var(--s2);border:1px solid var(--line);font-size:14px;color:var(--txt2)}
+.fg-d .ey{display:block;font:700 12px var(--f);letter-spacing:.08em;text-transform:uppercase;color:var(--txt2);margin-bottom:4px}
+.fg-d b{font:700 15px/1.25 var(--f);color:var(--txt);margin-right:8px}
+.fg-d .tag{font:500 13px var(--f);color:var(--txt2);display:inline-flex;align-items:center;gap:6px}
+.fg-d .tag.red{color:var(--red-txt)}
+.fg-d code{display:inline-block;margin-top:6px}
+.pair{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start}
+.pair.w57{grid-template-columns:minmax(0,5fr) minmax(0,7fr)}
+.pair.w75{grid-template-columns:minmax(0,7fr) minmax(0,5fr)}
+.pair > .fg{margin-top:18px}
+
+/* chips with sliding pill */
+.chips{position:relative;display:flex;flex-wrap:wrap;gap:6px}
+.chip{position:relative;z-index:1;min-height:44px;padding:0 16px;display:inline-flex;align-items:center;gap:8px;border-radius:var(--pill);border:1px solid var(--line2);background:transparent;color:var(--txt);font:500 14px var(--f);cursor:pointer;transition:transform .3s var(--spring),color .2s,border-color .15s}
+.chip .c{font:500 12px var(--mono);color:var(--txt2);transition:color .2s}
+.chip:hover{transform:translateY(-2px);border-color:var(--txt3)}
+.chip:active{transform:translateY(1px) scale(.95);transition-duration:.08s}
+.chip[aria-pressed="true"]{color:var(--on-fill);border-color:transparent}
+.chip[aria-pressed="true"] .c{color:var(--on-fill);opacity:.85}
+.chips .pind{position:absolute;z-index:0;border-radius:var(--pill);background:var(--fill);transition:left .45s var(--spring),top .45s var(--spring),width .45s var(--spring),height .3s;pointer-events:none}
+.chips.noslide .chip[aria-pressed="true"]{background:var(--fill)}
+.toolbar{display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:center;margin-bottom:12px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font:500 13px var(--f);color:var(--txt2);align-items:center}
+.legend i{display:inline-block;width:24px;height:0;border-top:2px solid var(--txt);vertical-align:middle;margin-right:6px}
+.legend i.new{border-top:2px dashed var(--red)}
+.legend i.later{border-top:2px dotted var(--txt3)}
+
+
+/* ── shared diagram marks ── */
+.dg-box{fill:var(--s2);stroke:var(--line2);stroke-width:1.3;transition:fill .15s,stroke .15s}
+.dg-box.exists{stroke:var(--txt2)}
+.dg-box.new{stroke:var(--red);stroke-dasharray:5 3;fill:color-mix(in srgb,var(--red) 7%,var(--s2))}
+.dg-box.later,.dg-box.confirm{stroke:var(--txt3);stroke-dasharray:2 3}
+.dg-box.solid{fill:var(--txt)}
+.dg-t{font:600 13px var(--f);fill:var(--txt)}
+.dg-t.red{fill:var(--red-txt)}
+.dg-s{font:400 12px var(--mono);fill:var(--txt2)}
+.dg-h{font:700 15px var(--f);fill:var(--txt)}
+.dg-e{fill:none;stroke:var(--txt);stroke-opacity:.85;stroke-width:1.4;transition:opacity .15s,stroke-width .15s}
+.dg-e.new{stroke:var(--red);stroke-opacity:1;stroke-dasharray:6 4}
+.dg-e.later,.dg-e.confirm{stroke:var(--txt3);stroke-dasharray:2 4}
+.dg-e.hot{stroke-width:2.8;stroke-opacity:1}
+.dg-lbl{font:500 12px var(--f);fill:var(--txt2);paint-order:stroke;stroke:var(--bg);stroke-width:4px;stroke-linejoin:round;pointer-events:none}
+.dg-lbl.new{fill:var(--red-txt)}
+.dg-n{cursor:pointer;transition:opacity .15s}
+.dg-n:hover .dg-box,.dg-n.sel .dg-box{fill:var(--s3);stroke:var(--txt)}
+.dg-n.new:hover .dg-box,.dg-n.new.sel .dg-box{stroke:var(--red)}
+.dg-n:focus{outline:none}.dg-n:focus-visible .dg-box{stroke:var(--red);stroke-width:3}
+.dim{opacity:.13}
+.gridl{stroke:var(--line);stroke-width:1}
+.xtick{font:500 12px var(--mono);fill:var(--txt2)}
+.ylbl{font:700 15px var(--f);fill:var(--txt)}
+.ysub{font:400 12.5px var(--f);fill:var(--txt2)}
+.dom-bg{fill:var(--s1);stroke:var(--line);rx:10px}
+.dom-band{cursor:pointer}
+.dom-band:hover .dom-bg,.dom-band.sel .dom-bg{fill:var(--s2);stroke:var(--line2)}
+
+
+/* footer: method, sources and (when there is one) the glossary source, spaced apart */
+.colo{display:flex;flex-wrap:wrap;gap:6px 24px;padding:6px 0 48px;font:500 13px/1.5 var(--f);color:var(--txt2)}
+
+/* ── overlays ── */
+.tip{position:fixed;z-index:200;max-width:min(360px,calc(100vw - 24px));left:0;top:0;background:var(--tip-bg);color:var(--tip-fg);padding:10px 12px;border-radius:10px;font:400 13px/1.45 var(--f);pointer-events:none;opacity:0;transform:translateY(4px);transition:opacity .12s,transform .12s;box-shadow:0 12px 30px -10px rgba(0,0,0,.5)}
+.tip.show{opacity:1;transform:none}
+.tip b{display:block;font:700 13px var(--f);margin-bottom:4px}
+.tip code{background:transparent;color:inherit;padding:0;opacity:.85}
+.tip .k{display:inline-flex;align-items:center;gap:6px;font:600 12.5px var(--f);padding:2px 8px;margin-bottom:6px;border:1px solid currentColor;border-radius:var(--pill)}
+.totop{position:fixed;right:18px;bottom:18px;z-index:70;opacity:0;pointer-events:none;transform:translateY(12px);transition:opacity .25s,transform .35s var(--spring)}
+.totop.show{opacity:1;pointer-events:auto;transform:none}
+.doors{position:fixed;inset:0;z-index:300;pointer-events:none;overflow:hidden}
+.door{position:absolute;top:0;bottom:0;width:50.5%;transform:translateX(-101%);display:flex;align-items:center}
+.door.l{left:0;border-right:3px solid var(--red);justify-content:flex-end}
+.door.r{right:0;transform:translateX(101%);border-left:3px solid var(--red)}
+.door span{font:700 min(12vw,160px)/.85 var(--f);letter-spacing:-.03em;padding:0 20px}
+
+/* entrance states (only when motion runs) */
+.anim #top{opacity:0}
+.anim .rv0{opacity:0}
+.anim .lead-lines li{opacity:0}
+
+/* ── responsive ── */
+@media (max-width:1180px){
+  .stack-grid{grid-template-columns:1fr}
+  .rd{grid-template-columns:1fr}
+  .pair,.pair.w57,.pair.w75{grid-template-columns:1fr}
+  .rkey{columns:2}
+  .top-row .brand small{display:none}
+}
+@media (max-width:860px){
+  :root{--gut:16px}
+  .btn .lbl{display:none}
+  .btn:not(.icon){padding:0 12px}
+  .ph{grid-template-columns:auto 1fr auto;gap:10px;padding-left:16px}
+  .ph .ruler,.ph .cnt{display:none}
+  .ph h2{font-size:21px}
+  .pbi{padding:4px 14px 18px}
+  .ab-b dl{grid-template-columns:1fr;gap:2px}
+  .ab-b dd{margin-bottom:8px}
+  .fg{padding:14px 12px}
+  .grid5{grid-template-columns:minmax(96px,1.2fr) repeat(6,minmax(0,1fr));gap:4px}
+  .cell{min-height:50px}
+  .cell .w{display:none}
+}
+/* phone (2026-10-17): the header title clipped under the buttons at 390, so only the mark shows; the link keeps its aria-label */
+@media (max-width:560px){.rkey{columns:1}.top-row .brand > span:not(.mk){display:none}}
+@media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important;scroll-behavior:auto!important}}
+
+/* palette picker */
+.pal{position:relative}
+.pal-menu{position:absolute;right:0;top:calc(100% + 8px);z-index:80;min-width:220px;padding:6px;border-radius:14px;background:var(--s1);border:1px solid var(--line2);box-shadow:var(--shadow);display:none}
+.pal.open .pal-menu{display:block}
+.pal-menu button{width:100%;min-height:44px;display:flex;align-items:center;gap:10px;padding:0 10px;border:0;border-radius:10px;background:none;color:var(--txt);font:500 14px var(--f);cursor:pointer;text-align:left}
+.pal-menu button:hover,.pal-menu button:focus-visible{background:var(--s2)}
+.pal-menu button[aria-checked="true"]{background:var(--s2);font-weight:700}
+.pal-menu .sw{display:inline-flex;border-radius:999px;overflow:hidden;border:1px solid var(--line2)}
+.pal-menu .sw i{width:14px;height:22px;display:block}
+.pal-menu .ck{margin-left:auto;width:16px;height:16px;opacity:0}
+.pal-menu button[aria-checked="true"] .ck{opacity:1}
+.pal-menu small{display:block;font:500 12.5px var(--f);color:var(--txt2)}
+
+
+/* tabs */
+.tab[aria-current="true"]{background:var(--lc,var(--c4));color:var(--ink);border-bottom-color:transparent;border-radius:999px;margin:6px 0;min-height:40px}
+.tab[aria-current="true"] .n{color:var(--ink)}
+.tab[aria-current="true"] .c{background:var(--ink);color:#F4F0FA;padding:2px 8px 2px 6px;border-radius:999px}
+.tabs{align-items:center}
+/* chips: hue outline, hue fill when pressed */
+.chip{--lc:var(--c4);border-color:color-mix(in srgb,var(--lc) 70%,transparent)}
+.chip[aria-pressed="true"],.chip[aria-pressed="true"] .c{color:var(--ink)}
+.chips .pind{background:var(--pl,var(--c4))}
+.chips.noslide .chip[aria-pressed="true"]{background:var(--lc)}
+
+/* ═══ LED diet: static everywhere except the active tab count and missing readiness cells ═══ */
+.live .led.on.ok,.live .led.on.part,.live .led.on.miss,.live .led.on.new::after,.live .sled,.live .sbeacon,.pl.new .ptop,.live .tml.ghost{animation:none!important}
+.sbeacon{display:none}
+.led.new::after{display:none}
+.tab[aria-current="true"] .led.on.miss,.tab[aria-current="true"] .led.on.new{animation:ledBlink 2s steps(2,jump-none) infinite!important}
+.tab[aria-current="true"] .led.on.part{animation:ledDouble 3s ease-in-out infinite!important}
+#readiness.live .cell.missing svg.ci{animation:ledBlink 2s steps(2,jump-none) infinite!important}
+.pl.new .ptop{filter:drop-shadow(0 0 10px var(--red-glow))}
+
+
+/* ═══ large categorical fills toned: ~32% hue into the surface, full hue on outlines/labels ═══ */
+.tmg[style*="--lc"]{background:color-mix(in srgb,var(--lc) 30%,var(--s1));border:1px solid var(--lc)}
+.tmg[style*="--lc"]>.gl{color:var(--lc)} .tmg[style*="--lc"]>.gl small{color:var(--txt2)}
+.tmg[style*="--lc"]>.gl::before{background:var(--lc)}
+[data-theme="light"] .tmg[style*="--lc"]>.gl{color:color-mix(in srgb,var(--lc) 45%,var(--ink))}
+.tmg[style*="--lc"] .tml{background:var(--s1);border:1px solid var(--lc);color:var(--txt)}
+.al-u{fill:color-mix(in srgb,var(--c1) 35%,var(--s1));stroke:var(--c1);stroke-width:1.5}
+.al-u.mid{fill:color-mix(in srgb,var(--c2) 35%,var(--s1));stroke:var(--c2)}
+.al-u.end{fill:color-mix(in srgb,var(--c3) 35%,var(--s1));stroke:var(--c3)}
+.sk-link{stroke-opacity:.32} .sk-link:hover,.sk-link.hot{stroke-opacity:.6}
+.gnt-bar rect,.gnt-bar:hover rect,.gnt-bar.sel rect{fill:color-mix(in srgb,var(--lc,var(--txt)) 35%,var(--s1));stroke:var(--lc,var(--txt));stroke-width:1.5}
+.gnt-bar:hover rect,.gnt-bar.sel rect{stroke:var(--txt);stroke-width:2.5}
+.gnt-bar text.cnt,.gnt-bar:hover text.cnt,.gnt-bar.sel text.cnt{fill:var(--txt)}
+.pl[style*="--lc"] .ptop{fill:color-mix(in srgb,var(--lc) 34%,var(--s1));fill-opacity:.97;stroke:var(--lc);stroke-width:1.4}
+.pl[style*="--lc"] .side{fill:color-mix(in srgb,var(--lc) 22%,var(--bg))}
+.pl[style*="--lc"] .gl{stroke:var(--line2)}
+.pl.new .ptop{fill:color-mix(in srgb,var(--red) 34%,var(--s1));stroke:var(--red)}
+.pl.new .side{fill:color-mix(in srgb,var(--red) 22%,var(--bg))}
+.pl .tile3{fill:color-mix(in srgb,var(--red) 55%,var(--s1));stroke:var(--red);stroke-opacity:1}
+.pl .tile3:hover,.pl .tile3.sel{fill:color-mix(in srgb,var(--red) 75%,var(--s1))}
+.pl:hover .ptop,.pl:focus-visible .ptop,.pl.sel .ptop{stroke:var(--txt)}
+.tmg[style*="--lc"]>.gl{right:auto;max-width:calc(100% - 16px);background:var(--s1);border-radius:6px;padding:0 8px}
+[data-theme="light"] .tmg[style*="--lc"]>.gl{color:color-mix(in srgb,var(--lc) 38%,var(--ink))}
+.tab[aria-current="true"]{min-height:44px;margin:2px 0}
+
+/* Obsidian spotlight: the helpers that make the look. Load after tokens.css; pair with spotlight.js.
+   Classes carry an os- prefix so they never collide with a recipe's own (the report starter has .btn, .chip, .mono).
+   Set --hue on any element to give it its own colour (a card, row, chip or stat); it falls back to the accent. */
+
+/* ---- type helpers ---- */
+.os-num { font-variant-numeric: tabular-nums; }
+.os-label { font: 600 12px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+
+/* ---- frosted glass: sticky bars, floating trays, the sign-in card ---- */
+.os-glass { background: var(--glass); backdrop-filter: blur(14px) saturate(1.2); -webkit-backdrop-filter: blur(14px) saturate(1.2); }
+
+/* ---- buttons: hairline secondary, glowing primary, quiet ghost; press shrinks ---- */
+.os-btn { position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 44px; padding: 0 16px; border: 1px solid var(--line-2); border-radius: var(--r); background: var(--s2); color: var(--text); font: 500 14px var(--font); white-space: nowrap; cursor: pointer; transition: transform var(--t-fast) var(--ease), background-color var(--t) var(--ease), border-color var(--t) var(--ease), box-shadow var(--t) var(--ease); }
+.os-btn:hover { border-color: var(--hue, var(--outline)); text-decoration: none; }
+.os-btn:active { transform: scale(.97); }
+.os-btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 600; }
+.os-btn.primary:hover { box-shadow: 0 0 24px color-mix(in srgb, var(--accent) 35%, transparent); }
+.os-btn.ghost { background: transparent; border-color: transparent; color: var(--text-2); }
+.os-btn.ghost:hover { background: var(--s2); }
+.os-btn:disabled { opacity: .45; cursor: not-allowed; transform: none; box-shadow: none; }
+
+/* ---- chips: a glowing dot in the chip's hue; pressed fills with the hue ---- */
+.os-chip { display: inline-flex; align-items: center; gap: 7px; min-height: 34px; padding: 0 11px 0 10px; border: 1px solid var(--line-2); border-radius: 10px; background: var(--s1); color: var(--text-2); font: 500 13px var(--font); white-space: nowrap; }
+.os-chip .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--hue, var(--muted)); box-shadow: 0 0 10px color-mix(in srgb, var(--hue, var(--muted)) 70%, transparent); }
+.os-chip[aria-pressed="true"], .os-chip.on { border-color: var(--hue, var(--text)); color: var(--text); background: color-mix(in srgb, var(--hue, var(--text)) 14%, var(--s1)); }
+
+/* ---- spotlight card and hairline row: the cursor throws a glow in the item's own hue ---- */
+.os-card, .os-row { position: relative; isolation: isolate; }
+.os-card { background: var(--s1); border: 1px solid var(--line); border-radius: var(--r-l); overflow: hidden; transition: border-color var(--t) var(--ease), transform var(--t) var(--ease-out); }
+.os-card:hover { border-color: color-mix(in srgb, var(--hue, var(--accent)) 45%, var(--line)); }
+.os-row { border-bottom: 1px solid var(--line); padding: 14px 12px 14px 16px; }
+.os-card::before, .os-row::before { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; opacity: 0; transition: opacity .25s var(--ease); background: radial-gradient(380px circle at var(--mx, 30%) var(--my, 40%), color-mix(in srgb, var(--hue, var(--accent)) var(--glow-a), transparent), transparent 72%); }
+.os-card:hover::before, .os-card:focus-within::before, .os-row:hover::before, .os-row:focus-within::before, .os-row.on::before { opacity: 1; }
+/* the hue edge: a 3 px bar that glows and widens on hover */
+.os-row::after, .os-card.edge::after { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--hue, var(--accent)); box-shadow: 0 0 14px color-mix(in srgb, var(--hue, var(--accent)) 60%, transparent); transition: width .18s var(--ease); }
+.os-row:hover::after, .os-row.on::after, .os-card.edge:hover::after { width: 5px; }
+
+/* ---- number block: big mono figure over a glowing hue underline (dashboards; reports drop stat tiles) ---- */
+.os-stat { position: relative; overflow: hidden; padding: 14px 16px 16px; border: 1px solid var(--line); border-radius: var(--r-l); background: radial-gradient(260px 120px at 0% 100%, color-mix(in srgb, var(--hue, var(--accent)) 10%, transparent), transparent), var(--s1); }
+.os-stat::after { content: ""; position: absolute; left: 16px; right: 16px; bottom: 0; height: 2px; border-radius: 2px; background: var(--hue, var(--accent)); box-shadow: 0 0 12px var(--hue, var(--accent)); }
+.os-stat .v { font: 800 32px/1 var(--mono); letter-spacing: -.04em; font-variant-numeric: tabular-nums; color: var(--text); }
+
+/* ---- drifting colour glow: put .os-glow as the first child of a position:relative; overflow:hidden host ---- */
+.os-glow { position: absolute; inset: -20%; z-index: 0; pointer-events: none; background: radial-gradient(600px 420px at 30% 20%, color-mix(in srgb, var(--h-blue) 18%, transparent), transparent 70%), radial-gradient(520px 380px at 75% 80%, color-mix(in srgb, var(--h-pink) 13%, transparent), transparent 70%), radial-gradient(420px 320px at 80% 15%, color-mix(in srgb, var(--h-violet) 12%, transparent), transparent 70%); animation: os-drift 18s ease-in-out infinite alternate; }
+@keyframes os-drift { to { transform: translate(-3%, 2%) rotate(4deg); } }
+
+/* ---- entrances: fade up 8 px; stagger with style="--i: n" (22 ms apart, capped by you) ---- */
+.os-rise { animation: os-rise 280ms var(--ease-out) both; animation-delay: calc(var(--i, 0) * 22ms); }
+@keyframes os-rise { from { opacity: 0; transform: translateY(var(--rise)); } }
+
+/* ---- reduced motion and transparency ---- */
+@media (prefers-reduced-motion: reduce) {
+  .os-glow, .os-rise { animation: none; }
+  .os-btn, .os-card, .os-card::before, .os-row::before, .os-row::after { transition: none; }
+  .os-btn:active { transform: none; }
+}
+@media (prefers-reduced-transparency: reduce) { .os-glass { backdrop-filter: none; -webkit-backdrop-filter: none; background: var(--bg); } }
+
+/* ---- report restyle on top of the starter: Obsidian spotlight ---- */
+h1,h2,h3,h4{letter-spacing:-.015em} h1{letter-spacing:-.035em} h2{letter-spacing:-.025em}
+::selection{background:color-mix(in srgb,var(--accent) 45%,transparent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.pal{display:none}
+.top{background:var(--glass);backdrop-filter:blur(14px) saturate(1.2);-webkit-backdrop-filter:blur(14px) saturate(1.2);border-bottom:1px solid var(--line)}
+.hero{position:relative;isolation:isolate}
+.hero .os-glow{z-index:-1;inset:-30% -10% -10% -10%;opacity:.9}
+.lead-lines li{position:relative}
+.panel{background:var(--s1);border:1px solid var(--line);border-radius:var(--r-l);box-shadow:none;transition:border-color var(--t) var(--ease)}
+.panel:hover{border-color:var(--line-2)}
+.fg{background:transparent;border:1px solid var(--line);border-radius:var(--r-l)}
+.fgno{font:600 12px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.fg-d{background:var(--s2);border-color:var(--line)}
+.fg-d .ey{font:600 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.how-card{background:var(--s1);border:1px solid var(--line);border-radius:var(--r-l)}
+.how-card .hn{background:var(--accent-soft);border-color:var(--accent);color:var(--text)}
+.ask{background:var(--s1);border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:var(--r);box-shadow:0 0 24px color-mix(in srgb,var(--accent) 12%,transparent)}
+.tab{border-radius:10px} .tab[aria-current="true"]{background:var(--accent);color:var(--accent-ink);box-shadow:0 0 18px color-mix(in srgb,var(--accent) 35%,transparent)}
+.btn{border-radius:var(--r);background:var(--s2);border-color:var(--line-2)} .btn:hover{border-color:var(--outline)} .btn:active{transform:scale(.97)}
+.totop{background:var(--s2)}
+.tip{background:var(--s4);color:var(--text);border:1px solid var(--line-2);box-shadow:var(--shadow-2);border-radius:10px}
+/* key map rows and milestone rows become hairline rows with a hue edge and the cursor glow */
+.keys{border-radius:var(--r-l)} .keys>div.h{font:600 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.keys .k{font:600 12.5px var(--mono);border-radius:8px;background:var(--s2);border-color:var(--line-2)} .keys .k.red{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.keys .row:hover,.keys .row.sel,.keys .row:focus-visible{background:color-mix(in srgb,var(--h-blue) 12%,var(--s1))}
+.step{border-radius:var(--r);background:var(--s1);border-color:var(--line);position:relative;isolation:isolate;overflow:hidden}
+.step::after{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--lc);box-shadow:0 0 14px color-mix(in srgb,var(--lc) 60%,transparent);transition:width .18s var(--ease)}
+.step:hover::after,.step.sel::after{width:5px}
+.step::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;opacity:0;transition:opacity .25s var(--ease);background:radial-gradient(380px circle at var(--mx,30%) var(--my,40%),color-mix(in srgb,var(--lc) var(--glow-a),transparent),transparent 72%)}
+.step:hover::before,.step.sel::before,.step:focus-within::before{opacity:1}
+.step:hover,.step.sel,.step:focus-visible{background:var(--s1);border-color:color-mix(in srgb,var(--lc) 45%,var(--line))}
+.step .sn{font:700 14px var(--mono);background:color-mix(in srgb,var(--lc) 18%,var(--s1));border-color:var(--lc);box-shadow:0 0 12px color-mix(in srgb,var(--lc) 40%,transparent)}
+.step .sv{font:500 12px var(--mono);color:var(--muted)}
+.risk{border-radius:var(--r);position:relative;isolation:isolate;overflow:hidden}
+.risk::after{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--hue);box-shadow:0 0 14px color-mix(in srgb,var(--hue) 60%,transparent)}
+.risk::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;opacity:0;transition:opacity .25s var(--ease);background:radial-gradient(380px circle at var(--mx,30%) var(--my,40%),color-mix(in srgb,var(--hue) var(--glow-a),transparent),transparent 72%)}
+.risk:hover::before{opacity:1}
+.risk .lv{font:600 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.risk .lv i{box-shadow:0 0 10px currentColor}
+.risk .lv.medium i{background:var(--part);color:var(--part)} .risk .lv.low i{background:var(--ok);color:var(--ok)} .risk .lv.none i{background:var(--muted);color:var(--muted)}
+.pg{border-radius:var(--r-l);background:var(--s1);position:relative;isolation:isolate;overflow:hidden}
+.pg::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;opacity:0;transition:opacity .25s var(--ease);background:radial-gradient(420px circle at var(--mx,30%) var(--my,40%),color-mix(in srgb,var(--lc) 12%,transparent),transparent 72%)}
+.pg:hover::before{opacity:1}
+.pg h4{font:600 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--lc)}
+.pch{border-radius:10px;background:var(--s2);border-color:var(--line-2);color:var(--text-2);gap:8px;padding-left:9px}
+.pch::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--lc);box-shadow:0 0 10px color-mix(in srgb,var(--lc) 70%,transparent);flex:none}
+.pch .pm{font:600 10.5px var(--mono);letter-spacing:.06em;background:var(--s3);color:var(--muted)}
+.pch:hover,.pch.sel,.pch:focus-visible{border-color:var(--lc);color:var(--text);background:color-mix(in srgb,var(--lc) 14%,var(--s1))}
+.win{border-radius:var(--r-l);border-color:var(--line-2);box-shadow:var(--shadow-2)}
+.win .wb .addr.edit{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft),0 0 20px color-mix(in srgb,var(--accent) 25%,transparent)}
+.win .wb .addr .ta{border-radius:10px;box-shadow:var(--shadow-2)}
+.win .wb .addr .ta [role=option]:hover,.win .wb .addr .ta [role=option][aria-selected=true]{background:var(--accent-soft)}
+.win .side div.on{background:var(--accent-soft);border-left-color:var(--accent)}
+.win tr.sel td{background:color-mix(in srgb,var(--accent) 22%,var(--s1))}
+.win .ic{background:var(--h-blue);box-shadow:0 0 8px color-mix(in srgb,var(--h-blue) 50%,transparent)} .win .ic.f{background:var(--muted);box-shadow:none}
+.pipe-node rect{fill:color-mix(in srgb,var(--lc,var(--c4)) 16%,var(--s1));stroke:var(--lc,var(--c4));filter:drop-shadow(0 0 6px color-mix(in srgb,var(--lc,var(--c4)) 35%,transparent))}
+.prose a{color:var(--accent)}
+.colo{color:var(--muted);font-family:var(--mono);font-size:12px}
+/* figure-specific styles for this report */
+.win{border:1px solid var(--line2);border-radius:10px;overflow:hidden;background:var(--s1);font:14px var(--f);color:var(--txt);box-shadow:var(--shadow)}
+.win .wb{display:flex;align-items:center;gap:8px;padding:9px 12px;background:var(--s2);border-bottom:1px solid var(--line)}
+.win .wb .nav{display:inline-flex;gap:4px}
+.win .wb .nav button,.win .wb .addr,.win .wb .srch{min-height:36px;border:1px solid var(--line2);border-radius:8px;background:var(--s1);color:var(--txt);font:inherit;padding:0 10px}
+.win .wb .nav button{width:40px;cursor:pointer}
+.win .wb .nav button:hover,.win .wb .nav button:focus-visible{border-color:var(--red);outline:none}
+.win .wb .addr{flex:1;display:flex;align-items:center;gap:0;font:500 14px var(--mono);cursor:text;position:relative}
+.win .wb .addr .crumb{padding:0 6px;border-radius:4px}
+.win .wb .addr .crumb+.crumb::before{content:'›';margin-right:6px;color:var(--txt2)}
+.win .wb .addr.edit .crumbs{display:none}
+.win .wb .addr input{display:none;flex:1;border:0;background:transparent;color:var(--txt);font:inherit;outline:none}
+.win .wb .addr.edit input{display:block}
+.win .wb .addr.edit{border-color:var(--red);box-shadow:0 0 0 3px var(--red-tint)}
+.win .wb .addr .ta{display:none;position:absolute;left:-1px;right:-1px;top:calc(100% + 4px);z-index:5;background:var(--s1);border:1px solid var(--line2);border-radius:8px;box-shadow:var(--shadow);overflow:hidden;font:500 13px var(--mono)}
+.win .wb .addr .ta.show{display:block}
+.win .wb .addr .ta [role=option]{padding:9px 12px;min-height:40px;display:flex;align-items:center;cursor:pointer;color:var(--txt2)}
+.win .wb .addr .ta [role=option] b{color:var(--txt);font-weight:700}
+.win .wb .addr .ta [role=option]:hover,.win .wb .addr .ta [role=option][aria-selected=true]{background:color-mix(in srgb,var(--red) 20%,var(--s1));color:var(--txt)}
+.win .wb .srch{width:160px;color:var(--txt2)}
+.win .wm{display:grid;grid-template-columns:150px 1fr}
+.win .side{border-right:1px solid var(--line);padding:8px 0;background:var(--s2)}
+.win .side h4{margin:8px 12px 4px;font:700 11px var(--f);letter-spacing:.08em;text-transform:uppercase;color:var(--txt2)}
+.win .side div{padding:6px 12px;cursor:default}
+.win .side div.on{background:color-mix(in srgb,var(--red) 22%,var(--s1));border-left:3px solid var(--red)}
+.win table{width:100%;border-collapse:collapse}
+.win th{text-align:left;font:600 12px var(--f);color:var(--txt2);padding:7px 10px;border-bottom:1px solid var(--line)}
+.win td{padding:7px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+.win td.mono,.win th.mono{font:500 13px var(--mono);color:var(--txt2)}
+.win tr.sel td{background:color-mix(in srgb,var(--red) 28%,var(--s1))}
+.win tr:hover td{background:var(--s2)}
+.win .sb{display:flex;gap:18px;padding:7px 12px;border-top:1px solid var(--line);background:var(--s2);font:500 12px var(--f);color:var(--txt2)}
+.win .ic{display:inline-block;width:14px;height:12px;border-radius:3px;margin-right:8px;vertical-align:-1px;background:var(--c2)}
+.win .ic.f{background:var(--txt3);width:11px;height:13px}
+@media(max-width:700px){.win .wm{grid-template-columns:1fr}.win .side{display:none}.win .wb .srch{display:none}}
+
+.keys{display:grid;grid-template-columns:minmax(150px,1fr) minmax(170px,1.4fr) minmax(150px,1.2fr);gap:0;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.keys>div{padding:10px 12px;border-bottom:1px solid var(--line);display:flex;align-items:center;min-height:44px}
+.keys>div.h{background:var(--s2);font:700 12px var(--f);letter-spacing:.06em;text-transform:uppercase;color:var(--txt2);min-height:40px}
+.keys .k{display:inline-block;padding:3px 8px;border:1px solid var(--line2);border-bottom-width:2px;border-radius:6px;background:var(--s1);font:600 13px var(--mono);color:var(--txt)}
+.keys .k.red{border-color:var(--red);color:var(--red-txt)}
+.keys .arr{color:var(--txt2);margin:0 8px}
+.keys .row{cursor:pointer}
+.keys .row:hover,.keys .row.sel,.keys .row:focus-visible{background:color-mix(in srgb,var(--c1) 18%,var(--s1));outline:none}
+.keys .does{font-weight:600}
+@media(max-width:700px){.keys{grid-template-columns:1fr 1fr}.keys>div:nth-child(3n+2){display:none}}
+
+.steps{display:grid;gap:10px}
+.step{display:grid;grid-template-columns:44px 1fr auto;gap:12px;align-items:center;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--s1);cursor:pointer;min-height:44px}
+.step:hover,.step.sel,.step:focus-visible{border-color:var(--lc,var(--red));background:color-mix(in srgb,var(--lc,var(--red)) 14%,var(--s1));outline:none}
+.step .sn{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;font:700 15px var(--mono);background:color-mix(in srgb,var(--lc,var(--red)) 34%,var(--s1));border:1.5px solid var(--lc,var(--red));color:var(--txt)}
+.step .st2{font:600 15px var(--f);color:var(--txt)}
+.step .sv{font:500 12px var(--f);color:var(--txt2);text-align:right}
+@media(max-width:700px){.step{grid-template-columns:44px 1fr}.step .sv{display:none}}
+
+.risks{display:grid;gap:10px}
+.risk{display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:start;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--s1)}
+.risk .lv{display:inline-flex;align-items:center;gap:7px;font:700 12px var(--f);letter-spacing:.06em;text-transform:uppercase;color:var(--txt);min-width:84px;padding-top:2px}
+.risk .lv i{width:10px;height:10px;border-radius:50%;display:inline-block}
+.risk .lv.medium i{background:var(--part)} .risk .lv.low i{background:var(--ok)} .risk .lv.none i{background:var(--off)}
+.risk b{display:block;font:700 15px var(--f);color:var(--txt);margin-bottom:3px}
+.risk span{font-size:14px;color:var(--txt2)}
+
+.pipe-node rect{fill:color-mix(in srgb,var(--lc,var(--c3)) 30%,var(--s1));stroke:var(--lc,var(--c3));stroke-width:1.5}
+.pipe-node:hover rect,.pipe-node.sel rect,.pipe-node:focus-visible rect{stroke:var(--txt);stroke-width:2.5}
+.pipe-node:focus-visible{outline:none}
+.prose{margin:0 0 14px;font-size:14px;line-height:1.55;color:var(--txt2)} .prose b{color:var(--txt)} .prose code{font:500 12.5px var(--mono);background:var(--s2);padding:1px 5px;border-radius:4px;color:var(--txt)} .prose a{color:var(--red-txt);font-weight:600}
+
+.par{display:grid;gap:14px}
+.pg{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--s1)}
+.pg h4{margin:0 0 8px;font:700 13px var(--f);letter-spacing:.04em;text-transform:uppercase;color:var(--lc);display:flex;align-items:center;gap:8px}
+.pg h4 small{font:600 12px var(--mono);color:var(--txt2);text-transform:none;letter-spacing:0}
+[data-theme="light"] .pg h4{color:color-mix(in srgb,var(--lc) 45%,var(--txt))}
+.pc{display:flex;flex-wrap:wrap;gap:6px}
+.pch{display:inline-flex;align-items:center;gap:7px;min-height:36px;padding:0 10px;border-radius:8px;border:1px solid var(--line2);background:color-mix(in srgb,var(--lc) 12%,var(--s1));color:var(--txt);font:500 13px var(--f);cursor:pointer;text-align:left}
+.pch:hover,.pch.sel,.pch:focus-visible{border-color:var(--lc);background:color-mix(in srgb,var(--lc) 28%,var(--s1));outline:none}
+.pch .pm{font:700 11px var(--mono);padding:2px 5px;border-radius:5px;background:var(--s2);color:var(--txt2)}
+
+.par-tb{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.par-tb .chips{flex:1 1 auto}
+.par-q{min-height:40px;padding:0 12px;border:1px solid var(--line-2);border-radius:10px;background:var(--s2);color:var(--text);font:500 14px var(--font);min-width:220px}
+.par-q:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.par-empty{margin:14px 0 0;color:var(--muted)}
+.rs .lv i{background:var(--hue);color:var(--hue)}
+.rs .src{display:inline-block;margin-left:8px;font:600 12px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--accent)}
+
+.pch[hidden],.pg[hidden]{display:none}
+/* proof figures */
+.shots{display:grid;gap:18px}
+.shot{margin:0;border:1px solid var(--line);border-radius:var(--r-l);overflow:hidden;background:var(--s1)}
+.shot img{display:block;width:100%;height:auto}
+.shot .shot-u{padding:8px 14px;border-top:1px solid var(--line);background:var(--s2)}
+.shot .shot-u code{font:500 12.5px var(--mono);color:var(--muted)}
+.shot p{margin:0;padding:10px 14px 12px;font:500 14.5px/1.5 var(--f);color:var(--txt)}
+.checks{display:grid;grid-template-columns:minmax(150px,1.1fr) minmax(160px,1.2fr) 110px minmax(220px,2fr);border:1px solid var(--line);border-radius:var(--r-l);overflow:hidden}
+.checks>div{padding:10px 12px;border-bottom:1px solid var(--line);font-size:13.5px;line-height:1.45}
+.checks .h{background:var(--s2);font:600 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted);padding:12px}
+.checks .t{font-weight:600;color:var(--txt)} .checks code{font:500 12px var(--mono);color:var(--txt2)} .checks .e{color:var(--txt2)}
+.checks .r{display:flex;align-items:center;gap:8px;font-weight:600;color:var(--txt)}
+@media(max-width:800px){.checks{grid-template-columns:1fr 1fr}.checks .h:nth-child(2),.checks .h:nth-child(4),.checks>div:nth-child(4n+2),.checks>div:nth-child(4n+4){display:none}}
+/* ───────────────────────── ask panel ─────────────────────────
+   "Ask about this report": floating button, side sheet, selection chip, figure snapshot buttons, region picker.
+   Tokens only. Built in by build.sh unless ASK=off. Everything the panel adds carries .ask-ui so snapshots leave it out. */
+body.has-ask .totop{bottom:88px}
+.ask-fab{position:fixed;right:18px;bottom:18px;z-index:75;min-height:56px;padding:0 22px 0 18px;display:inline-flex;align-items:center;gap:10px;border-radius:var(--pill);border:1px solid var(--fill);background:var(--fill);color:var(--on-fill);font:600 15px var(--f);cursor:pointer;box-shadow:var(--shadow);transition:transform .3s var(--spring),opacity .2s}
+.ask-fab:hover{transform:translateY(-2px)}
+.ask-fab:active{transform:scale(.95);transition-duration:.08s}
+.ask-fab svg.i{width:20px;height:20px}
+body.ask-open .ask-fab,body.ask-picking .ask-fab{opacity:0;pointer-events:none;transform:translateY(12px)}
+body.ask-open .totop{opacity:0;pointer-events:none}
+
+.ask-sheet{position:fixed;top:0;right:0;bottom:0;z-index:90;width:min(460px,100vw);display:grid;grid-template-rows:auto auto minmax(0,1fr) auto auto;grid-template-areas:'head' 'status' 'log' 'comp' 'meter';background:var(--s1);color:var(--txt);border-left:1px solid var(--line2);box-shadow:-24px 0 60px -30px rgba(0,0,0,.6);transform:translateX(102%);visibility:hidden;transition:transform .42s var(--ease),visibility 0s linear .42s}
+.ask-sheet.open{transform:none;visibility:visible;transition:transform .42s var(--ease),visibility 0s}
+.ask-head{grid-area:head;display:flex;align-items:center;gap:8px;padding:10px 10px 10px 18px;border-bottom:1px solid var(--line)}
+.ask-head h2{flex:1;margin:0;font:700 17px/1.2 var(--f);display:flex;align-items:center;gap:8px;min-width:0}
+.ask-head h2 svg.i{color:var(--red-txt)}
+.ask-ib{width:44px;height:44px;flex:none;display:inline-flex;align-items:center;justify-content:center;border-radius:var(--pill);border:1px solid transparent;background:transparent;color:var(--txt2);cursor:pointer;transition:background .15s,color .15s,transform .3s var(--spring)}
+.ask-ib:hover{background:var(--s2);color:var(--txt)}
+.ask-ib:active{transform:scale(.92)}
+.ask-model{min-height:44px;max-width:150px;padding:0 30px 0 14px;border-radius:var(--pill);border:1px solid var(--line2);background:var(--s2);color:var(--txt);font:500 13.5px var(--f);cursor:pointer;appearance:none;-webkit-appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--txt2) 50%),linear-gradient(135deg,var(--txt2) 50%,transparent 50%);background-position:calc(100% - 17px) 50%,calc(100% - 12px) 50%;background-size:5px 5px;background-repeat:no-repeat}
+.ask-menu{position:relative}
+.ask-menu-list{position:absolute;right:0;top:calc(100% + 6px);z-index:5;min-width:230px;padding:6px;border-radius:12px;border:1px solid var(--line2);background:var(--s2);box-shadow:var(--shadow);display:none}
+.ask-menu.open .ask-menu-list{display:block}
+.ask-menu-list button{width:100%;min-height:44px;display:flex;align-items:center;gap:10px;padding:0 12px;border:0;border-radius:10px;background:none;color:var(--txt);font:500 14px var(--f);cursor:pointer;text-align:left}
+.ask-menu-list button:hover,.ask-menu-list button:focus-visible{background:var(--s3)}
+
+.ask-status{grid-area:status;display:none;margin:12px 14px 0;padding:12px 14px;border-radius:12px;border:1px solid var(--line2);background:var(--s2);font:400 13.5px/1.5 var(--f);color:var(--txt)}
+.ask-status.show{display:block}
+.ask-status b{display:flex;align-items:center;gap:8px;font:700 14px var(--f);margin-bottom:4px}
+.ask-status .led{flex:none}
+.ask-status code{font:500 12.5px var(--mono);background:var(--s3);padding:1px 6px;border-radius:6px;word-break:break-all}
+.ask-status .ask-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.ask-status.warn{border-color:color-mix(in srgb,var(--part) 60%,var(--line2))}
+.ask-status.bad{border-color:color-mix(in srgb,var(--miss) 60%,var(--line2))}
+
+.ask-log{grid-area:log;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:14px 16px 8px;display:flex;flex-direction:column;gap:16px;scroll-behavior:smooth}
+.ask-empty{margin:auto 0;padding:8px 2px;color:var(--txt2);font:400 14px/1.55 var(--f)}
+.ask-empty h3{margin:0 0 6px;font:700 16px var(--f);color:var(--txt)}
+.ask-empty ul{margin:10px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px}
+.ask-sugg{width:100%;min-height:44px;padding:8px 14px;border-radius:12px;border:1px solid var(--line2);background:var(--s2);color:var(--txt);font:500 14px/1.35 var(--f);text-align:left;cursor:pointer;transition:border-color .15s,transform .3s var(--spring)}
+.ask-sugg:hover{border-color:var(--red);transform:translateY(-1px)}
+.ask-msg{display:flex;flex-direction:column;gap:8px;min-width:0}
+.ask-u{align-items:flex-end}
+.ask-bubble{max-width:88%;padding:10px 14px;border-radius:16px 16px 4px 16px;background:var(--s3);color:var(--txt);font:400 14.5px/1.5 var(--f);white-space:pre-wrap;overflow-wrap:anywhere}
+.ask-atts{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;max-width:100%}
+.ask-thumb{position:relative;display:flex;flex-direction:column;gap:4px;max-width:180px}
+.ask-thumb img{display:block;max-width:180px;max-height:120px;border-radius:10px;border:1px solid var(--line2);background:var(--bg);object-fit:contain}
+.ask-thumb span{font:500 12px/1.3 var(--mono);color:var(--txt2);overflow-wrap:anywhere}
+.ask-quote{max-width:100%;padding:8px 12px;border-left:3px solid var(--red);border-radius:6px;background:var(--red-tint);font:400 13.5px/1.45 var(--f);color:var(--txt);overflow-wrap:anywhere}
+.ask-quote small{display:block;font:500 12px var(--mono);color:var(--txt2);margin-top:4px}
+.ask-b{gap:10px}
+.ask-who{display:flex;align-items:center;gap:8px;font:600 12.5px var(--mono);color:var(--txt2);letter-spacing:.02em}
+.ask-who svg.i{width:16px;height:16px;color:var(--red-txt)}
+.ask-act{min-height:44px;display:flex;align-items:center;gap:10px;padding:6px 12px;border-radius:12px;border:1px solid var(--line);background:var(--s2);color:var(--txt2);font:500 13px/1.35 var(--f);text-align:left;width:100%}
+.ask-act svg.i{width:16px;height:16px;flex:none;color:var(--red-txt)}
+.ask-act b{color:var(--txt);font-weight:600}
+.ask-act.err{border-color:color-mix(in srgb,var(--miss) 55%,var(--line))}
+.ask-act.err svg.i{color:var(--miss)}
+button.ask-act{cursor:pointer;transition:border-color .15s}
+button.ask-act:hover{border-color:var(--red)}
+.ask-act img{width:72px;height:44px;object-fit:cover;border-radius:6px;border:1px solid var(--line2);margin-left:auto}
+.ask-md{font:400 14.5px/1.6 var(--f);color:var(--txt);overflow-wrap:anywhere;min-width:0}
+.ask-md>:first-child{margin-top:0}.ask-md>:last-child{margin-bottom:0}
+.ask-md p{margin:0 0 10px}
+.ask-md ul,.ask-md ol{margin:0 0 10px;padding-left:20px}
+.ask-md li{margin:3px 0}
+.ask-md h1,.ask-md h2,.ask-md h3,.ask-md h4{font:700 15.5px/1.3 var(--f);margin:14px 0 6px}
+.ask-md code{font:500 12.5px var(--mono);background:var(--s3);padding:1px 5px;border-radius:5px}
+.ask-md pre{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px;overflow-x:auto}
+.ask-md pre code{background:none;padding:0}
+.ask-md blockquote{margin:0 0 10px;padding:4px 12px;border-left:3px solid var(--line2);color:var(--txt2)}
+.ask-md table{border-collapse:collapse;margin:0 0 10px;font-size:13.5px;display:block;overflow-x:auto;max-width:100%}
+.ask-md th,.ask-md td{border:1px solid var(--line2);padding:5px 8px;text-align:left}
+.ask-md th{background:var(--s2)}
+.ask-md strong{font-weight:700}
+.ask-ref{display:inline-flex;align-items:center;gap:4px;padding:0 7px;margin:0 1px;border-radius:6px;background:var(--red-tint);color:var(--txt);font:600 12.5px/1.6 var(--mono);cursor:pointer;white-space:nowrap;vertical-align:baseline;border-bottom:1px solid var(--red)}
+.ask-ref:hover{background:color-mix(in srgb,var(--red) 30%,var(--s1))}
+.ask-refs{display:flex;flex-wrap:wrap;gap:8px}
+.ask-chip{min-height:44px;max-width:100%;display:inline-flex;align-items:center;gap:8px;padding:0 14px;border-radius:var(--pill);border:1px solid color-mix(in srgb,var(--red) 55%,var(--line2));background:transparent;color:var(--txt);font:500 13.5px var(--f);cursor:pointer;text-decoration:none;transition:transform .3s var(--spring),background .15s}
+.ask-chip:hover{background:var(--red-tint);transform:translateY(-1px)}
+.ask-chip svg.i{width:16px;height:16px;flex:none}
+.ask-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ask-use{font:500 12px/1.4 var(--mono);color:var(--txt3)}
+.ask-note{font:400 13px/1.45 var(--f);color:var(--txt2);padding:8px 12px;border-radius:10px;background:var(--s2)}
+.ask-note.bad{color:var(--txt);border:1px solid color-mix(in srgb,var(--miss) 55%,var(--line))}
+.ask-think{display:inline-flex;align-items:center;gap:8px;font:500 13px var(--f);color:var(--txt2)}
+.ask-think i{width:7px;height:7px;border-radius:50%;background:var(--red);opacity:.35}
+.ask-think i{animation:askDot 1.1s infinite ease-in-out}
+.ask-think i:nth-child(2){animation-delay:.15s}.ask-think i:nth-child(3){animation-delay:.3s}
+@keyframes askDot{0%,100%{opacity:.25;transform:translateY(0)}50%{opacity:1;transform:translateY(-3px)}}
+.ask-caret::after{content:'';display:inline-block;width:8px;height:15px;margin-left:2px;vertical-align:-2px;background:var(--red);animation:askBlink 1s steps(2) infinite}
+@keyframes askBlink{50%{opacity:0}}
+
+.ask-comp{grid-area:comp;border-top:1px solid var(--line);padding:10px 12px 8px;display:flex;flex-direction:column;gap:8px;background:var(--s1)}
+.ask-pend{display:flex;flex-wrap:wrap;gap:8px}
+.ask-pend:empty{display:none}
+.ask-pill{display:flex;align-items:center;gap:8px;max-width:100%;padding:4px 4px 4px 8px;border-radius:12px;border:1px solid var(--line2);background:var(--s2);font:500 12.5px/1.35 var(--f);color:var(--txt)}
+.ask-pill img{width:56px;height:40px;object-fit:cover;border-radius:6px;border:1px solid var(--line2)}
+.ask-pill span{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ask-ta{width:100%;min-height:48px;max-height:180px;resize:none;padding:12px 14px;border-radius:14px;border:1px solid var(--line2);background:var(--bg);color:var(--txt);font:400 15px/1.45 var(--f);outline:none}
+.ask-ta:focus{border-color:var(--red);box-shadow:0 0 0 3px var(--red-tint)}
+.ask-ta::placeholder{color:var(--txt3)}
+.ask-ta:disabled{opacity:.6}
+.ask-bar{display:flex;align-items:center;gap:8px}
+.ask-bar .sp{flex:1}
+.ask-btn{min-height:44px;display:inline-flex;align-items:center;gap:8px;padding:0 14px;border-radius:var(--pill);border:1px solid var(--line2);background:var(--s2);color:var(--txt);font:500 14px var(--f);cursor:pointer;white-space:nowrap;transition:transform .3s var(--spring),border-color .15s,background .15s}
+.ask-btn:hover{border-color:var(--txt3);transform:translateY(-1px)}
+.ask-btn:active{transform:scale(.95);transition-duration:.08s}
+.ask-btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
+.ask-btn.go{background:var(--fill);border-color:var(--fill);color:var(--on-fill);padding:0 18px}
+.ask-btn svg.i{width:17px;height:17px}
+.ask-meter{grid-area:meter;display:flex;flex-wrap:wrap;gap:4px 14px;padding:8px 16px 12px;border-top:1px solid var(--line);font:500 12px/1.4 var(--mono);color:var(--txt2)}
+.ask-meter b{color:var(--txt);font-weight:600}
+.ask-meter .cap{color:var(--miss)}
+
+/* figure snapshot button, selection chip, region picker, page pulse */
+figure.fg.ask-has{position:relative}
+.ask-figbtn{position:absolute;top:8px;right:8px;z-index:3;width:44px;height:44px;display:inline-flex;align-items:center;justify-content:center;border-radius:var(--pill);border:1px solid var(--line2);background:var(--s1);color:var(--txt2);cursor:pointer;box-shadow:var(--shadow);transition:opacity .18s,background .15s,color .15s,border-color .15s,transform .3s var(--spring)}
+.ask-figbtn:hover{background:var(--red-tint);color:var(--txt);border-color:var(--red);transform:translateY(-1px)}
+.ask-figbtn svg.i{width:18px;height:18px}
+@media (hover:hover){.ask-figbtn{opacity:0}figure.fg:hover>.ask-figbtn,.ask-figbtn:focus-visible{opacity:1}}
+@media (hover:none){figure.fg.ask-has>.fg-h{padding-right:50px}}
+.ask-selchip{position:fixed;z-index:95;left:0;top:0;min-height:44px;padding:0 16px 0 12px;display:none;align-items:center;gap:8px;border-radius:var(--pill);border:1px solid var(--fill);background:var(--fill);color:var(--on-fill);font:600 14px var(--f);cursor:pointer;box-shadow:var(--shadow)}
+.ask-selchip.show{display:inline-flex}
+.ask-selchip svg.i{width:17px;height:17px}
+.ask-pick{position:fixed;inset:0;z-index:400;cursor:crosshair;touch-action:none;background:rgba(0,0,0,.18)}
+.ask-pick-bar{position:fixed;left:50%;top:14px;transform:translateX(-50%);max-width:calc(100vw - 24px);display:flex;align-items:center;gap:12px;padding:6px 6px 6px 16px;border-radius:var(--pill);background:var(--tip-bg);color:var(--tip-fg);font:500 14px/1.35 var(--f);box-shadow:var(--shadow);cursor:default}
+.ask-pick-bar .ask-btn{background:transparent;color:var(--tip-fg);border-color:currentColor}
+.ask-pick-box{position:fixed;border:2px solid var(--red);border-radius:6px;background:var(--red-tint);box-shadow:0 0 0 9999px rgba(0,0,0,.28);display:none;pointer-events:none}
+.ask-busy{position:fixed;left:50%;bottom:24px;z-index:410;transform:translateX(-50%);padding:10px 18px;border-radius:var(--pill);background:var(--tip-bg);color:var(--tip-fg);font:500 14px var(--f);box-shadow:var(--shadow);display:none}
+.ask-busy.show{display:block}
+.ask-pulse{outline:3px solid var(--red)!important;outline-offset:6px;border-radius:12px;animation:askPulse 1.2s ease-out 2}
+@keyframes askPulse{0%{box-shadow:0 0 0 0 var(--red-glow)}100%{box-shadow:0 0 0 18px transparent}}
+.ask-hl{outline:3px dashed var(--red)!important;outline-offset:6px;border-radius:12px}
+.ask-hl-note{position:fixed;z-index:85;max-width:280px;padding:8px 12px;border-radius:10px;background:var(--tip-bg);color:var(--tip-fg);font:500 13px/1.4 var(--f);box-shadow:var(--shadow);pointer-events:none}
+
+@media (max-width:560px){
+ .ask-sheet{width:100vw;border-left:0}
+ .ask-fab{right:14px;bottom:14px}
+ body.has-ask .totop{bottom:82px;right:14px}
+ .ask-model{max-width:118px}
+ .ask-bubble{max-width:94%}
+ .ask-pick-bar{top:auto;bottom:14px;left:12px;right:12px;transform:none;border-radius:16px}
+}
+/* Ask in the top bar wherever the floating button would cover the content column: below 1440 px it overlapped text,
+   cards or figures at every scroll position (measured 2026-10-17 at 320 to 1280). At 1440 and up it floats in the margin
+   as before. i-ask.js adds .ask-top to .top-row and body.ask-in-top; a page without .top-row keeps the floating button. */
+.btn.ask-top{display:none;background:var(--fill);border-color:var(--fill);color:var(--on-fill)}
+@media (max-width:1439px){
+ body.ask-in-top .ask-fab{display:none}
+ body.ask-in-top .btn.ask-top{display:inline-flex}
+ body.ask-in-top .totop{bottom:18px}
+}
+@media (max-width:560px){body.ask-in-top .totop{bottom:14px}}
+@media (max-width:380px){body.ask-in-top .top-row{gap:6px}}
+@media (prefers-reduced-motion: reduce){
+ .ask-sheet,.ask-sheet.open{transition:none}
+ .ask-pulse{animation:none}
+ .ask-think i,.ask-caret::after{animation:none!important}
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+ <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+ <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+ <symbol id="i-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></symbol>
+ <symbol id="i-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+ <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></symbol>
+ <symbol id="i-up" viewBox="0 0 24 24"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></symbol>
+ <symbol id="i-replay" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></symbol>
+ <symbol id="i-expand" viewBox="0 0 24 24"><path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/></symbol>
+ <symbol id="i-collapse" viewBox="0 0 24 24"><path d="m7 20 5-5 5 5"/><path d="m7 4 5 5 5-5"/></symbol>
+ <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></symbol>
+ <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/></symbol>
+ <symbol id="i-layout" viewBox="0 0 24 24"><rect width="7" height="18" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/></symbol>
+ <symbol id="i-copy" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
+ <symbol id="i-compass" viewBox="0 0 24 24"><path d="m16.24 7.76-1.804 5.411a2 2 0 0 1-1.265 1.265L7.76 16.24l1.804-5.411a2 2 0 0 1 1.265-1.265z"/><circle cx="12" cy="12" r="10"/></symbol>
+ <symbol id="i-alert" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+ <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+ <symbol id="i-palette" viewBox="0 0 24 24"><circle cx="13.5" cy="6.5" r="1"/><circle cx="17.5" cy="10.5" r="1"/><circle cx="8.5" cy="7.5" r="1"/><circle cx="6.5" cy="12.5" r="1"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.9 0 1.7-.7 1.7-1.7 0-.4-.2-.8-.4-1.1-.3-.3-.4-.7-.4-1.1 0-.9.7-1.7 1.7-1.7H16c3.3 0 6-2.7 6-6 0-4.9-4.5-8.4-10-8.4Z"/></symbol>
+ <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+ <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+ <symbol id="i-half" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/></symbol>
+ <symbol id="i-mark" viewBox="0 0 24 24"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></symbol>
+</svg>
+<a class="sr" href="#overview">Skip to content</a>
+
+<header class="top" id="top">
+ <div class="wrap">
+  <div class="top-row">
+   <a class="brand" href="#overview" aria-label="Report title, back to overview"><span class="mk"><svg class="i"><use href="#i-mark"/></svg></span><span><b>Folio</b><small>Milestone 1b proof · 2026-11-05</small></span></a>
+   <span class="spacer"></span>
+   <button class="btn" id="expandAll" type="button"><svg class="i"><use href="#i-expand"/></svg><span class="lbl">Expand all</span></button>
+   <button class="btn" id="collapseAll" type="button"><svg class="i"><use href="#i-collapse"/></svg><span class="lbl">Collapse all</span></button>
+   <div class="pal" id="pal"><button class="btn icon" id="palBtn" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Choose a colour theme"><svg class="i"><use href="#i-palette"/></svg></button><div class="pal-menu" role="menu" aria-label="Colour themes"><button type="button" role="menuitemradio" data-pal="plum" aria-checked="false"><span class="sw"><i style="background:#1B1530"></i><i style="background:#2C2748"></i><i style="background:#E5463A"></i></span><span>Plum<small>Soft dark</small></span><svg class="i ck"><use href="#i-check"/></svg></button><button type="button" role="menuitemradio" data-pal="ink" aria-checked="false"><span class="sw"><i style="background:#0A0A0B"></i><i style="background:#17181B"></i><i style="background:#E3120B"></i></span><span>Ink<small>Near black, red</small></span><svg class="i ck"><use href="#i-check"/></svg></button><button type="button" role="menuitemradio" data-pal="slate" aria-checked="false"><span class="sw"><i style="background:#1E2430"></i><i style="background:#2F3747"></i><i style="background:#2FB8B0"></i></span><span>Slate<small>Default, cool grey, teal</small></span><svg class="i ck"><use href="#i-check"/></svg></button><button type="button" role="menuitemradio" data-pal="forest" aria-checked="false"><span class="sw"><i style="background:#141F1B"></i><i style="background:#22332D"></i><i style="background:#9BE15D"></i></span><span>Forest<small>Deep green, lime</small></span><svg class="i ck"><use href="#i-check"/></svg></button><button type="button" role="menuitemradio" data-pal="sand" aria-checked="false"><span class="sw"><i style="background:#F3EBDD"></i><i style="background:#E3D7C0"></i><i style="background:#D9541E"></i></span><span>Sand<small>Light first, orange</small></span><svg class="i ck"><use href="#i-check"/></svg></button></div></div>
+   <button class="btn icon" id="themeBtn" type="button" aria-label="Switch to light theme"><svg class="i"><use id="themeUse" href="#i-sun"/></svg></button>
+  </div>
+  <nav class="tabs live" id="tabs" aria-label="Chapters"></nav>
+ </div>
+ <div class="prog" aria-hidden="true"><i id="prog"></i></div>
+</header>
+
+<main class="wrap">
+<section id="overview" class="hero live" data-title="Overview" data-no="00" data-hue="c4">
+ <div class="os-glow" aria-hidden="true"></div>
+ <h1 class="title rv0" id="title">Does the native Folio app look like the D1 design you picked?</h1>
+ <div class="lead rv0" id="lead">
+  <div class="lead-txt">
+   <ul class="lead-lines" aria-label="Key points">
+    <li style="--lc:var(--c2)">The <b>Control room</b> look is in the real app: HUD strip, brackets, blueprint sidebar, ticker, <b>Archivo and Chivo Mono</b> bundled.</li>
+    <li style="--lc:var(--c3)">Run <b>only inside the test VM</b> on the Ultra; the app <b>never executed on your Mac</b>.</li>
+    <li style="--lc:var(--c1)"><b>59 tests</b> pass; sort, selection and the status bar work in the VM; <b>light + amber</b> checked too.</li>
+    <li style="--lc:var(--c5)"><b>Not yet</b>: real mouse events (synthesized only), the animations, crumb flyouts (milestone 2).</li>
+   </ul>
+   <p class="ask"><svg class="i"><use href="#i-arrow"/></svg><span><b>Your call:</b> compare the shots with the design, then <b>say merge 1 and 2</b>, or say what to change.</span></p>
+  </div>
+  <aside class="how-card" aria-label="How we checked">
+   <h3>How we checked</h3>
+   <ol class="how">
+    <li><span class="hn">1</span><span><b>make test</b> and <b>make app</b> on the MacBook, build only</span></li>
+    <li><span class="hn">2</span><span>Bundle copied into the <b>VM</b>, <b>Folio --uitest</b> run there on a temp folder</span></li>
+    <li><span class="hn">3</span><span>The app <b>screenshots itself</b>, clicks the header, selects a row; PNGs fetched and <b>looked at</b></span></li>
+   </ol>
+   <p class="nb"><b>Not tested:</b> real mouse and keyboard events, column divider drag, animations not built yet.</p>
+  </aside>
+ </div>
+</section>
+
+<div class="panels">
+<section class="panel open" id="screen" data-title="What you see" data-no="01" data-led="ok" data-cnt="5" data-cntl="5 screenshots" data-hue="c2">
+ <button class="ph" type="button" aria-expanded="true"><span class="no">01</span><h2>What you see</h2><span class="ruler" aria-hidden="true"></span><span class="cnt"><span class="led ok on"></span>5 shots</span><span class="chev"><svg class="i"><use href="#i-chev"/></svg></span></button>
+ <div class="pb"><div class="pbi">
+  <figure class="fg" id="fig-shots" data-ask="SHOTS">
+   <div class="fg-h"><span class="fgno">Fig. 1.1 to 1.5</span><h3>Design first, then the native app in the VM</h3><span class="sp"></span></div>
+   <div class="fg-b" id="f-shots"></div>
+   <figcaption><span>Same <b>chassis, type and colour</b> as the design; <b>dark and light</b>, three accents.</span></figcaption>
+  </figure>
+ </div></div>
+</section>
+<section class="panel open" id="checks" data-title="Checks" data-no="02" data-led="part" data-cnt="1" data-cntl="1 not run" data-hue="c3">
+ <button class="ph" type="button" aria-expanded="true"><span class="no">02</span><h2>Checks</h2><span class="ruler" aria-hidden="true"></span><span class="cnt"><span class="led part on"></span>1 not run</span><span class="chev"><svg class="i"><use href="#i-chev"/></svg></span></button>
+ <div class="pb"><div class="pbi">
+  <figure class="fg" id="fig-checks" data-ask="CHECKS">
+   <div class="fg-h"><span class="fgno">Fig. 2.1</span><h3>Every check, with its command and output</h3><span class="sp"></span></div>
+   <div class="fg-b" id="f-checks"></div>
+   <figcaption><span><b>9 passed</b>, <b>1 not run</b>: real mouse events wait for milestone 2's VM script.</span></figcaption>
+  </figure>
+ </div></div>
+</section>
+<section class="panel" id="appendix" data-title="Appendix" data-no="A" data-hue="c4">
+ <button class="ph" type="button" aria-expanded="false"><span class="no">A</span><h2>Appendix</h2><span class="ruler" aria-hidden="true"></span><span class="cnt">Commands and background</span><span class="chev"><svg class="i"><use href="#i-chev"/></svg></span></button>
+ <div class="pb"><div class="pbi">
+  <div class="prose" id="ap-2-1"><b>A.1 Reproduce it.</b> On the MacBook: <code>cd fuck-finder-wt/m1b-control-room && make test && make app && rsync -aq --delete build/Folio.app/ macultra:/Users/anshul/AgentWork/folio/Folio.app/</code>. On the Ultra: <code>/Users/anshul/AgentWork/folio/vm-run.sh [--theme light] [--accent amber]</code>; PNGs land in <code>/Users/anshul/AgentWork/folio/shots/&lt;stamp&gt;/</code>.</div>
+  <div class="prose" id="ap-2-2"><b>A.2 What is in the branch.</b> On top of milestone 1: Theme tokens and persistence, bundled fonts, the chassis (title bar, toolbar, breadcrumbs, search field, HUD strip, sidebar with Quick access and This PC, file list with drawn icons and bracket selection, status bar with ticker, tick strip), --uitest, column fit, docs/plan (RULES, MILESTONES, VM), docs/research (the three Explorer research files), docs/design (the D1 reference), docs/proof/m1b.</div>
+  <details class="about" id="about-report"><summary><svg class="i"><use href="#i-info"/></svg>About this report<svg class="i chev"><use href="#i-chev"/></svg></summary><div class="ab-b"></div></details>
+ </div></div>
+</section>
+</div>
+<footer class="colo"><span>Generated 2026-11-05 by Claude Code with Anshul</span><span>Sources: the commands above; PNGs from the VM; the D1 design shot. Method: real build, real runs in the VM.</span></footer>
+</main>
+
+<button class="btn totop" id="totop" type="button"><svg class="i"><use href="#i-up"/></svg>Back to top</button>
+<div class="tip" id="tip" role="tooltip"></div>
+<div class="doors" aria-hidden="true"><div class="door l" id="doorL"><span>Folio</span></div><div class="door r" id="doorR"><span>proof</span></div></div>
+<script>
+/* ───────────────────────── data blocks ───────────────────────── */
+const CONTEXT={
+ project:{
+  name:'Folio: a native macOS file manager that behaves like Windows Explorer. Milestone 1b: the picked design (D1 Control room) ported into the app.',
+  links:[{label:'Repo shootdaj/folio, branch m1b-control-room',url:'https://github.com/shootdaj/folio/tree/m1b-control-room'},{label:'PR #1, milestone 1 engine',url:'https://github.com/shootdaj/folio/pull/1'},{label:'Build plan report',url:'https://supple-kitten-9jrn.here.now/'}],
+  goal:'Make the real app look like the design Anshul picked in the design room, so every later milestone builds on the right chassis.'
+ },
+ why:{
+  problem:'Milestone 1 shipped with stock AppKit chrome. Anshul said "make the UI look WAY better", picked D1 Control room from three designs, and set the golden rule that the app never runs on his physical Mac. This page shows the port, run inside the test VM.',
+  askedBy:'Anshul, Claude Code session, 2026-11-05',
+  quote:'go with d1. build the whole thing, test etc, make sure nothing gets fucked up. no files on the actual physical machine should be touched by the folio app, everything it runs should be on the VM'
+ },
+ how:{
+  sources:'Branch m1b-control-room at commit eb6e01a; the design reference docs/design/d1-control-room.html; the VM folio-test on the Mac Ultra.',
+  ran:'A real run: make test and make app on the MacBook (build only), the bundle copied to the Ultra and into the VM, then Folio --uitest inside the VM on a temp folder it creates (40 folders, 8 files), which screenshots its own window, clicks the Name header, selects a row, and quits. Run three times: dark green, dark green after the column fix, light amber.',
+  where:'Build on the MacBook; every run inside the tart VM folio-test (macOS 15.7.7) on the Mac Ultra. Folio never executed on the MacBook or the Ultra host.',
+  dates:'2026-11-05.',
+  tools:'Swift 6.0.3 Command Line Tools, swift-testing, codesign, tart 2.41.1, the app\'s own --uitest mode (CGWindowListCreateImage). Built by an Opus 5.5 agent, checked by the main session.',
+  notTested:'Real mouse and keyboard events (the uitest synthesizes clicks; the row click needed a fallback); dragging a column divider wider than the space; the theme-switch and row-stagger animations, which are not built yet; the sidebar group collapse and crumb arrow flyouts (milestone 2).'
+ },
+ decisions:{
+  decided:'Tokens, Archivo and Chivo Mono bundled under OFL, three accents, dark and light designed separately, HUD strip, corner brackets, blueprint sidebar, status ticker, tick strip, row height 24 (D1 value), columns fit the list width with no horizontal scroll.',
+  pending:'Merge of PR #1 then PR #2 (this branch). Whether to raise row height to 26.',
+  yourCall:'Look at the shots against the design, then say merge 1 and 2, or say what to change.'
+ },
+ history:[{date:'2026-11-05',change:'First version.'}],
+ glossary:'not recorded'
+};
+
+// Source: the runs on 2026-11-05. Each row is a real command and its real output.
+const CHECKS=[
+ {test:'Unit tests',how:'make test',result:'ok',evidence:'Test run with 59 tests passed (theme tokens per theme and accent, persistence, breadcrumbs, volume capacity, status and ticker text, HUD, SVG path parser, column fit, uitest fixture)'},
+ {test:'Builds without Xcode',how:'make app',result:'ok',evidence:'release build, bundle with Contents/Resources/Fonts (Archivo, ChivoMono, OFL.txt), ad-hoc codesign'},
+ {test:'Never ran on the physical Mac',how:'golden rule',result:'ok',evidence:'only swift build, make test, make app, rsync on the host; every launch inside the VM'},
+ {test:'Fonts load in the VM',how:'Folio --uitest new (in VM)',result:'ok',evidence:'uitest: fonts: Archivo and Chivo Mono registered'},
+ {test:'Lists the temp folder',how:'Folio --uitest new (in VM)',result:'ok',evidence:'48 rows, 40 folders, theme dark, accent green'},
+ {test:'Header click sorts',how:'synthesized mouse down and up on the Name header (in VM)',result:'ok',evidence:'Name, A to Z -> Name, Z to A, first row styles.css (files first when descending, Explorer\'s rule)'},
+ {test:'Row selection and status bar',how:'row index 3 (in VM)',result:'ok',evidence:'main.go selected; status reads "48 items, 1 selected, 4 KB"; the synthesized click did not select, selectRowIndexes fallback did'},
+ {test:'Light theme, amber accent',how:'Folio --uitest new --theme light --accent amber (in VM)',result:'ok',evidence:'Fig. 1.5: light surfaces, amber accent, HUD strip stays dark'},
+ {test:'No horizontal scrollbar',how:'second run after the column fix (in VM)',result:'ok',evidence:'Fig. 1.4: Size column visible, no horizontal scroller, tick strip in its own gutter'},
+ {test:'Real mouse clicks on rows',how:'needs System Events in the VM',result:'miss',evidence:'not run yet: the uitest synthesizes events and the row click needed a fallback; milestone 2\'s VM script drives real events'},
+];
+
+// Source: PNGs from the VM runs on 2026-11-05 and the D1 design shot from the design room.
+const SHOTS=[
+ {file:'shots/00-design-d1.png',url:'fuck-finder-designs/d1-control-room/index.html (the design you picked, HTML mock)',caption:'The target: D1 Control room, step 1, as shown in the design room.'},
+ {file:'shots/01-open-dark.png',url:'VM: Folio --uitest new --shot m1b.png (dark, green)',caption:'The native app on its temp folder: HUD strip, blueprint sidebar, capacity bar, ticker, tick strip.'},
+ {file:'shots/02-name-sorted.png',url:'VM: after the synthesized click on the Name header',caption:'Name Z to A: files first, then folders, exactly Explorer\'s descending rule.'},
+ {file:'shots/03-row-selected.png',url:'VM: after selecting row 3',caption:'main.go selected with corner brackets and the folder light; status bar "48 items, 1 selected, 4 KB".'},
+ {file:'shots/04-light-amber.png',url:'VM: Folio --uitest new --theme light --accent amber',caption:'Light theme, amber accent: the HUD strip stays dark like a physical gauge.'},
+];
+/* report recipe core: helpers, tooltip, motion guard, theme doors, palette picker, chips, panels, tabs, scroll spy, in-view, d3 helpers.
+   Expects the ids and classes in c-body.html. Report-specific code goes in f-figures.js. */
+/* ───────────────────────── helpers ───────────────────────── */
+const KEY=document.documentElement.dataset.key||'report';
+/* setHTML: sanitize markup with DOMPurify, then insert. Falls back to plain text if DOMPurify did not load. */
+function setHTML(el,html){if(window.DOMPurify){el.replaceChildren(DOMPurify.sanitize(String(html),{RETURN_DOM_FRAGMENT:true}));}else{el.textContent=String(html).replace(/<[^>]*>/g,' ');}}
+
+const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
+const root=document.documentElement;
+const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const HAS=()=>!!window.Motion&&!reduced;
+const ST=(n,o)=>(window.Motion&&Motion.stagger)?Motion.stagger(n,o):0;
+const tip=$('#tip');
+function showTip(html,x,y){setHTML(tip,html);tip.classList.add('show');const r=tip.getBoundingClientRect();let L=x+14,T=y+16;if(L+r.width>innerWidth-12)L=x-r.width-14;if(T+r.height>innerHeight-10)T=y-r.height-14;tip.style.left=Math.max(8,L)+'px';tip.style.top=Math.max(8,T)+'px'}
+function hideTip(){tip.classList.remove('show')}
+function tipOn(el,html){el.addEventListener('pointerenter',e=>showTip(html(),e.clientX,e.clientY));el.addEventListener('pointermove',e=>showTip(html(),e.clientX,e.clientY));el.addEventListener('pointerleave',hideTip);el.addEventListener('focus',()=>{const r=el.getBoundingClientRect();showTip(html(),r.left,r.bottom)});el.addEventListener('blur',hideTip)}
+function anim(el,kf,opt){if(!HAS()||!el||(el.length===0))return Promise.resolve();try{let clear=null;if(opt&&opt.clear){clear=opt.clear;opt=Object.assign({},opt);delete opt.clear}const a=Motion.animate(el,kf,opt);const f=(a&&a.finished)||Promise.resolve();
+ if(kf.transform||kf.scale||kf.y||kf.x){const list=(el.length!=null&&!(el instanceof Element))?[...el]:[el];f.then(()=>list.forEach(e=>{if(e&&e.style&&!(e.classList&&e.classList.contains('door')))e.style.transform=''})).catch(()=>{})}
+ if(clear){const list=(el.length!=null&&!(el instanceof Element))?[...el]:[el];f.then(()=>list.forEach(x=>clear.forEach(p=>{if(x&&x.style)x.style[p]=''}))).catch(()=>{})}
+ return f}catch(e){return Promise.resolve()}}
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+const clamp=(v,a=0,b=1)=>Math.max(a,Math.min(b,v));
+const topH=()=>$('#top').getBoundingClientRect().height;
+const stLabel={ready:'Ready',partial:'Partial',missing:'Missing',na:'n/a'};
+const LEDK={ready:'ok',partial:'part',missing:'miss',na:'off',exists:'ok',new:'new',later:'off',confirm:'off'};
+const led=(k,on=true)=>`<span class="led ${k}${on?' on':''}"></span>`;
+const stWord={exists:'Exists',new:'To build',later:'Later'};
+const sLed=(g,k,x,y,r=4.5)=>{const c=g.append('circle').attr('class','sled '+k).attr('cx',x).attr('cy',y).attr('r',r).style('fill',`var(--${k==='new'?'red':k})`);if(k==='new')g.append('circle').attr('class','sbeacon').attr('cx',x).attr('cy',y).attr('r',r);return c};
+
+/* ───────────────────────── theme: D6 doors ───────────────────────── */
+function renderThemeBtn(){const d=root.dataset.theme!=='light';$('#themeUse').setAttribute('href',d?'#i-sun':'#i-moon');$('#themeBtn').setAttribute('aria-label',d?'Switch to light theme':'Switch to dark theme')}
+renderThemeBtn();
+let themeBusy=false;
+$('#themeBtn').addEventListener('click',async()=>{if(themeBusy)return;themeBusy=true;const n=root.dataset.theme==='light'?'dark':'light';
+ const L=$('#doorL'),R=$('#doorR');const cs=getComputedStyle(root);const bg=cs.getPropertyValue('--txt').trim(),fg=cs.getPropertyValue('--bg').trim();[L,R].forEach(d=>{d.style.background=bg;d.style.color=fg});
+ if(HAS()){await Promise.all([anim(L,{transform:['translateX(-101%)','translateX(0%)']},{duration:.4,ease:[.7,0,.3,1]}),anim(R,{transform:['translateX(101%)','translateX(0%)']},{duration:.4,ease:[.7,0,.3,1]})])}
+ root.dataset.theme=n;try{localStorage.setItem(KEY+'-theme',n)}catch(e){}renderThemeBtn();dispatchEvent(new CustomEvent('themechange'));
+ if(HAS()){await wait(90);await Promise.all([anim(L,{transform:['translateX(0%)','translateX(-101%)']},{duration:.5,ease:[.7,0,.3,1]}),anim(R,{transform:['translateX(0%)','translateX(101%)']},{duration:.5,ease:[.7,0,.3,1]})])}
+ L.style.transform='translateX(-101%)';R.style.transform='translateX(101%)';themeBusy=false});
+
+/* ───────────────────────── palette picker ───────────────────────── */
+const pal=$('#pal');
+function renderPal(){const p=root.dataset.palette||'plum';$$('.pal-menu button').forEach(b=>b.setAttribute('aria-checked',b.dataset.pal===p))}
+function setPalette(p){root.dataset.palette=p;try{localStorage.setItem(KEY+'-palette',p)}catch(e){}
+ if(p==='sand'&&root.dataset.theme!=='light'){root.dataset.theme='light';try{localStorage.setItem(KEY+'-theme','light')}catch(e){}renderThemeBtn()}
+ renderPal();dispatchEvent(new CustomEvent('themechange'))}
+function palOpen(v){pal.classList.toggle('open',v);$('#palBtn').setAttribute('aria-expanded',v);if(v){const c=$('.pal-menu [aria-checked="true"]')||$('.pal-menu button');c.focus();anim($('.pal-menu'),{opacity:[0,1],y:[-6,0]},{duration:.2})}}
+$('#palBtn').addEventListener('click',e=>{e.stopPropagation();palOpen(!pal.classList.contains('open'))});
+$$('.pal-menu button').forEach(b=>b.addEventListener('click',()=>{setPalette(b.dataset.pal);palOpen(false);$('#palBtn').focus()}));
+$('.pal-menu').addEventListener('keydown',e=>{const bs=$$('.pal-menu button');const i=bs.indexOf(document.activeElement);if(e.key==='ArrowDown'){e.preventDefault();bs[(i+1)%bs.length].focus()}if(e.key==='ArrowUp'){e.preventDefault();bs[(i-1+bs.length)%bs.length].focus()}});
+document.addEventListener('click',e=>{if(!pal.contains(e.target))palOpen(false)});
+addEventListener('keydown',e=>{if(e.key==='Escape'&&pal.classList.contains('open')){palOpen(false);$('#palBtn').focus()}});
+renderPal();
+addEventListener('themechange',()=>{setTimeout(()=>{if(typeof slideAll==='function')slideAll()},30)});
+
+/* ───────────────────────── chips: sliding pill ───────────────────────── */
+function slide(group){if(!group||!group.hasAttribute('data-slide'))return;let ind=group.querySelector('.pind');if(!ind){ind=document.createElement('span');ind.className='pind';group.prepend(ind)}
+ const on=group.querySelector('.chip[aria-pressed="true"]');if(!on||!on.offsetWidth){ind.style.width='0px';return}
+ group.style.setProperty('--pl',getComputedStyle(on).getPropertyValue('--lc').trim()||'');ind.style.left=on.offsetLeft+'px';ind.style.top=on.offsetTop+'px';ind.style.width=on.offsetWidth+'px';ind.style.height=on.offsetHeight+'px'}
+function press(group,btn){$$('.chip',group).forEach(c=>c.setAttribute('aria-pressed',c===btn));slide(group);if(HAS())anim(btn,{scale:[.92,1]},{type:'spring',stiffness:500,damping:15})}
+function slideAll(){$$('.chips[data-slide]').forEach(slide)}
+if(!CSS.supports||!CSS.supports('left','1px'))$$('.chips').forEach(c=>c.classList.add('noslide'));
+
+/* ───────────────────────── panels ───────────────────────── */
+const PANELS=$$('.panel');
+function setOpen(p,open,instant){const pb=$('.pb',p),btn=$('.ph',p);if(open===p.classList.contains('open'))return;btn.setAttribute('aria-expanded',open);
+ if(instant||!HAS()){p.classList.toggle('open',open);pb.style.height=open?'':'0px';pb.inert=!open;if(open)setTimeout(slideAll,30);return}
+ if(open){pb.inert=false;pb.style.height='0px';p.classList.add('open');const h=pb.scrollHeight;pb.style.height='0px';pb.offsetHeight;pb.style.height=h+'px';
+  const done=e=>{if(e.target!==pb||e.propertyName!=='height')return;pb.style.height='';pb.removeEventListener('transitionend',done)};pb.addEventListener('transitionend',done);
+  anim($('.chev',p),{transform:['rotate(0deg)','rotate(200deg)','rotate(180deg)']},{duration:.45});setTimeout(slideAll,60)}
+ else{pb.style.height=pb.scrollHeight+'px';pb.offsetHeight;p.classList.remove('open');pb.style.height='0px';pb.inert=true;anim($('.chev',p),{transform:['rotate(180deg)','rotate(-20deg)','rotate(0deg)']},{duration:.45})}}
+PANELS.forEach(p=>{const pb=$('.pb',p);if(!p.classList.contains('open')){pb.style.height='0px';pb.inert=true}$('.ph',p).addEventListener('click',()=>setOpen(p,!p.classList.contains('open')))});
+$('#expandAll').onclick=()=>PANELS.forEach(p=>setOpen(p,true));
+$('#collapseAll').onclick=()=>PANELS.forEach(p=>setOpen(p,false));
+
+/* ───────────────────────── tabs, scroll spy, progress ───────────────────────── */
+const SECTS=[$('#overview'),...PANELS];
+const tabs=$('#tabs');
+SECTS.forEach(s=>{const b=document.createElement('button');b.type='button';b.className='tab';b.dataset.id=s.id;b.style.setProperty('--lc',`var(--${s.dataset.hue||'c1'})`);
+ setHTML(b,`<span class="n">${s.dataset.no}</span>${s.dataset.title}${s.dataset.cnt?`<span class="c">${led(s.dataset.led)}${s.dataset.cnt}</span>`:''}`);
+ b.setAttribute('aria-label',`${s.dataset.no} ${s.dataset.title}${s.dataset.cntl?', '+s.dataset.cntl:''}`);if(s.dataset.cntl)b.title=s.dataset.cntl;b.onclick=()=>go(s.id);tabs.appendChild(b)});
+function go(id){const s=document.getElementById(id);if(!s)return;hideTip();if(s.classList.contains('panel'))setOpen(s,true);
+ requestAnimationFrame(()=>{const y=id==='overview'?0:s.getBoundingClientRect().top+scrollY-topH()-8;scrollTo({top:y,behavior:reduced?'auto':'smooth'})})}
+let curTab='';
+function spy(){let cur=SECTS[0].id;const lim=topH()+90;SECTS.forEach(s=>{if(s.getBoundingClientRect().top<=lim)cur=s.id});
+ if(cur!==curTab){curTab=cur;$$('.tab').forEach(t=>t.setAttribute('aria-current',t.dataset.id===cur));const t=$(`.tab[data-id="${cur}"]`);if(t&&tabs.scrollWidth>tabs.clientWidth)tabs.scrollTo({left:t.offsetLeft-tabs.clientWidth/2+t.offsetWidth/2,behavior:reduced?'auto':'smooth'})}
+ const max=root.scrollHeight-innerHeight;$('#prog').style.transform=`scaleX(${max>0?clamp(scrollY/max):0})`;
+ $('#totop').classList.toggle('show',scrollY>700)}
+addEventListener('scroll',()=>requestAnimationFrame(spy),{passive:true});
+$('#totop').onclick=()=>scrollTo({top:0,behavior:reduced?'auto':'smooth'});
+
+/* ───────────────────────── in-view helper ───────────────────────── */
+function onView(el,cb,amount){if(!el)return;let seen=false;const fire=()=>{if(seen)return;seen=true;cb()};
+ if(window.Motion&&Motion.inView){try{Motion.inView(el,()=>{fire()},{amount:amount||.15});return}catch(e){}}
+ if('IntersectionObserver' in window){const io=new IntersectionObserver(es=>{if(es.some(x=>x.isIntersecting)){fire();io.disconnect()}},{threshold:amount||.15});io.observe(el)}else fire()}
+/* LEDs start pulsing when their section enters */
+SECTS.forEach(s=>onView(s,()=>s.classList.add('live'),.01));
+
+/* ───────────────────────── diagram helpers (D6) ───────────────────────── */
+const uid=(()=>{let n=0;return p=>p+(++n)})();
+function mkSvg(host,w,h,label){host.replaceChildren();return d3.select(host).append('svg').attr('width',w).attr('height',h).attr('role','img').attr('aria-label',label)}
+function arrows(svg){const id=uid('ar');const defs=svg.append('defs');[['ink','mk-ink'],['red','mk-red'],['grey','mk-grey']].forEach(([n,c])=>defs.append('marker').attr('id',id+n).attr('class',c).attr('viewBox','0 0 10 10').attr('refX',9).attr('refY',5).attr('markerWidth',7).attr('markerHeight',7).attr('orient','auto-start-reverse').append('path').attr('d','M0,0 L10,5 L0,10 z'));return k=>`url(#${id}${k==='new'?'red':(k==='later'||k==='confirm')?'grey':'ink'})`}
+function act(sel,label,fn){sel.attr('tabindex',0).attr('role','button').attr('aria-label',label).on('click.a',fn).on('keydown.a',function(e,d){if(e.key==='Enter'||e.key===' '){e.preventDefault();fn.call(this,e,d)}})}
+function tipD(sel,html){sel.on('pointerenter.t pointermove.t',(e,d)=>showTip(html(d),e.clientX,e.clientY)).on('pointerleave.t',hideTip).on('focus.t',function(e,d){const r=this.getBoundingClientRect();showTip(html(d),r.left,r.bottom)}).on('blur.t',hideTip)}
+function detail(id,h){const el=document.getElementById(id);if(!el)return;setHTML(el,h);anim(el,{opacity:[0,1],transform:['translateY(4px)','none']},{duration:.25})}
+function wrap(sel,width,maxLines){sel.each(function(){const t=d3.select(this);const words=t.text().split(/\s+/);const x=t.attr('x');const lh=+(t.attr('data-lh')||15);t.text(null);let line=[],ts=t.append('tspan').attr('x',x),n=1;
+ for(const w of words){line.push(w);ts.text(line.join(' '));if(ts.node().getComputedTextLength()>width&&line.length>1){line.pop();ts.text(line.join(' '));if(maxLines&&n>=maxLines){ts.text(ts.text()+'…');return}line=[w];ts=t.append('tspan').attr('x',x).attr('dy',lh).text(w);n++}}
+ if(ts.node().getComputedTextLength()>width){let s=ts.text();while(s.length>3&&ts.node().getComputedTextLength()>width){s=s.slice(0,-1);ts.text(s+'…')}}})}
+function fit(sel,width){sel.each(function(){const t=d3.select(this);let s=t.text();if(this.getComputedTextLength()<=width)return;while(s.length>3&&this.getComputedTextLength()>width){s=s.slice(0,-1);t.text(s+'…')}})}
+function fadeIn(sel,a,step){if(a&&HAS())sel.style('opacity',0).transition().delay((d,i)=>60+i*(step||40)).duration(320).style('opacity',1).on('end',function(){d3.select(this).style('opacity',null)})}
+function drawEdgesIn(sel,a){if(!(a&&HAS()))return;sel.each(function(d,i){const p=d3.select(this);const L=this.getTotalLength?this.getTotalLength():0;if(!L)return;p.style('stroke-dasharray',`${L} ${L}`).style('stroke-dashoffset',L).transition().delay(150+i*50).duration(520).ease(d3.easeCubicOut).style('stroke-dashoffset',0).on('end',()=>p.style('stroke-dasharray',null).style('stroke-dashoffset',null))})}
+const elk=window.ELK?new ELK():null;
+function elkLayout(children,edges,opts){return elk.layout({id:'root',layoutOptions:Object.assign({'elk.algorithm':'layered','elk.direction':'RIGHT','elk.edgeRouting':'ORTHOGONAL','elk.layered.spacing.nodeNodeBetweenLayers':'56','elk.spacing.nodeNode':'22','elk.spacing.edgeLabel':'3','elk.spacing.edgeNode':'14','elk.layered.spacing.edgeNodeBetweenLayers':'14','elk.edgeLabels.placement':'CENTER','elk.layered.nodePlacement.strategy':'BRANDES_KOEPF'},opts||{}),children,edges})}
+function elkPath(e){const s=e.sections&&e.sections[0];if(!s)return '';const pts=[s.startPoint,...(s.bendPoints||[]),s.endPoint];return 'M'+pts.map(p=>p.x.toFixed(1)+','+p.y.toFixed(1)).join(' L')}
+const TXTW=(s,px)=>s.length*px;
+
+/* ───────────────────────── about this report: the context brief ─────────────────────────
+   Fills the collapsed "About this report" entry at the end of the appendix from CONTEXT in d-data.js: the same brief the Ask panel
+   hands Claude first. The facts live only in CONTEXT; this just shows them. */
+(function(){const host=$('#about-report .ab-b');if(!host)return;const B=typeof CONTEXT!=='undefined'?CONTEXT:null;
+ if(!B){setHTML(host,'<p>No context brief in this report.</p>');return}
+ const NR='not recorded',v=(o,k)=>esc(o&&typeof o[k]==='string'&&o[k].trim()?o[k]:NR),P=B.project||{},W=B.why||{},H=B.how||{},D=B.decisions||{};
+ const links=Array.isArray(P.links)&&P.links.length?`<span class="ab-links">${P.links.map(l=>`<a href="${esc(l.url||'').replace(/"/g,'&quot;')}">${esc(l.label||l.url||'')}</a>`).join('')}</span>`:v(P,'links');
+ const quote=W.quote&&W.quote.trim()&&W.quote.trim()!==NR?`"${v(W,'quote')}"`:NR;
+ const groups=[['Project and work',[['Project',v(P,'name')],['Tickets and PRs',links],['Goal',v(P,'goal')]]],
+  ['Why this report exists',[['Problem',v(W,'problem')],['Asked by',v(W,'askedBy')],['In their words',quote]]],
+  ['How it was made',[['Data',v(H,'sources')],['What was run',v(H,'ran')],['Where',v(H,'where')],['When',v(H,'dates')],['Tools and models',v(H,'tools')],['Not tested',v(H,'notTested')]]],
+  ['Decisions',[['Decided',v(D,'decided')],['Pending',v(D,'pending')],['Your call',v(D,'yourCall')]]],
+  ['History',Array.isArray(B.history)&&B.history.length?B.history.map(h=>[h.date||NR,esc(h.change||NR)]):[['Versions',NR]]],
+  ['Glossary',[['Where it lives',v(B,'glossary')]]]];
+ setHTML(host,groups.map(([h,rows])=>`<h4>${esc(h)}</h4><dl>${rows.map(([t,d])=>`<dt>${esc(t)}</dt><dd>${d}</dd>`).join('')}</dl>`).join(''));
+ $$('a[href]',host).forEach(a=>{a.target='_blank';a.rel='noopener'})})();
+/* Obsidian spotlight: cursor glow. Once per page (inline it in a single-file page).
+   Moves the glow of the .os-card, .os-row or [data-spot] under a mouse pointer by setting --mx / --my on it.
+   Touch and reduced motion skip the follow; the glow then sits at its default spot on hover or focus. */
+(() => {
+  const SEL = '.os-card, .os-row, [data-spot]';
+  const still = matchMedia('(prefers-reduced-motion: reduce)');
+  addEventListener('pointermove', e => {
+    if (e.pointerType !== 'mouse' || still.matches) return;
+    const t = e.target.closest && e.target.closest(SEL);
+    if (!t) return;
+    const r = t.getBoundingClientRect();
+    t.style.setProperty('--mx', (e.clientX - r.left) + 'px');
+    t.style.setProperty('--my', (e.clientY - r.top) + 'px');
+  }, { passive: true });
+})();
+/* ───────────────────────── figures ───────────────────────── */
+/* Fig. 1.1 the screenshots, full width, URL or command under each. */
+function drawShots(a){const host=$('#f-shots');if(!host.clientWidth)return;
+ setHTML(host,`<div class="shots">${SHOTS.map(s=>`<figure class="shot"><img src="${esc(s.file)}" alt="${esc(s.caption)}" loading="lazy"><div class="shot-u"><code>${esc(s.url)}</code></div><p>${esc(s.caption)}</p></figure>`).join('')}</div>`);
+ if(a&&HAS())anim($$('.shot',host),{opacity:[0,1],transform:['translateY(8px)','none']},{duration:.4});}
+
+/* Fig. 2.1 the checks table: what ran, how, result, evidence. */
+function drawChecks(a){const host=$('#f-checks');if(!host.clientWidth)return;
+ setHTML(host,`<div class="checks"><div class="h">Check</div><div class="h">How it ran</div><div class="h">Result</div><div class="h">Evidence</div>${CHECKS.map(c=>`<div class="c t">${esc(c.test)}</div><div class="c"><code>${esc(c.how)}</code></div><div class="c r"><span class="led ${c.result==='ok'?'ok':'miss'} on"></span>${c.result==='ok'?'Passed':'Not run'}</div><div class="c e">${esc(c.evidence)}</div>`).join('')}</div>`);
+ if(a&&HAS())anim($$('.checks .c',host),{opacity:[0,1]},{duration:.3,delay:ST(.01)});}
+/* ───────────────────────── ask panel ─────────────────────────
+   "Ask about this report": a side sheet that talks to Claude through the site's own proxy route (/api/claude on here.now).
+   The Anthropic key is a here.now account variable injected server side by .herenow/proxy.json; nothing secret is in this page.
+   Tools run here in the page: scroll_to, highlight, read_figure_data, snapshot_region, ask_about_selection, open_source, save_thread.
+   Built in by build.sh unless ASK=off. references/ask-panel.md explains hosting, the key, the Drive copy and the test harness. */
+(function(){
+'use strict';
+const D=document, R=D.documentElement;
+const Q=(s,r=D)=>r.querySelector(s), QA=(s,r=D)=>[...r.querySelectorAll(s)];
+const E=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const SLUG=(R.dataset.key||'report').replace(/[^a-z0-9-]/gi,'-');
+const HTTP=/^https?:$/.test(location.protocol);
+const RM=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const MODEL0='claude-opus-5-5';
+const CFG=Object.assign({
+  model:/^claude-/.test(MODEL0)?MODEL0:'claude-opus-5-5',
+  effort:'medium', maxTokens:12000, maxHops:6,
+  ctxCap:80000,          // stop a thread once one request carries this many input tokens
+  costCap:2.00,          // stop a thread at this many dollars; New thread resets
+  contextChars:150000,   // cap on the report text sent as the system prompt
+  maxImageEdge:1568, maxAtts:4,
+  count:'/api/claude-count',  // free token count; doubles as the key check, so a healthy page logs no errors
+  drive:{uploads:'/api/drive/uploads',finalize:'/api/drive/finalize',dir:'report-threads/'}
+},window.ASK_CONFIG||{});
+/* Prices in dollars per million tokens: input, output, cache write (5 min), cache read. Fable 5.1 calls go through the route that
+   adds the server-side fallback beta, so a policy decline is re-served by Anthropic's recommended model inside the same call. */
+const MODELS={
+ 'claude-opus-5-5':{label:'Opus 5.5',note:'default',in:4,out:20,cw:5,cr:0.20,route:'/api/claude'},
+ 'claude-fable-5-1':{label:'Fable 5.1',note:'best answers, 2.5x the price',in:10,out:50,cw:12.5,cr:0.25,route:'/api/claude-fb',fallbacks:'default'},
+ 'claude-sonnet-5':{label:'Sonnet 5',note:'half the price of Opus',in:2,out:10,cw:2.5,cr:0.20,route:'/api/claude'}
+};
+const PRICE=Object.assign({'claude-opus-4-8':{in:5,out:25,cw:6.25,cr:0.5},'claude-opus-5':{in:5,out:25,cw:6.25,cr:0.5},'claude-opus-5-5':{in:4,out:20,cw:5,cr:0.2},'claude-sonnet-5-5':{in:2,out:10,cw:2.5,cr:0.2}},MODELS);
+const LIBS={marked:['https://cdn.jsdelivr.net/npm/marked@18.1.0/lib/marked.umd.js','marked'],h2i:['https://cdn.jsdelivr.net/npm/html-to-image@1.11.13/dist/html-to-image.js','htmlToImage']};
+const store={get(k){try{return localStorage.getItem(SLUG+'-ask-'+k)}catch(e){return null}},set(k,v){try{localStorage.setItem(SLUG+'-ask-'+k,v);return true}catch(e){return false}},del(k){try{localStorage.removeItem(SLUG+'-ask-'+k)}catch(e){}}};
+const fmtK=n=>n>=1000?(n/1000).toFixed(n>=10000?0:1)+'k':String(n||0);
+const fmt$=v=>v<0.01?'under $0.01':'$'+v.toFixed(v<1?3:2).replace(/0$/,'');
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+const loaded={};
+function lib(name){if(loaded[name])return loaded[name];const [src,glob]=LIBS[name];if(window[glob])return(loaded[name]=Promise.resolve(window[glob]));
+ loaded[name]=new Promise((ok,no)=>{const s=D.createElement('script');s.src=src;s.async=true;s.onload=()=>window[glob]?ok(window[glob]):no(new Error(name+' did not load'));s.onerror=()=>{loaded[name]=null;no(new Error(name+' could not be fetched'))};D.head.appendChild(s)});return loaded[name]}
+
+/* ───────── icons (Lucide shapes) ───────── */
+const ICONS={
+ spark:'<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/>',
+ cam:'<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/>',
+ scan:'<path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/>',
+ up:'<path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>',
+ stop:'<rect width="12" height="12" x="6" y="6" rx="2"/>',
+ x:'<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+ more:'<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
+ down:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>',
+ cloud:'<path d="M12 13v8"/><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/><path d="m8 17 4-4 4 4"/>',
+ plus:'<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 7v6"/><path d="M9 10h6"/>',
+ aim:'<circle cx="12" cy="12" r="10"/><path d="M22 12h-4"/><path d="M6 12H2"/><path d="M12 6V2"/><path d="M12 22v-4"/>',
+ table:'<path d="M12 3v18"/><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/>',
+ quote:'<path d="M17 6H3"/><path d="M21 12H8"/><path d="M21 18H8"/><path d="M3 12v6"/>',
+ ext:'<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
+ save:'<path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/>',
+ mark:'<path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/>',
+ key:'<path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5"/>',
+ copy:'<rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
+ warn:'<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>'
+};
+const ic=n=>`<svg class="i" aria-hidden="true"><use href="#ia-${n}"/></svg>`;
+function sprite(){const s=D.createElementNS('http://www.w3.org/2000/svg','svg');s.setAttribute('width','0');s.setAttribute('height','0');s.setAttribute('aria-hidden','true');s.setAttribute('class','ask-ui');s.style.position='absolute';
+ s.innerHTML=Object.entries(ICONS).map(([k,v])=>`<symbol id="ia-${k}" viewBox="0 0 24 24">${v}</symbol>`).join('');D.body.prepend(s)}
+function H(html){const t=D.createElement('template');t.innerHTML=html.trim();return t.content.firstElementChild}
+function clean(html){return window.DOMPurify?DOMPurify.sanitize(html,{ADD_ATTR:['target','data-ref','data-src','data-href']}):E(String(html).replace(/<[^>]*>/g,' '))}
+
+/* ───────── report context: built once at build time (ask-build.mjs freezes it into #ask-context), else read live ───────── */
+const tx=el=>(el?el.textContent:'').replace(/\s+/g,' ').trim();
+function strip(el,sel){const c=el.cloneNode(true);QA(sel,c).forEach(x=>x.remove());return c}
+function dataOf(names){const out={};for(const n of names){if(!/^[A-Za-z_$][\w$]*$/.test(n))continue;try{const v=Function('return (typeof '+n+'!=="undefined")?'+n+':undefined')();if(v!==undefined)out[n]=JSON.parse(JSON.stringify(v))}catch(e){}}return out}
+function labelsOf(f){const seen=new Set(),out=[];const add=s=>{s=(s||'').replace(/\s+/g,' ').trim();if(s&&s.length<200&&!seen.has(s)){seen.add(s);out.push(s)}};
+ QA('[aria-label]',f).forEach(x=>{if(!x.closest('.ask-ui,.fg-h'))add(x.getAttribute('aria-label'))});QA('svg text',f).forEach(x=>add(x.textContent));
+ let n=0;return out.filter(s=>(n+=s.length)<6000).slice(0,160)}
+/* Which data blocks each figure draws from: data-ask="A,B" on the figure wins; otherwise the upper-case names its draw function in FIGS uses. */
+const CORE=new Set(['KEY','FIGS','LEDK','PANELS','SECTS','HAS','ST','TXTW','CFG','MODELS','PRICE','LIBS','ICONS','TOOLS','INSTRUCTIONS','CORE','CONTEXT']);
+function inferred(){const out={};try{const F=Function('return typeof FIGS!=="undefined"?FIGS:null')();if(!Array.isArray(F))return out;
+ for(const [id,fn] of F){if(typeof fn!=='function')continue;const names=[...new Set(fn.toString().match(/\b[A-Z][A-Z0-9_]{2,}\b/g)||[])].filter(n=>{if(CORE.has(n))return false;
+  try{const v=Function('return (typeof '+n+'!=="undefined")?'+n+':undefined')();return v!=null&&typeof v!=='function'&&!(v instanceof Node)}catch(e){return false}});if(names.length)out[id]=names}}catch(e){}return out}
+function extract(){
+ const meta=n=>{const m=Q(`meta[name="${n}"]`);return m?m.content:''};const inf=inferred();
+ /* the context brief (CONTEXT in d-data.js): the work behind the report. It goes first, before any page text, and is never trimmed.
+    Its "About this report" entry in the appendix shows the same facts, so it is left out of the appendix text below. */
+ const brief=(()=>{try{const b=Function('return typeof CONTEXT!=="undefined"?CONTEXT:undefined')();return b&&typeof b==='object'?JSON.parse(JSON.stringify(b)):undefined}catch(e){return undefined}})();
+ const secs=[Q('#overview'),...QA('section.panel')].filter(Boolean);
+ const figs=QA('figure.fg[id]').filter(f=>!f.closest('.ask-ui'));
+ const sections=secs.map(s=>{const body=Q('.pbi',s)||s;const c=strip(body,'figure,.ask-ui,svg,script,style,template,.ph,#about-report');
+  return {id:s.id,no:s.dataset.no||'',title:s.dataset.title||tx(Q('h2,h1',s)),open:s.classList.contains('open')||!s.classList.contains('panel'),text:tx(c).slice(0,8000),figures:figs.filter(f=>f.closest('section')===s).map(f=>f.id)}});
+ const figures=figs.map(f=>{const sec=f.closest('section');const cap=Q('figcaption',f);const capT=cap?tx(strip(cap,'.dlink')):'';
+  const names=f.dataset.ask?f.dataset.ask.split(/[\s,]+/).filter(Boolean):(inf[f.id]||[]);
+  const bodyText=tx(strip(f,'.fg-h,figcaption,.fg-d,svg,.ask-ui,script,style')).slice(0,3000);
+  const o={id:f.id,no:tx(Q('.fgno',f)),section:sec?sec.id:'',title:tx(Q('h3',f)),caption:capT,hint:tx(Q('.hint',f))};
+  const d=Q('.fg-d',f);if(d)o.detail=tx(d).slice(0,1200);
+  if(names.length)o.data=dataOf(names);
+  if(bodyText)o.text=bodyText;
+  const lb=labelsOf(f);if(lb.length)o.labels=lb;return o});
+ const seen=new Set(),sources=[];QA('a[href^="http"]').forEach(a=>{if(a.closest('.ask-ui'))return;const u=a.href;if(seen.has(u))return;seen.add(u);sources.push({id:'s'+(sources.length+1),title:(tx(a)||a.title||u).slice(0,160),url:u})});
+ /* the lead under the title, in reading order: its bullets (ul.lead-lines), the Your call strip, the side card (How we checked) */
+ const ld=Q('#overview .lead'),card=ld&&Q('.how-card',ld);
+ const lead=ld?{lines:QA('.lead-lines li',ld).map(tx),call:tx(Q('.ask',ld)),
+  card:card?{title:tx(Q('h1,h2,h3,h4',card)),steps:QA('li',card).map(li=>tx(strip(li,'.hn'))),note:QA('p',card).map(tx).join(' ')}:undefined}:undefined;
+ const ctx={brief,title:D.title,description:meta('description'),headline:tx(Q('#headline')||Q('h1')),lead,sections,figures,sources,footer:tx(Q('footer'))};
+ let s=JSON.stringify(ctx);
+ if(s.length>CFG.contextChars){ctx.figures.forEach(f=>{delete f.labels});s=JSON.stringify(ctx)}
+ if(s.length>CFG.contextChars){ctx.figures.forEach(f=>{delete f.text});s=JSON.stringify(ctx)}
+ if(s.length>CFG.contextChars){ctx.figures.forEach(f=>{if(f.data){const j=JSON.stringify(f.data);if(j.length>4000)f.data={note:'Data too large for the prompt; call read_figure_data.'}}});s=JSON.stringify(ctx)}
+ if(s.length>CFG.contextChars){ctx.sections.forEach(x=>x.text=x.text.slice(0,2000));ctx.truncated=true}
+ return ctx}
+let CTX=null,CTXS='',CTXSRC='';
+function context(){if(CTX)return CTX;const el=D.getElementById('ask-context');
+ if(el){try{CTX=JSON.parse(el.textContent);CTXSRC='frozen'}catch(e){CTX=null}}
+ if(!CTX){CTX=extract();CTXSRC='live'}
+ CTXS=JSON.stringify(CTX);return CTX}
+const INSTRUCTIONS=`You are the "Ask about this report" assistant built into a published report page. The reader is looking at the page while they talk to you, in a side panel.
+
+How to answer:
+- Answer from the report context below, from snapshots and selections the reader sends, and from your tools. When the report does not cover something, say so in one line, then give your best general answer and label it as not from the report.
+- Keep it short: two to five sentences, or a short list. Plain words for a smart reader who is not technical. Bold the one phrase that answers the question. No em dashes, no preamble.
+- Point at the page. Cite a section or figure inline as [[id]], for example [[fig-cost]], and a source as [[src:s2]]. Use only ids that exist in the context. When one place on the page answers the question, also call scroll_to with that id; to point at several places in turn, call highlight.
+- Call read_figure_data before quoting a number that is not written in the report text. Call snapshot_region when how a figure looks matters. Call ask_about_selection when the reader says "this", "that" or refers to what they selected. Call open_source to hand over a link. Call save_thread only when the reader asks to save or export.
+- Questions about the work behind the report (why it exists, what problem it is for, who asked, how it was made, what data and tools were used, what was not tested, what is decided, what happens next, how it changed) are answered from brief. Where a brief field says "not recorded", say it was not recorded; never fill the gap with a guess.
+- Never invent numbers, sources or ids.
+
+The report context is JSON. It starts with brief, the context brief the report's builder wrote about the work: project (name, ticket or PR links, the goal the work serves), why (the problem, who asked, their words), how (data sources, what was actually run, where, dates, tools and models, what was not tested), decisions (decided, pending, and what the reader is asked to do), history (dated changes between versions) and glossary (where the project glossary lives). The page text follows: title, headline, lead (the lead under the title: its three or four key-point bullets, the call the reader is asked to make, and the side card on how it was checked), sections (id, number, title, text, figure ids), figures (id, number, section, title, caption, data, labels) and sources (id, title, url). Every section and figure id is also an anchor on the page (#id).`;
+function systemBlocks(){context();return [{type:'text',text:INSTRUCTIONS},{type:'text',text:'<report>\n'+CTXS+'\n</report>',cache_control:{type:'ephemeral'}}]}
+function target(id){if(!id)return null;id=String(id).replace(/^#/,'');const c=context();
+ const f=c.figures.find(x=>x.id===id);if(f)return {kind:'fig',id,short:f.no||'Figure',long:(f.no?f.no+' ':'')+(f.title||''),el:D.getElementById(id)};
+ const s=c.sections.find(x=>x.id===id);if(s)return {kind:'sec',id,short:s.no&&s.no!=='00'?'Section '+s.no:(s.title||'Section'),long:(s.no?s.no+' ':'')+(s.title||''),el:D.getElementById(id)};
+ const el=D.getElementById(id);if(el&&!el.closest('.ask-ui'))return {kind:'el',id,short:'#'+id,long:'#'+id,el};return null}
+const srcById=id=>(context().sources||[]).find(s=>s.id===id);
+
+/* ───────── thread state, kept in localStorage per report ───────── */
+let T=null;
+function newThread(){const d=new Date(),p=n=>String(n).padStart(2,'0');return {v:1,id:`${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}-${Math.random().toString(36).slice(2,6)}`,created:d.toISOString(),model:store.get('model')||CFG.model,api:[],view:[],tot:{in:0,cw:0,cr:0,out:0,cost:0},last:0}}
+function loadThread(){try{const t=JSON.parse(store.get('thread')||'null');if(t&&t.v===1&&Array.isArray(t.api))return t}catch(e){}return newThread()}
+let saveWarned=false;
+function persist(){if(!T)return;if(!store.set('thread',JSON.stringify(T))&&!saveWarned){saveWarned=true;note('This thread is too big for the browser to keep. Export it with the menu before you close the page.','bad')}}
+
+/* ───────── UI ───────── */
+let fab,topBtn,sheet,log,ta,sendBtn,pend,meter,statusEl,modelSel,chip,busy,menu;
+let pending=[];          // attachments for the next question: {kind:'snap',img,mt,w,h,label,where} | {kind:'sel',text,where}
+let running=null;        // AbortController while a question is in flight
+let lastSel=null;        // most recent text selection on the page
+let status='unknown', docked=false;
+function build(){
+ sprite();D.body.classList.add('has-ask');
+ fab=H(`<button class="ask-fab ask-ui" type="button" aria-haspopup="dialog" aria-controls="askSheet" aria-expanded="false" aria-label="Ask about this report">${ic('spark')}<span>Ask</span></button>`);
+ sheet=H(`<aside class="ask-sheet ask-ui" id="askSheet" role="dialog" aria-modal="false" aria-labelledby="askTitle" inert>
+  <div class="ask-head"><h2 id="askTitle">${ic('spark')}<span>Ask about this report</span></h2>
+   <select class="ask-model" aria-label="Model">${Object.entries(MODELS).map(([k,m])=>`<option value="${k}">${E(m.label)}</option>`).join('')}</select>
+   <div class="ask-menu"><button class="ask-ib" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Thread options">${ic('more')}</button>
+    <div class="ask-menu-list" role="menu" aria-label="Thread options">
+     <button type="button" role="menuitem" data-act="md">${ic('down')}Export as Markdown</button>
+     <button type="button" role="menuitem" data-act="drive">${ic('cloud')}Save to here.now Drive</button>
+     <button type="button" role="menuitem" data-act="new">${ic('plus')}New thread</button></div></div>
+   <button class="ask-ib ask-close" type="button" aria-label="Close the panel">${ic('x')}</button></div>
+  <div class="ask-status" role="status"></div>
+  <div class="ask-log" role="log" aria-live="polite" aria-relevant="additions" tabindex="-1"></div>
+  <form class="ask-comp" novalidate>
+   <div class="ask-pend" aria-label="Attached to your next question"></div>
+   <label class="sr" for="askTa">Your question</label>
+   <textarea class="ask-ta" id="askTa" rows="1" placeholder="Ask about anything on this page"></textarea>
+   <div class="ask-bar"><button class="ask-btn ask-snap" type="button" title="Drag a box over part of the page">${ic('scan')}<span>Snapshot</span></button><span class="sp"></span>
+    <button class="ask-btn go ask-send" type="submit">${ic('up')}<span>Send</span></button></div></form>
+  <div class="ask-meter" aria-live="off"></div></aside>`);
+ chip=H(`<button class="ask-selchip ask-ui" type="button" aria-label="Ask about the selected text">${ic('spark')}<span>Ask</span></button>`);
+ busy=H(`<div class="ask-busy ask-ui" role="status" aria-live="polite"></div>`);
+ D.body.append(fab,sheet,chip,busy);
+ log=Q('.ask-log',sheet);ta=Q('.ask-ta',sheet);sendBtn=Q('.ask-send',sheet);pend=Q('.ask-pend',sheet);meter=Q('.ask-meter',sheet);statusEl=Q('.ask-status',sheet);modelSel=Q('.ask-model',sheet);menu=Q('.ask-menu',sheet);
+ fab.addEventListener('click',()=>open(true));
+ // Below 1440 px the floating button would sit on the content column, so Ask also lives in the top bar (h-ask.css shows one or the other).
+ const row=Q('.top-row');
+ if(row){topBtn=H(`<button class="btn ask-top ask-ui" type="button" aria-haspopup="dialog" aria-controls="askSheet" aria-expanded="false" aria-label="Ask about this report">${ic('spark')}<span class="lbl">Ask</span></button>`);
+  row.append(topBtn);D.body.classList.add('ask-in-top');topBtn.addEventListener('click',()=>open(!sheet.classList.contains('open')))}
+ Q('.ask-close',sheet).addEventListener('click',()=>open(false));
+ sheet.addEventListener('keydown',e=>{if(e.key==='Escape'){if(menu.classList.contains('open')){menuOpen(false);Q('button',menu).focus();return}e.stopPropagation();open(false)}});
+ Q('form',sheet).addEventListener('submit',e=>{e.preventDefault();running?stop():send()});
+ ta.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();running?null:send()}});
+ ta.addEventListener('input',grow);
+ Q('.ask-snap',sheet).addEventListener('click',()=>snapRegion());
+ modelSel.addEventListener('change',()=>{T.model=modelSel.value;store.set('model',T.model);persist();renderMeter();if(HTTP)probe(true)});
+ const mb=Q('button',menu);mb.addEventListener('click',e=>{e.stopPropagation();menuOpen(!menu.classList.contains('open'))});
+ Q('.ask-menu-list',menu).addEventListener('keydown',e=>{const bs=QA('.ask-menu-list button',menu);const i=bs.indexOf(D.activeElement);if(e.key==='ArrowDown'){e.preventDefault();bs[(i+1)%bs.length].focus()}if(e.key==='ArrowUp'){e.preventDefault();bs[(i-1+bs.length)%bs.length].focus()}});
+ QA('.ask-menu-list button',menu).forEach(b=>b.addEventListener('click',()=>{menuOpen(false);mb.focus();const a=b.dataset.act;if(a==='md')exportMd();if(a==='drive')saveAll({download:false,drive:true,announce:true});if(a==='new')resetThread()}));
+ D.addEventListener('click',e=>{if(!menu.contains(e.target))menuOpen(false)});
+ log.addEventListener('click',onLogClick);
+ chip.addEventListener('pointerdown',e=>e.preventDefault());
+ chip.addEventListener('click',()=>{if(!lastSel)return;addPending({kind:'sel',text:lastSel.text,where:lastSel.where,section:lastSel.section,figure:lastSel.figure});hideChip();open(true);if(!ta.value)ta.value='What does this mean?';ta.select()});
+ D.addEventListener('selectionchange',()=>{clearTimeout(selT);selT=setTimeout(trackSel,140)});
+ addEventListener('scroll',()=>{if(chip.classList.contains('show'))placeChip()},{passive:true});
+ QA('figure.fg[id]').forEach(f=>{const h=Q('.fg-h',f);if(!h)return;const lab=(tx(Q('.fgno',f))+' '+tx(Q('h3',f))).trim();
+  const b=H(`<button class="ask-figbtn ask-ui" type="button" aria-label="Snapshot ${E(lab)} and ask about it" title="Snapshot this figure and ask">${ic('cam')}</button>`);
+  b.addEventListener('click',()=>snapFigure(f));f.classList.add('ask-has');f.appendChild(b)});
+ addEventListener('resize',()=>{if(sheet.classList.contains('open'))dock(true)});
+ addEventListener('keydown',e=>{if(e.key==='Escape'&&chip.classList.contains('show'))hideChip()});
+}
+function menuOpen(v){menu.classList.toggle('open',v);Q('button',menu).setAttribute('aria-expanded',v);if(v)Q('.ask-menu-list button',menu).focus()}
+function grow(){ta.style.height='auto';ta.style.height=Math.min(180,ta.scrollHeight+2)+'px'}
+function redraw(){try{if(typeof drawAll==='function')drawAll();if(typeof slideAll==='function')slideAll()}catch(e){}}
+/* Dock on wide screens: the page narrows so the sheet never covers what scroll_to points at. The page's own max-width media rules
+   are replayed for the narrower width (scoped under body.ask-dock), so its layout matches what it would be on a screen that wide;
+   figures then redraw at the new width. */
+let emu=null,dockW=0;
+function mqAt(m,w){return m.split(',').some(part=>part.split(/\band\b/i).every(f=>{f=f.trim().replace(/^only\s+/i,'');let x;
+ if((x=f.match(/max-width\s*:\s*([\d.]+)px/i)))return w<=+x[1];if((x=f.match(/min-width\s*:\s*([\d.]+)px/i)))return w>=+x[1];
+ if(!f||/^(screen|all)$/i.test(f))return true;try{return matchMedia(f.startsWith('(')?f:'('+f+')').matches}catch(e){return false}}))}
+function emulate(w){if(!emu){emu=D.createElement('style');emu.className='ask-ui';D.head.appendChild(emu)}if(!w){emu.textContent='';return}const out=[];
+ for(const sh of D.styleSheets){if(sh.ownerNode===emu)continue;let rules;try{rules=sh.cssRules}catch(e){continue}
+  for(const r of rules){if(!(r instanceof CSSMediaRule))continue;const m=r.conditionText||r.media.mediaText;if(/print|ask-/.test(m))continue;
+   if(mqAt(m,w)&&!matchMedia(m).matches)for(const ir of r.cssRules)if(ir instanceof CSSStyleRule&&!/ask-/.test(ir.selectorText))out.push(ir.selectorText.split(',').map(x=>'body.ask-dock '+x.trim()).join(',')+'{'+ir.style.cssText+'}')}}
+ emu.textContent=out.join('\n')}
+function dock(v){const sw=sheet.getBoundingClientRect().width;const want=v&&innerWidth>=1180;const w=want?Math.round(innerWidth-sw):0;if(want===docked&&w===dockW)return;docked=want;dockW=w;
+ D.body.style.paddingRight=want?sw+'px':'';D.body.classList.toggle('ask-dock',want);emulate(want?w:0);redraw()}
+let firstOpen=true;
+function open(v){const isOpen=sheet.classList.contains('open');if(v===isOpen)return;
+ sheet.classList.toggle('open',v);sheet.inert=!v;D.body.classList.toggle('ask-open',v);fab.setAttribute('aria-expanded',v);if(topBtn)topBtn.setAttribute('aria-expanded',v);
+ if(typeof hideTip==='function')hideTip();
+ if(v){dock(true);if(firstOpen){firstOpen=false;renderAll();lib('marked').then(()=>{if(!running)renderAll()}).catch(()=>{});if(HTTP)probe();else setStatus('local')}setTimeout(()=>ta.focus(),RM?0:120);renderMeter()}
+ else{dock(false);menuOpen(false);(topBtn&&topBtn.offsetParent?topBtn:fab).focus()}}
+function addPending(a){if(pending.length>=CFG.maxAtts)pending.shift();pending.push(a);renderPending()}
+function renderPending(){pend.replaceChildren(...pending.map((a,i)=>{const p=H(`<div class="ask-pill">${a.kind==='snap'?`<img alt="" src="data:${E(a.mt)};base64,${E(a.img)}">`:ic('quote')}<span>${E(a.kind==='snap'?a.label:'"'+a.text.slice(0,80)+'"')}</span><button class="ask-ib" type="button" aria-label="Remove ${a.kind==='snap'?'snapshot':'quote'}">${ic('x')}</button></div>`);
+ Q('button',p).addEventListener('click',()=>{pending.splice(i,1);renderPending();ta.focus()});return p}))}
+
+/* ───────── status banners ───────── */
+const KEYLINE='In your here.now dashboard open Variables, add ANTHROPIC_API_KEY with allowed upstream api.anthropic.com, then reload this page.';
+function setStatus(s,extra){status=s;const S={
+  local:['warn','Preview copy','Answers need the published page: Claude is reached through the site\'s /api/claude route on here.now. Everything else here works.'],
+  nokey:['bad','Claude key not set',KEYLINE+' The page itself never holds the key. Tip: keep the page on Only you so nobody else spends it.'],
+  badkey:['bad','Claude key rejected','here.now has ANTHROPIC_API_KEY, but Anthropic did not accept it. Replace it under Variables in the here.now dashboard.'],
+  noroute:['bad','Proxy route missing','This copy was published without .herenow/proxy.json, so /api/claude does not exist. Rebuild with the report recipe and republish the folder.'],
+  limit:['warn','Slow down',extra||'Too many questions this hour from this network. Try again later.'],
+  neterr:['warn','Cannot reach the proxy',extra||'Check the connection and try again.'],
+  cap:['warn','This thread hit its cap',extra||'Start a new thread to keep costs down. Export this one first if you want it.']}[s];
+ if(!S){statusEl.className='ask-status';statusEl.replaceChildren();if(ta){ta.disabled=false;sendBtn.disabled=false}return}
+ statusEl.className='ask-status show '+S[0];
+ statusEl.innerHTML=(`<b><span class="led ${S[0]==='bad'?'miss':'part'} on"></span>${E(S[1])}</b><div>${E(S[2])}</div>`+(s==='nokey'?`<div class="ask-row"><button class="ask-btn" type="button" data-copy="1">${ic('copy')}<span>Copy the instruction</span></button></div>`:'')+(s==='cap'?`<div class="ask-row"><button class="ask-btn go" type="button" data-new="1">${ic('plus')}<span>New thread</span></button></div>`:''));
+ const cp=Q('[data-copy]',statusEl);if(cp)cp.addEventListener('click',()=>{try{navigator.clipboard.writeText(KEYLINE);Q('span',cp).textContent='Copied'}catch(e){}});
+ const nw=Q('[data-new]',statusEl);if(nw)nw.addEventListener('click',resetThread);
+ const block=s==='nokey'||s==='badkey'||s==='noroute'||s==='cap';ta.disabled=block;sendBtn.disabled=block&&!running}
+async function classify(res){let txt='';try{txt=await res.text()}catch(e){}let j=null;try{j=JSON.parse(txt)}catch(e){}
+ const msg=(j&&j.error&&(j.error.message||j.error))||(j&&j.message)||'';
+ if(res.status===401)return /required/i.test(msg)?{s:'nokey'}:{s:'badkey'};
+ if(res.status===404&&!(j&&j.type==='error'))return {s:'noroute'};
+ if(res.status===403)return {s:'neterr',m:String(msg||'here.now refused the call (403).')};
+ if(res.status===429){const ra=+res.headers.get('retry-after')||(j&&j.retry_after)||0;return {s:'limit',m:'Too many questions this hour from this network'+(ra?`. Try again in about ${Math.ceil(ra/60)} min.`:'.')}}
+ return {s:'error',status:res.status,m:String(msg||txt.slice(0,200)||('HTTP '+res.status)),type:j&&j.error&&j.error.type}}
+let probed=false,ctxTok=0;
+async function probe(force){if(probed&&!force)return;probed=true;
+ try{const r=await fetch(CFG.count,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({model:T.model,system:systemBlocks(),tools:TOOLS,messages:[{role:'user',content:'ping'}]})});
+  if(r.ok){try{ctxTok=(await r.json()).input_tokens||0}catch(e){}setStatus(T.last>=CFG.ctxCap||T.tot.cost>=CFG.costCap?'cap':null);renderMeter();return}
+  const c=await classify(r);if(c.s==='error'){setStatus(null);return}setStatus(c.s,c.m)}
+ catch(e){setStatus('neterr')}}
+
+/* ───────── rendering ───────── */
+function md(src){let s=String(src||'');
+ s=s.replace(/\[\[src:([A-Za-z0-9_-]+)\]\]/g,(m,id)=>{const S=srcById(id);return S?`<span class="ask-ref" data-src="${E(id)}">${E(S.title.length>38?S.title.slice(0,36)+'..':S.title)}</span>`:''});
+ s=s.replace(/\[\[([A-Za-z0-9_.:-]+)(?:\|([^\]]{1,60}))?\]\]/g,(m,id,lab)=>{const t=target(id);return t?`<span class="ask-ref" data-ref="${E(t.id)}">${E(lab||t.short)}</span>`:''});
+ let html;if(window.marked&&marked.parse){try{html=marked.parse(s,{gfm:true,breaks:false})}catch(e){html=null}}
+ if(html==null)html=s.split(/\n{2,}/).map(p=>'<p>'+p.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/\n/g,'<br>')+'</p>').join('');
+ const box=D.createElement('div');box.innerHTML=clean(html);
+ QA('a[href]',box).forEach(a=>{const sp=D.createElement('span');sp.className='ask-ref';sp.dataset.href=a.href;sp.textContent=a.textContent||a.href;a.replaceWith(sp)});
+ return box.innerHTML}
+function refsOf(parts){const out=[],seen=new Set();for(const p of parts){if(p.t==='text'){const box=D.createElement('div');box.innerHTML=md(p.md);QA('.ask-ref',box).forEach(r=>{const S=r.dataset.src?srcById(r.dataset.src):null;const k=r.dataset.ref||(S&&S.url)||r.dataset.src||r.dataset.href;if(k&&!seen.has(k)){seen.add(k);out.push(r.dataset.ref?{ref:r.dataset.ref}:r.dataset.src?{src:r.dataset.src}:{href:r.dataset.href,label:r.textContent})}})}if(p.t==='act'&&p.url&&!seen.has(p.url)){seen.add(p.url);out.push({href:p.url,label:p.label})}}return out}
+function chipFor(r){if(r.ref){const t=target(r.ref);if(!t)return null;return `<button class="ask-chip" type="button" data-ref="${E(t.id)}" title="Show it on the page">${ic('aim')}<span>${E(t.long)}</span></button>`}
+ const S=r.src?srcById(r.src):null;const href=S?S.url:r.href;if(!href||!/^https?:/.test(href))return null;
+ return `<a class="ask-chip" href="${E(href)}" target="_blank" rel="noopener">${ic('ext')}<span>${E(S?S.title:(r.label||href))}</span></a>`}
+const ACTICON={scroll_to:'aim',highlight:'mark',read_figure_data:'table',snapshot_region:'cam',ask_about_selection:'quote',open_source:'ext',save_thread:'save'};
+function actHtml(p){const inner=`${ic(ACTICON[p.tool]||'spark')}<span>${p.html}</span>${p.thumb?`<img alt="" src="${E(p.thumb)}">`:''}`;
+ if(p.url)return `<a class="ask-act" href="${E(p.url)}" target="_blank" rel="noopener">${inner}</a>`;
+ if(p.ref&&!p.err)return `<button class="ask-act" type="button" data-ref="${E(p.ref)}">${inner}</button>`;
+ return `<div class="ask-act${p.err?' err':''}">${inner}</div>`}
+function userHtml(v){return `<div class="ask-msg ask-u">${v.atts&&v.atts.length?`<div class="ask-atts">${v.atts.map(a=>a.kind==='snap'?`<div class="ask-thumb">${a.thumb?`<img alt="Snapshot: ${E(a.label)}" src="${E(a.thumb)}">`:''}<span>${E(a.label)}</span></div>`:`<div class="ask-quote">"${E(a.text.slice(0,400))}"${a.where?`<small>${E(a.where)}</small>`:''}</div>`).join('')}</div>`:''}${v.text?`<div class="ask-bubble">${E(v.text)}</div>`:''}</div>`}
+function botHtml(v,live){const parts=v.parts.map((p,i)=>p.t==='text'?`<div class="ask-md${live&&i===v.parts.length-1?' ask-caret':''}">${md(p.md)}</div>`:p.t==='note'?`<div class="ask-note${p.bad?' bad':''}">${E(p.text)}</div>`:actHtml(p)).join('');
+ const lp=v.parts[v.parts.length-1];const waiting=live&&(!lp||lp.t!=='text');
+ const refs=!live&&v.refs&&v.refs.length?`<div class="ask-refs" aria-label="Points to">${v.refs.map(chipFor).filter(Boolean).join('')}</div>`:'';
+ const use=v.use?`<div class="ask-use">${E(v.use)}</div>`:'';
+ return `<div class="ask-msg ask-b"><div class="ask-who">${ic('spark')}<span>Claude${v.model?' · '+E((MODELS[v.model]||{}).label||v.model):''}</span></div>${parts}${waiting?`<div class="ask-think live"><i></i><i></i><i></i><span>${lp?'Working':'Thinking'}</span></div>`:''}${refs}${use}</div>`}
+function emptyHtml(){const c=context();const f=c.figures.find(x=>x.no)||c.figures[0];
+ const sug=['Sum this report up in three lines','What should I do next, and why?'];if(f)sug.push(`Explain ${f.no||'the first figure'} in plain words`);
+ return `<div class="ask-empty"><h3>Ask about anything on this page</h3><p>Answers point back at the figures. Select text for an Ask chip, or use the camera on any figure.</p><ul>${sug.map(s=>`<li><button class="ask-sugg" type="button" data-sugg="${E(s)}">${E(s)}</button></li>`).join('')}</ul></div>`}
+function renderAll(){if(!log)return;const html=T.view.length?T.view.map(v=>v.role==='user'?userHtml(v):botHtml(v,false)).join(''):emptyHtml();log.innerHTML=html;log.scrollTop=log.scrollHeight;renderMeter()}
+let liveEl=null,liveRAF=0;
+function renderLive(v){cancelAnimationFrame(liveRAF);liveRAF=requestAnimationFrame(()=>{const h=H((botHtml(v,true)));if(liveEl&&liveEl.isConnected)liveEl.replaceWith(h);else log.appendChild(h);liveEl=h;const near=log.scrollHeight-log.scrollTop-log.clientHeight<160;if(near)log.scrollTop=log.scrollHeight})}
+function note(text,bad){if(!log)return;log.appendChild(H((`<div class="ask-note${bad?' bad':''}">${E(text)}</div>`)));log.scrollTop=log.scrollHeight}
+function renderMeter(){if(!meter||!T)return;const M=MODELS[T.model]||{};modelSel.value=T.model;
+ const lastV=[...T.view].reverse().find(v=>v.role==='bot'&&v.cost!=null);
+ const capHit=T.last>=CFG.ctxCap||T.tot.cost>=CFG.costCap;
+ meter.innerHTML=(`<span>Last answer <b>${lastV?fmt$(lastV.cost):'none yet'}</b></span><span>Thread <b>${fmt$(T.tot.cost)}</b> of ${fmt$(CFG.costCap)} cap</span><span class="${capHit?'cap':''}">Context <b>${fmtK(T.last||ctxTok)}</b> of ${fmtK(CFG.ctxCap)} tokens${!T.last&&ctxTok?' (the report)':''}</span><span>${E(M.label||T.model)}: $${M.in}/$${M.out} per M in/out</span>`)}
+function onLogClick(e){const s=e.target.closest('[data-sugg]');if(s){ta.value=s.dataset.sugg;send();return}
+ const r=e.target.closest('[data-ref]');if(r){e.preventDefault();showOnPage(r.dataset.ref,{pulse:true});return}
+ const sr=e.target.closest('.ask-ref[data-src]');if(sr){const S=srcById(sr.dataset.src);if(S)window.open(S.url,'_blank','noopener');return}
+ const hr=e.target.closest('.ask-ref[data-href]');if(hr&&/^https?:/.test(hr.dataset.href))window.open(hr.dataset.href,'_blank','noopener')}
+
+/* ───────── pointing at the page ───────── */
+function reveal(el){const p=el.closest('section.panel');if(p&&!p.classList.contains('open')){if(typeof setOpen==='function')setOpen(p,true,true);else p.classList.add('open')}}
+function topH(){const t=Q('#top');return t?t.getBoundingClientRect().height:0}
+function showOnPage(id,{pulse=true,scroll=true,hl=false,note:nt}={}){const t=target(id);if(!t||!t.el)return null;reveal(t.el);
+ if(scroll){const r=t.el.getBoundingClientRect();const off=r.top<topH()+8||r.bottom>innerHeight-8;if(off||pulse){const y=Math.max(0,r.top+scrollY-topH()-16);scrollTo({top:y,behavior:RM?'auto':'smooth'})}}
+ if(pulse){t.el.classList.remove('ask-pulse');void t.el.offsetWidth;t.el.classList.add('ask-pulse');setTimeout(()=>t.el.classList.remove('ask-pulse'),2600)}
+ if(hl){t.el.classList.add('ask-hl');let n=null,raf=0;nt=String(nt||'').trim();
+  const place=()=>{if(!n)return;const r=t.el.getBoundingClientRect(),h=n.offsetHeight,w=n.offsetWidth,top=topH()+6;let y=r.top-h-10,x=r.left+8;
+   if(y<top){y=r.bottom+10;if(y+h>innerHeight-6){y=Math.max(top,r.top+10);x=Math.max(8,r.right-w-12)}}n.style.left=Math.round(x)+'px';n.style.top=Math.round(y)+'px'};
+  const onScroll=()=>{cancelAnimationFrame(raf);raf=requestAnimationFrame(place)};
+  if(nt){n=H(`<div class="ask-hl-note ask-ui"></div>`);n.textContent=nt.slice(0,80);D.body.appendChild(n);place();addEventListener('scroll',onScroll,{passive:true})}
+  setTimeout(()=>{t.el.classList.remove('ask-hl');if(n){n.remove();removeEventListener('scroll',onScroll)}},6000)}
+ return t}
+
+/* ───────── text selection → Ask chip ───────── */
+let selT=0;
+function whereOf(node){const el=node&&(node.nodeType===1?node:node.parentElement);if(!el)return {};const f=el.closest('figure.fg[id]'),s=el.closest('section[id]');
+ const ft=f?target(f.id):null,st=s?target(s.id):null;return {figure:f?f.id:'',section:s?s.id:'',where:[st&&st.long,ft&&ft.long].filter(Boolean).join(' · ')}}
+function trackSel(){const s=getSelection();if(!s||s.isCollapsed||!s.rangeCount){hideChip();return}const t=s.toString().replace(/\s+/g,' ').trim();
+ const r=s.getRangeAt(0);const a=r.commonAncestorContainer;const el=a.nodeType===1?a:a.parentElement;
+ if(!t||t.length<2||!el||el.closest('.ask-ui,input,textarea')){hideChip();return}
+ lastSel=Object.assign({text:t.slice(0,2000),at:Date.now()},whereOf(a));placeChip()}
+function placeChip(){const s=getSelection();if(!s||!s.rangeCount||s.isCollapsed){hideChip();return}const rs=[...s.getRangeAt(0).getClientRects()].filter(r=>r.width||r.height);const r=rs[rs.length-1]||s.getRangeAt(0).getBoundingClientRect();
+ if(!r||(!r.width&&!r.height)){hideChip();return}chip.classList.add('show');const w=chip.offsetWidth,h=chip.offsetHeight;
+ let x=Math.min(innerWidth-w-12,Math.max(12,r.right-w/2)),y=r.bottom+10;if(y+h>innerHeight-12)y=Math.max(12,r.top-h-10);chip.style.left=x+'px';chip.style.top=y+'px'}
+function hideChip(){chip&&chip.classList.remove('show')}
+
+/* ───────── snapshots: the browser's own renderer through html-to-image (SVG foreignObject), cropped and scaled ───────── */
+let fontCSS=null;
+/* Web fonts for snapshots, fetched here (Latin subsets only) so html-to-image never reads a cross-origin stylesheet, which logs errors. */
+const asData=b=>new Promise((ok,no)=>{const r=new FileReader();r.onload=()=>ok(r.result);r.onerror=no;r.readAsDataURL(b)});
+async function fonts(){if(fontCSS!==null)return fontCSS;fontCSS='';
+ try{for(const l of QA('link[rel="stylesheet"][href*="fonts.googleapis.com"]')){const css=await (await fetch(l.href)).text();
+  for(const f of css.match(/@font-face\s*\{[^}]*\}/g)||[]){if(/unicode-range/.test(f)&&!/U\+0000-00FF/i.test(f))continue;const m=f.match(/url\((https:[^)]+)\)/);if(!m)continue;
+   const r=await fetch(m[1]);if(!r.ok)continue;fontCSS+=f.replace(m[1],await asData(await r.blob()))+'\n'}}}catch(e){}return fontCSS}
+function showBusy(t){busy.textContent=t;busy.classList.toggle('show',!!t)}
+async function render(el,crop){const h2i=await lib('h2i');const r=el.getBoundingClientRect();const box=crop||{x:r.left+scrollX,y:r.top+scrollY,w:r.width,h:r.height};
+ const edge=Math.max(box.w,box.h);const pr=Math.max(.25,Math.min(2,devicePixelRatio||1,CFG.maxImageEdge/edge,Math.sqrt(16e6/Math.max(1,r.width*r.height))));
+ const bg=getComputedStyle(D.body).backgroundColor;const filter=n=>n.nodeType!==8&&!(n.classList&&(n.classList.contains('ask-ui')||n.classList.contains('tip')||n.classList.contains('doors')));
+ const opts={pixelRatio:pr,backgroundColor:bg,filter,cacheBust:false,imagePlaceholder:'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=='};
+ const fc=await fonts();const why=e=>new Error(e&&e.message||'the browser could not draw this part of the page');
+ let canvas;try{canvas=await h2i.toCanvas(el,Object.assign({fontEmbedCSS:fc},opts))}catch(e){try{canvas=await h2i.toCanvas(el,Object.assign({fontEmbedCSS:''},opts))}catch(e2){throw why(e2)}}
+ const ox=r.left+scrollX,oy=r.top+scrollY;const k=canvas.width/Math.max(1,r.width);
+ const W=Math.max(1,Math.round(box.w*k)),Hh=Math.max(1,Math.round(box.h*k));
+ const c2=D.createElement('canvas');c2.width=Math.min(W,Math.round(CFG.maxImageEdge*W/Math.max(W,Hh)));c2.height=Math.round(c2.width*Hh/W);
+ const g=c2.getContext('2d');g.fillStyle=bg;g.fillRect(0,0,c2.width,c2.height);g.drawImage(canvas,(box.x-ox)*k,(box.y-oy)*k,W,Hh,0,0,c2.width,c2.height);
+ let url=c2.toDataURL('image/png'),mt='image/png';if(url.length>1500000){url=c2.toDataURL('image/jpeg',.88);mt='image/jpeg'}
+ const th=D.createElement('canvas');const ts=Math.min(1,360/Math.max(c2.width,c2.height));th.width=Math.max(1,Math.round(c2.width*ts));th.height=Math.max(1,Math.round(c2.height*ts));th.getContext('2d').drawImage(c2,0,0,th.width,th.height);
+ return {img:url.split(',')[1],mt,w:c2.width,h:c2.height,thumb:th.toDataURL('image/jpeg',.8)}}
+function holder(rect){const cand=[...QA('figure.fg[id]'),...QA('section[id]'),Q('main'),D.body].filter(Boolean);let best=D.body,area=Infinity;
+ for(const el of cand){const r=el.getBoundingClientRect();const x=r.left+scrollX,y=r.top+scrollY;if(x<=rect.x+2&&y<=rect.y+2&&x+r.width>=rect.x+rect.w-2&&y+r.height>=rect.y+rect.h-2&&r.width*r.height<area){best=el;area=r.width*r.height}}return best}
+async function snapFigure(f){const t=target(f.id);open(true);showBusy('Capturing '+(t?t.short:'figure')+'...');
+ try{const s=await render(f);addPending(Object.assign({kind:'snap',label:t?t.long:'Figure',where:t?t.long:''},s));if(!ta.value)ta.value='Explain this figure in plain words.';ta.focus();ta.select()}
+ catch(e){note('Snapshot failed: '+e.message,true)}finally{showBusy('')}}
+function pick(){return new Promise(done=>{const wasOpen=sheet.classList.contains('open')&&!docked;if(wasOpen){sheet.classList.remove('open');sheet.inert=true}
+ D.body.classList.add('ask-picking');hideChip();
+ const ov=H(`<div class="ask-pick ask-ui" tabindex="-1" role="dialog" aria-label="Pick part of the page"><div class="ask-pick-bar"><span>Drag a box over what you want to ask about. Enter takes the whole screen, Esc cancels.</span><button class="ask-btn" type="button">Cancel</button></div><div class="ask-pick-box"></div></div>`);
+ D.body.appendChild(ov);ov.focus();const box=Q('.ask-pick-box',ov);let st=null,cur=null;
+ const end=v=>{ov.remove();D.body.classList.remove('ask-picking');if(wasOpen){sheet.classList.add('open');sheet.inert=false}done(v)};
+ Q('button',ov).addEventListener('click',e=>{e.stopPropagation();end(null)});
+ Q('.ask-pick-bar',ov).addEventListener('pointerdown',e=>e.stopPropagation());
+ ov.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();end(null)}if(e.key==='Enter'){e.preventDefault();end({x:scrollX,y:scrollY+topH(),w:innerWidth,h:innerHeight-topH()})}});
+ ov.addEventListener('pointerdown',e=>{st={x:e.clientX,y:e.clientY};ov.setPointerCapture(e.pointerId);box.style.display='block';upd(e)});
+ const upd=e=>{if(!st)return;const x=Math.min(st.x,e.clientX),y=Math.min(st.y,e.clientY),w=Math.abs(e.clientX-st.x),h=Math.abs(e.clientY-st.y);cur={x,y,w,h};Object.assign(box.style,{left:x+'px',top:y+'px',width:w+'px',height:h+'px'})};
+ ov.addEventListener('pointermove',upd);
+ ov.addEventListener('pointerup',e=>{if(!st)return;upd(e);st=null;const c=cur;
+  if(!c||c.w<16||c.h<16){ov.style.pointerEvents='none';const under=D.elementFromPoint(e.clientX,e.clientY);ov.style.pointerEvents='';const el=under&&(under.closest('figure.fg[id]')||under.closest('section[id]'));
+   if(!el){box.style.display='none';return}const r=el.getBoundingClientRect();end({x:r.left+scrollX,y:r.top+scrollY,w:r.width,h:r.height,el});return}
+  end({x:c.x+scrollX,y:c.y+scrollY,w:c.w,h:c.h})})})}
+async function snapRegion(){const rect=await pick();if(!rect){ta&&ta.focus();return}const el=rect.el||holder(rect);showBusy('Capturing the region...');
+ try{const s=await render(el,rect.el?null:rect);const w=whereOf(el);const t=el.id?target(el.id):null;const label=t?(rect.el?t.long:'Region in '+t.long):'Region of the page';
+  addPending(Object.assign({kind:'snap',label,where:w.where},s));if(!ta.value)ta.value='What am I looking at here?';ta.focus();ta.select()}
+ catch(e){note('Snapshot failed: '+e.message,true)}finally{showBusy('')}}
+
+/* ───────── tools Claude can call; each handler runs in this page ───────── */
+const idProp={type:'object',properties:{id:{type:'string',description:'A section or figure id from the report context, for example "fig-cost" or "overview".'}},required:['id']};
+const TOOLS=[
+ {name:'scroll_to',description:'Scroll the reader\'s page to a section or figure and pulse it so they see it. Use whenever your answer points at one specific place.',input_schema:idProp},
+ {name:'highlight',description:'Outline a section or figure for six seconds with an optional short note beside it. Scrolls only when it is off screen. Use to point at several places in turn.',input_schema:{type:'object',properties:{id:idProp.properties.id,note:{type:'string',description:'Up to 80 characters shown next to the outline.'}},required:['id']}},
+ {name:'read_figure_data',description:'Return everything behind one figure: title, caption, the data blocks it is drawn from and the labels it renders. Use before quoting an exact number that is not written in the report text.',input_schema:idProp},
+ {name:'snapshot_region',description:'Capture a picture of one figure or section exactly as the reader sees it now (theme, open panels, current selection) and return it as an image. Use when how something looks matters.',input_schema:idProp},
+ {name:'ask_about_selection',description:'Return the text the reader selected on the page (or selected most recently) and the section and figure it sits in. Use when the reader says "this", "that number" or "what I selected".',input_schema:{type:'object',properties:{}}},
+ {name:'open_source',description:'Return the title and URL of one source so the reader gets a link they can click. Use when you say where a fact comes from.',input_schema:{type:'object',properties:{id:{type:'string',description:'A source id from the report context, for example "s2".'}},required:['id']}},
+ {name:'save_thread',description:'Save this conversation: it is kept in this browser, downloaded as a Markdown file, and appended to the owner\'s here.now Drive when that is set up. Use only when the reader asks to save or export.',input_schema:{type:'object',properties:{download:{type:'boolean',description:'Also download the .md file. Default true.'}}}}
+];
+const okId=v=>typeof v==='string'&&v.length>0&&v.length<120;
+async function runTool(b){const n=b.name,a=b.input||{};const act={t:'act',tool:n,html:''};
+ try{
+  if(b._bad)throw new Error('the tool input was not valid JSON');
+  if(n==='scroll_to'||n==='highlight'){if(!okId(a.id))throw new Error('id is required');const t=showOnPage(a.id,n==='scroll_to'?{pulse:true}:{pulse:false,scroll:true,hl:true,note:a.note});if(!t)throw new Error(`no section or figure with id "${a.id}"`);
+   act.ref=t.id;act.html=`${n==='scroll_to'?'Showed':'Outlined'} <b>${E(t.long)}</b>${a.note&&n==='highlight'?': '+E(String(a.note).slice(0,80)):''}`;return [act,`Done. ${t.long} is ${n==='scroll_to'?'in view and pulsing':'outlined'} on the reader's screen.`]}
+  if(n==='read_figure_data'){if(!okId(a.id))throw new Error('id is required');const c=context();const f=c.figures.find(x=>x.id===a.id);const el=D.getElementById(a.id);if(!f&&!(el&&el.matches('figure')))throw new Error(`no figure with id "${a.id}"`);
+   const live=el?{labels:labelsOf(el),detail_now:tx(Q('.fg-d',el)).slice(0,1500)}:{};const names=el&&el.dataset.ask?el.dataset.ask.split(/[\s,]+/).filter(Boolean):(inferred()[a.id]||[]);const data=names.length?dataOf(names):(f&&f.data)||null;
+   const out=JSON.stringify(Object.assign({},f||{id:a.id},data?{data}:{},live)).slice(0,24000);act.ref=a.id;act.html=`Read the data behind <b>${E((f&&f.no)||a.id)}</b>`;return [act,out]}
+  if(n==='snapshot_region'){if(!okId(a.id))throw new Error('id is required');const t=target(a.id);if(!t||!t.el)throw new Error(`no section or figure with id "${a.id}"`);reveal(t.el);showBusy('Claude is looking at '+t.short+'...');
+   try{const s=await render(t.el);act.ref=t.id;act.thumb=s.thumb;act.html=`Looked at <b>${E(t.long)}</b>`;return [act,[{type:'text',text:`Snapshot of ${t.long} as the reader sees it (${s.w} x ${s.h} px).`},{type:'image',source:{type:'base64',media_type:s.mt,data:s.img}}]]}finally{showBusy('')}}
+  if(n==='ask_about_selection'){const s=lastSel;act.html=s?`Read your selection: <b>"${E(s.text.slice(0,60))}${s.text.length>60?'..':''}"</b>`:'No text is selected on the page';
+   return [act,s?JSON.stringify({text:s.text,section:s.section,figure:s.figure,where:s.where,seconds_ago:Math.round((Date.now()-s.at)/1000)}):'The reader has not selected any text on the page.']}
+  if(n==='open_source'){const S=okId(a.id)?srcById(a.id):null;if(!S)throw new Error(`no source with id "${a.id}"`);act.url=S.url;act.label=S.title;act.html=`Source: <b>${E(S.title)}</b>`;return [act,JSON.stringify(S)]}
+  if(n==='save_thread'){const r=await saveAll({download:a.download!==false,drive:true});act.html=E(r.say);return [act,r.say]}
+  throw new Error('unknown tool '+n)}
+ catch(e){act.err=true;act.html=`${E(n)} failed: ${E(e.message)}`;return [act,'Error: '+e.message,true]}}
+
+/* ───────── Messages API through the proxy, streamed ───────── */
+function readerState(){const secs=QA('#overview,section.panel');let cur=secs[0];const lim=topH()+120;secs.forEach(s=>{if(s.getBoundingClientRect().top<=lim)cur=s});const t=cur&&target(cur.id);
+ return `Reader state: viewing ${t?t.long+' (#'+t.id+')':'the top of the page'}; ${R.dataset.theme||'dark'} theme; screen ${innerWidth}x${innerHeight}.`}
+async function stream(body,signal,onBlock){const M=MODELS[body.model]||MODELS[CFG.model];
+ const res=await fetch(M.route,{method:'POST',headers:{'content-type':'application/json',accept:'text/event-stream'},body:JSON.stringify(body),signal});
+ if(!res.ok){const c=await classify(res);const err=new Error(c.m||c.s);err.c=c;throw err}
+ const blocks=[];let usage={},stopReason=null,model=body.model,stopDetails=null;
+ const rd=res.body.getReader(),dec=new TextDecoder();let buf='';
+ const handle=(type,j)=>{
+  if(type==='message_start'){model=j.message.model||model;usage=Object.assign({},j.message.usage||{})}
+  else if(type==='content_block_start'){const b=Object.assign({},j.content_block);if(b.type==='tool_use'){b._json=''}if(b.type==='text'&&b.text==null)b.text='';if(b.type==='thinking'&&b.thinking==null)b.thinking='';blocks[j.index]=b;onBlock(blocks)}
+  else if(type==='content_block_delta'){const b=blocks[j.index],d=j.delta||{};if(!b)return;
+   if(d.type==='text_delta'){b.text+=d.text;onBlock(blocks)}else if(d.type==='thinking_delta')b.thinking+=d.thinking;else if(d.type==='signature_delta')b.signature=(b.signature||'')+d.signature;else if(d.type==='input_json_delta')b._json+=d.partial_json}
+  else if(type==='content_block_stop'){const b=blocks[j.index];if(b&&b.type==='tool_use'){try{b.input=b._json?JSON.parse(b._json):(b.input||{})}catch(e){b._bad=true;b.input={}}delete b._json}}
+  else if(type==='message_delta'){if(j.delta){stopReason=j.delta.stop_reason||stopReason;stopDetails=j.delta.stop_details||stopDetails}if(j.usage)for(const k in j.usage)if(j.usage[k]!=null)usage[k]=j.usage[k]}
+  else if(type==='error'){const e=new Error((j.error&&j.error.message)||'stream error');e.c={s:'error',type:j.error&&j.error.type};throw e}};
+ try{for(;;){const {done,value}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true}).replace(/\r\n/g,'\n');let i;
+  while((i=buf.indexOf('\n\n'))>=0){const raw=buf.slice(0,i);buf=buf.slice(i+2);let ev='',data='';for(const line of raw.split('\n')){if(line.startsWith('event:'))ev=line.slice(6).trim();else if(line.startsWith('data:'))data+=line.slice(5).replace(/^ /,'')}
+   if(!data)continue;let j;try{j=JSON.parse(data)}catch(e){continue}handle(j.type||ev,j)}}}
+ catch(e){/* a stopped or broken stream is still billed: keep what was used so the cost guard counts it */
+  const chars=blocks.reduce((n,b)=>n+((b&&(b.text||b.thinking||b._json))||'').length,0);e.usage=Object.assign({},usage,{output_tokens:Math.max(usage.output_tokens||0,Math.ceil(chars/4))});e.model=model;throw e}
+ return {blocks:blocks.filter(Boolean),usage,stopReason,stopDetails,model}}
+/* What goes back into history: every block exactly as received, except what the fallback rules say to drop
+   (thinking and tool calls before a mid-answer fallback switch, and the fallback marker itself) and empty text. */
+function echo(blocks){const last=blocks.map(b=>b.type).lastIndexOf('fallback');const keep=new Set(['thinking','redacted_thinking','text','tool_use']);
+ return blocks.filter((b,i)=>{if(b.type==='fallback')return false;if(!keep.has(b.type))return false;if(i<last&&b.type!=='text')return false;if(b.type==='text'&&!b.text)return false;return true}).map(b=>{const o=Object.assign({},b);delete o._json;delete o._bad;if(o.type==='text'&&o.citations==null)delete o.citations;return o})}
+function costOf(u,model){const p=PRICE[model]||PRICE[T.model]||MODELS[CFG.model];const i=u.input_tokens||0,cw=u.cache_creation_input_tokens||0,cr=u.cache_read_input_tokens||0,o=u.output_tokens||0;
+ return {in:i,cw,cr,out:o,cost:(i*p.in+cw*p.cw+cr*p.cr+o*p.out)/1e6,ctx:i+cw+cr}}
+async function send(){const text=ta.value.trim();if(running)return;if(!text&&!pending.length)return;
+ if(!HTTP){setStatus('local');note('This is a local preview, so nothing was sent. Publish the page to ask Claude.');return}
+ if(T.last>=CFG.ctxCap||T.tot.cost>=CFG.costCap){setStatus('cap');return}
+ if(['nokey','badkey','noroute'].includes(status))return;
+ const atts=pending.slice();pending=[];renderPending();ta.value='';grow();
+ const content=[{type:'text',text:readerState()}];
+ for(const a of atts){if(a.kind==='snap'){content.push({type:'text',text:`Snapshot the reader took: ${a.label}${a.where&&a.where!==a.label?' ('+a.where+')':''}.`});content.push({type:'image',source:{type:'base64',media_type:a.mt,data:a.img}})}
+  else content.push({type:'text',text:`The reader selected this text${a.where?' in '+a.where:''}:\n<selection>${a.text}</selection>`})}
+ content.push({type:'text',text:text||'Tell me about what I attached.'});
+ const mark=T.api.length;T.api.push({role:'user',content});
+ const uv={role:'user',text,atts:atts.map(a=>a.kind==='snap'?{kind:'snap',label:a.label,thumb:a.thumb}:{kind:'sel',text:a.text,where:a.where})};T.view.push(uv);
+ if(T.view.length===1)log.replaceChildren();log.appendChild(H((userHtml(uv))));log.scrollTop=log.scrollHeight;
+ const bv={role:'bot',parts:[],model:T.model,refs:[]};const tot={in:0,cw:0,cr:0,out:0,cost:0};
+ running=new AbortController();sendBtn.innerHTML=(`${ic('stop')}<span>Stop</span>`);sendBtn.setAttribute('aria-label','Stop the answer');liveEl=null;renderLive(bv);
+ let ok=false;
+ try{for(let hop=0;hop<CFG.maxHops;hop++){
+   const body={model:T.model,max_tokens:CFG.maxTokens,stream:true,system:systemBlocks(),tools:TOOLS,cache_control:{type:'ephemeral'},output_config:{effort:CFG.effort},messages:T.api};
+   const M=MODELS[T.model];if(M&&M.fallbacks)body.fallbacks=M.fallbacks;
+   const base=bv.parts.length;
+   const r=await stream(body,running.signal,blocks=>{bv.parts.length=base;for(const b of blocks)if(b&&b.type==='text')bv.parts.push({t:'text',md:b.text});renderLive(bv)});
+   bv.parts.length=base;for(const b of r.blocks)if(b.type==='text'&&b.text)bv.parts.push({t:'text',md:b.text});
+   const c=costOf(r.usage,r.model);['in','cw','cr','out','cost'].forEach(k=>tot[k]+=c[k]);T.last=c.ctx;if(r.model&&r.model!==T.model)bv.served=r.model;
+   if(r.stopReason==='refusal'){bv.parts.push({t:'note',bad:true,text:'Claude declined to answer this one'+(r.stopDetails&&r.stopDetails.category?` (${r.stopDetails.category})`:'')+'. Try rewording it.'});break}
+   if(r.stopReason==='max_tokens'&&r.blocks.some(b=>b.type==='tool_use')){bv.parts.push({t:'note',text:'The answer hit its length limit in the middle of a step, so this question was not kept. Try a narrower question.'});break}
+   T.api.push({role:'assistant',content:echo(r.blocks)});
+   if(r.stopReason==='max_tokens')bv.parts.push({t:'note',text:'The answer hit its length limit and was cut short.'});
+   if(r.stopReason!=='tool_use'){ok=true;break}
+   const calls=r.blocks.filter(b=>b.type==='tool_use');const results=[];
+   for(const b of calls){const [act,out,isErr]=await runTool(b);bv.parts.push(act);renderLive(bv);results.push(Object.assign({type:'tool_result',tool_use_id:b.id,content:out},isErr?{is_error:true}:{}))}
+   T.api.push({role:'user',content:results});
+   if(hop===CFG.maxHops-1){bv.parts.push({t:'note',text:'Stopped after '+CFG.maxHops+' tool steps.'});T.api.length=mark}}
+ }catch(e){const aborted=e.name==='AbortError';T.api.length=mark;
+  if(e.usage){const c=costOf(e.usage,e.model);['in','cw','cr','out','cost'].forEach(k=>tot[k]+=c[k]);bv.partial=true}
+  if(aborted)bv.parts.push({t:'note',text:'Stopped. This question was not kept in the thread.'});
+  else{const c=e.c||{};if(['nokey','badkey','noroute','limit'].includes(c.s))setStatus(c.s,c.m);bv.parts.push({t:'note',bad:true,text:c.s==='nokey'?'Claude key not set, so nothing was sent.':c.s==='badkey'?'Anthropic rejected the key.':c.s==='noroute'?'The proxy route is missing on this copy.':c.s==='limit'?c.m:(c.type==='overloaded_error'||c.status>=500?'Claude is busy right now. Try again in a moment.':'Something went wrong: '+e.message)})}}
+ finally{running=null;sendBtn.innerHTML=(`${ic('up')}<span>Send</span>`);sendBtn.removeAttribute('aria-label')}
+ if(!ok&&T.api.length>mark&&T.api[T.api.length-1].role!=='assistant')T.api.length=mark;
+ ['in','cw','cr','out','cost'].forEach(k=>T.tot[k]+=tot[k]);
+ bv.cost=tot.cost;bv.use=`${fmtK(tot.cr)} cached + ${fmtK(tot.in+tot.cw)} new in, ${bv.partial?'about ':''}${fmtK(tot.out)} out · ${fmt$(tot.cost)}${bv.served?' · served by '+bv.served:''}`;
+ bv.refs=refsOf(bv.parts);T.view.push(bv);
+ cancelAnimationFrame(liveRAF);if(liveEl&&liveEl.isConnected)liveEl.replaceWith(H((botHtml(bv,false))));else log.appendChild(H((botHtml(bv,false))));liveEl=null;log.scrollTop=log.scrollHeight;
+ persist();renderMeter();if(T.last>=CFG.ctxCap||T.tot.cost>=CFG.costCap)setStatus('cap');
+ if(T.drivePath&&bv.parts.some(p=>p.tool==='save_thread'&&!p.err))toDrive(toMd()).catch(()=>{});
+ ta.focus()}
+function stop(){if(running)running.abort()}
+
+/* ───────── export: Markdown download, and a copy in the owner's here.now Drive ───────── */
+function toMd(){const c=context(),M=MODELS[T.model]||{};const base=location.href.split('#')[0];
+ const ref=s=>String(s||'').replace(/\[\[src:([A-Za-z0-9_-]+)\]\]/g,(m,id)=>{const S=srcById(id);return S?`[${S.title}](${S.url})`:''}).replace(/\[\[([A-Za-z0-9_.:-]+)(?:\|([^\]]+))?\]\]/g,(m,id,l)=>{const t=target(id);return t?`[${l||t.short}](${base}#${t.id})`:''});
+ const L=[`# Questions about: ${c.title||D.title}`,'',`- Page: ${base}`,`- Thread: ${T.id}, started ${T.created.slice(0,16).replace('T',' ')}`,`- Model: ${M.label||T.model}`,`- Cost: about ${fmt$(T.tot.cost)} (${fmtK(T.tot.cr)} cached + ${fmtK(T.tot.in+T.tot.cw)} new input tokens, ${fmtK(T.tot.out)} output tokens)`,''];
+ for(const v of T.view){if(v.role==='user'){L.push('## You','');for(const a of v.atts||[])L.push(a.kind==='snap'?`_Snapshot: ${a.label}_`:`> ${a.text.replace(/\n/g,' ')}${a.where?`\n> (${a.where})`:''}`,'');if(v.text)L.push(v.text,'')}
+  else{L.push('## Claude','');for(const p of v.parts){if(p.t==='text')L.push(ref(p.md),'');else if(p.t==='act')L.push('_'+p.html.replace(/<[^>]+>/g,'').replace(/&quot;/g,'"').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>')+(p.url?` (${p.url})`:'')+'_','');else if(p.t==='note')L.push('_'+p.text+'_','')}if(v.use)L.push(`<sub>${v.use}</sub>`,'')}}
+ return L.join('\n')}
+function download(name,text){const a=D.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type:'text/markdown'}));a.download=name;a.className='ask-ui';D.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1500)}
+function exportMd(){if(!T.view.length){note('Nothing to export yet.');return}download(`${SLUG}-thread-${T.id}.md`,toMd())}
+async function sha(s){const h=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s));return [...new Uint8Array(h)].map(x=>x.toString(16).padStart(2,'0')).join('')}
+async function toDrive(text){if(!HTTP)return {ok:false,why:'local preview'};const bytes=new TextEncoder().encode(text);
+ const tryOnce=async(path,etag)=>{const body={path,size:bytes.length,contentType:'text/markdown',sha256:await sha(text)};if(etag)body.ifMatch=etag;else body.ifNoneMatch='*';
+  const r=await fetch(CFG.drive.uploads,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+  if(r.status===404)return {ok:false,why:'not set up on this page (no /api/drive route)'};if(r.status===401||r.status===403)return {ok:false,why:'the Drive token is not set (REPORT_THREADS_DRIVE_TOKEN under Variables)'};
+  if(r.status===409||r.status===412)return {ok:false,conflict:true};if(!r.ok)return {ok:false,why:'here.now said '+r.status};
+  const up=await r.json();const put=await fetch(up.uploadUrl,{method:'PUT',headers:up.headers||{'Content-Type':'text/markdown'},body:bytes});if(!put.ok)return {ok:false,why:'upload failed ('+put.status+')'};
+  const f=await fetch(CFG.drive.finalize,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({uploadId:up.uploadId})});if(!f.ok)return {ok:false,why:'finalize failed ('+f.status+')'};
+  let fj={};try{fj=await f.json()}catch(e){}const et=(fj.file&&(fj.file.etag||fj.file.sha256))||fj.etag||'';return {ok:true,path,etag:et}};
+ const path=T.drivePath||`${CFG.drive.dir}${SLUG}/${T.id}.md`;let r=await tryOnce(path,T.driveEtag);
+ if(r.conflict){const p2=`${CFG.drive.dir}${SLUG}/${T.id}-${Date.now().toString(36)}.md`;r=await tryOnce(p2,null)}
+ if(r.ok){T.drivePath=r.path;T.driveEtag=r.etag||T.driveEtag;persist()}return r}
+async function saveAll({download:dl=true,drive=true,announce=false}={}){const said=['kept in this browser'];
+ if(!T.view.length)return {say:'Nothing to save yet.'};persist();const text=toMd();
+ if(dl){download(`${SLUG}-thread-${T.id}.md`,text);said.push('downloaded as a .md file')}
+ if(drive){const r=await toDrive(text);said.push(r.ok?`copied to here.now Drive at My Drive/${r.path}`:`not copied to Drive: ${r.why||'conflict'}`)}
+ const say='Thread '+said.join(', ')+'.';if(announce)note(say);return {say}}
+function resetThread(){if(running)return;if(T.view.length&&!confirm('Start a new thread? This one is cleared from the panel. Export it first if you want to keep it.'))return;T=newThread();store.set('thread',JSON.stringify(T));setStatus(null);if(HTTP)probe(true);renderAll();ta.focus()}
+
+/* ───────── boot ───────── */
+function init(){if(Q('.ask-sheet'))return;T=loadThread();if(!MODELS[T.model])T.model=CFG.model;build();renderMeter();
+ window.__askPanel={clearStatus:()=>setStatus(null),extract,context:()=>context(),open:()=>open(true),close:()=>open(false),state:()=>({status,ctxSource:CTXSRC,thread:T,pending:pending.length,docked}),cfg:CFG,tools:TOOLS.map(t=>t.name),systemBlocks,toMd}}
+if(D.readyState==='loading')D.addEventListener('DOMContentLoaded',init);else init();
+})();
+/* report recipe boot: figure registry, resize redraw, count-up, load choreography. Keep last; it closes the inline script. */
+/* ───────────────────────── registry: draw now, draw in on view ───────────────────────── */
+function safe(fn){return a=>{try{const r=fn(a);if(r&&r.catch)r.catch(e=>console.error(fn.name,e))}catch(e){console.error(fn.name,e)}}}
+const FIGS=[['fig-shots',drawShots],['fig-checks',drawChecks]]; // add ['fig-id', drawFn] per figure; fn(animate) draws into its host
+function drawAll(){FIGS.forEach(([id,fn])=>safe(fn)(false))}
+let lastW=innerWidth;
+addEventListener('resize',()=>{hideTip();clearTimeout(window.__rz);window.__rz=setTimeout(()=>{if(Math.abs(innerWidth-lastW)<2)return;lastW=innerWidth;drawAll();slideAll()},180)});
+
+/* ───────────────────────── boot choreography ───────────────────────── */
+function countUp(){$$('[data-count]').forEach(el=>{const n=+el.dataset.count;const fmt=v=>el.dataset.comma?d3.format(',')(v):v;if(!HAS()){el.textContent=fmt(n);return}el.textContent=fmt(0);Motion.animate(0,n,{duration:1.1,delay:.85,ease:[.2,0,0,1],onUpdate:v=>el.textContent=fmt(Math.round(v))})})}
+function boot(){
+ if(!window.Motion||reduced)root.classList.remove('anim');
+ drawAll();spy();slideAll();if(document.fonts&&document.fonts.ready)document.fonts.ready.then(()=>{slideAll()});
+ FIGS.forEach(([id,fn])=>{const el=document.getElementById(id);const inPanel=el.closest('.panel');
+  if(HAS()&&inPanel){el.style.opacity=0}
+  onView(el,()=>{if(HAS()&&inPanel)anim(el,{opacity:[0,1],transform:['translateY(18px)','none']},{duration:.5,ease:[.2,.7,.1,1]});safe(fn)(true)},.12)});
+ if(!HAS()){countUp();$$('.anim-hide').forEach(e=>e.style.opacity=1);return}
+ anim($('#top'),{opacity:[0,1],transform:['translateY(-10px)','none']},{duration:.4});
+ anim($$('.tab'),{opacity:[0,1],transform:['translateY(-6px)','none']},{duration:.3,delay:ST(.03,{start:.1})});
+ anim($$('.rv0'),{opacity:[0,1],transform:['translateY(12px)','none']},{duration:.45,delay:ST(.12,{start:.15})});
+ countUp();
+ anim($$('.lead-lines li'),{opacity:[0,1],y:[10,0]},{type:'spring',stiffness:300,damping:22,delay:ST(.08,{start:.8})});
+ setTimeout(()=>{$$('#top, .rv0, .lead-lines li').forEach(e=>{if(getComputedStyle(e).opacity==='0')e.style.opacity=1});root.classList.remove('anim')},3200)}
+if(document.readyState==='complete')boot();else addEventListener('load',boot);
+</script>
+<script type="application/json" id="ask-context">{"brief":{"project":{"name":"Folio: a native macOS file manager that behaves like Windows Explorer. Milestone 1b: the picked design (D1 Control room) ported into the app.","links":[{"label":"Repo shootdaj/folio, branch m1b-control-room","url":"https://github.com/shootdaj/folio/tree/m1b-control-room"},{"label":"PR #1, milestone 1 engine","url":"https://github.com/shootdaj/folio/pull/1"},{"label":"Build plan report","url":"https://supple-kitten-9jrn.here.now/"}],"goal":"Make the real app look like the design Anshul picked in the design room, so every later milestone builds on the right chassis."},"why":{"problem":"Milestone 1 shipped with stock AppKit chrome. Anshul said \"make the UI look WAY better\", picked D1 Control room from three designs, and set the golden rule that the app never runs on his physical Mac. This page shows the port, run inside the test VM.","askedBy":"Anshul, Claude Code session, 2026-11-05","quote":"go with d1. build the whole thing, test etc, make sure nothing gets fucked up. no files on the actual physical machine should be touched by the folio app, everything it runs should be on the VM"},"how":{"sources":"Branch m1b-control-room at commit eb6e01a; the design reference docs/design/d1-control-room.html; the VM folio-test on the Mac Ultra.","ran":"A real run: make test and make app on the MacBook (build only), the bundle copied to the Ultra and into the VM, then Folio --uitest inside the VM on a temp folder it creates (40 folders, 8 files), which screenshots its own window, clicks the Name header, selects a row, and quits. Run three times: dark green, dark green after the column fix, light amber.","where":"Build on the MacBook; every run inside the tart VM folio-test (macOS 15.7.7) on the Mac Ultra. Folio never executed on the MacBook or the Ultra host.","dates":"2026-11-05.","tools":"Swift 6.0.3 Command Line Tools, swift-testing, codesign, tart 2.41.1, the app's own --uitest mode (CGWindowListCreateImage). Built by an Opus 5.5 agent, checked by the main session.","notTested":"Real mouse and keyboard events (the uitest synthesizes clicks; the row click needed a fallback); dragging a column divider wider than the space; the theme-switch and row-stagger animations, which are not built yet; the sidebar group collapse and crumb arrow flyouts (milestone 2)."},"decisions":{"decided":"Tokens, Archivo and Chivo Mono bundled under OFL, three accents, dark and light designed separately, HUD strip, corner brackets, blueprint sidebar, status ticker, tick strip, row height 24 (D1 value), columns fit the list width with no horizontal scroll.","pending":"Merge of PR #1 then PR #2 (this branch). Whether to raise row height to 26.","yourCall":"Look at the shots against the design, then say merge 1 and 2, or say what to change."},"history":[{"date":"2026-11-05","change":"First version."}],"glossary":"not recorded"},"title":"Folio milestone 1b: the Control room look, proof","description":"The D1 Control room design ported into the native Folio app, run and screenshotted inside the test VM.","headline":"Does the native Folio app look like the D1 design you picked?","lead":{"lines":["The Control room look is in the real app: HUD strip, brackets, blueprint sidebar, ticker, Archivo and Chivo Mono bundled.","Run only inside the test VM on the Ultra; the app never executed on your Mac.","59 tests pass; sort, selection and the status bar work in the VM; light + amber checked too.","Not yet: real mouse events (synthesized only), the animations, crumb flyouts (milestone 2)."],"call":"Your call: compare the shots with the design, then say merge 1 and 2, or say what to change.","card":{"title":"How we checked","steps":["make test and make app on the MacBook, build only","Bundle copied into the VM, Folio --uitest run there on a temp folder","The app screenshots itself, clicks the header, selects a row; PNGs fetched and looked at"],"note":"Not tested: real mouse and keyboard events, column divider drag, animations not built yet."}},"sections":[{"id":"overview","no":"00","title":"Overview","open":true,"text":"Does the native Folio app look like the D1 design you picked? The Control room look is in the real app: HUD strip, brackets, blueprint sidebar, ticker, Archivo and Chivo Mono bundled. Run only inside the test VM on the Ultra; the app never executed on your Mac. 59 tests pass; sort, selection and the status bar work in the VM; light + amber checked too. Not yet: real mouse events (synthesized only), the animations, crumb flyouts (milestone 2). Your call: compare the shots with the design, then say merge 1 and 2, or say what to change. How we checked 1make test and make app on the MacBook, build only 2Bundle copied into the VM, Folio --uitest run there on a temp folder 3The app screenshots itself, clicks the header, selects a row; PNGs fetched and looked at Not tested: real mouse and keyboard events, column divider drag, animations not built yet.","figures":[]},{"id":"screen","no":"01","title":"What you see","open":true,"text":"","figures":["fig-shots"]},{"id":"checks","no":"02","title":"Checks","open":true,"text":"","figures":["fig-checks"]},{"id":"appendix","no":"A","title":"Appendix","open":false,"text":"A.1 Reproduce it. On the MacBook: cd fuck-finder-wt/m1b-control-room && make test && make app && rsync -aq --delete build/Folio.app/ macultra:/Users/anshul/AgentWork/folio/Folio.app/. On the Ultra: /Users/anshul/AgentWork/folio/vm-run.sh [--theme light] [--accent amber]; PNGs land in /Users/anshul/AgentWork/folio/shots/\u003cstamp>/. A.2 What is in the branch. On top of milestone 1: Theme tokens and persistence, bundled fonts, the chassis (title bar, toolbar, breadcrumbs, search field, HUD strip, sidebar with Quick access and This PC, file list with drawn icons and bracket selection, status bar with ticker, tick strip), --uitest, column fit, docs/plan (RULES, MILESTONES, VM), docs/research (the three Explorer research files), docs/design (the D1 reference), docs/proof/m1b.","figures":[]}],"figures":[{"id":"fig-shots","no":"Fig. 1.1 to 1.5","section":"screen","title":"Design first, then the native app in the VM","caption":"Same chassis, type and colour as the design; dark and light, three accents.","hint":"","data":{"SHOTS":[{"file":"shots/00-design-d1.png","url":"fuck-finder-designs/d1-control-room/index.html (the design you picked, HTML mock)","caption":"The target: D1 Control room, step 1, as shown in the design room."},{"file":"shots/01-open-dark.png","url":"VM: Folio --uitest new --shot m1b.png (dark, green)","caption":"The native app on its temp folder: HUD strip, blueprint sidebar, capacity bar, ticker, tick strip."},{"file":"shots/02-name-sorted.png","url":"VM: after the synthesized click on the Name header","caption":"Name Z to A: files first, then folders, exactly Explorer's descending rule."},{"file":"shots/03-row-selected.png","url":"VM: after selecting row 3","caption":"main.go selected with corner brackets and the folder light; status bar \"48 items, 1 selected, 4 KB\"."},{"file":"shots/04-light-amber.png","url":"VM: Folio --uitest new --theme light --accent amber","caption":"Light theme, amber accent: the HUD strip stays dark like a physical gauge."}]},"text":"fuck-finder-designs/d1-control-room/index.html (the design you picked, HTML mock)The target: D1 Control room, step 1, as shown in the design room.VM: Folio --uitest new --shot m1b.png (dark, green)The native app on its temp folder: HUD strip, blueprint sidebar, capacity bar, ticker, tick strip.VM: after the synthesized click on the Name headerName Z to A: files first, then folders, exactly Explorer's descending rule.VM: after selecting row 3main.go selected with corner brackets and the folder light; status bar \"48 items, 1 selected, 4 KB\".VM: Folio --uitest new --theme light --accent amberLight theme, amber accent: the HUD strip stays dark like a physical gauge."},{"id":"fig-checks","no":"Fig. 2.1","section":"checks","title":"Every check, with its command and output","caption":"9 passed, 1 not run: real mouse events wait for milestone 2's VM script.","hint":"","data":{"CHECKS":[{"test":"Unit tests","how":"make test","result":"ok","evidence":"Test run with 59 tests passed (theme tokens per theme and accent, persistence, breadcrumbs, volume capacity, status and ticker text, HUD, SVG path parser, column fit, uitest fixture)"},{"test":"Builds without Xcode","how":"make app","result":"ok","evidence":"release build, bundle with Contents/Resources/Fonts (Archivo, ChivoMono, OFL.txt), ad-hoc codesign"},{"test":"Never ran on the physical Mac","how":"golden rule","result":"ok","evidence":"only swift build, make test, make app, rsync on the host; every launch inside the VM"},{"test":"Fonts load in the VM","how":"Folio --uitest new (in VM)","result":"ok","evidence":"uitest: fonts: Archivo and Chivo Mono registered"},{"test":"Lists the temp folder","how":"Folio --uitest new (in VM)","result":"ok","evidence":"48 rows, 40 folders, theme dark, accent green"},{"test":"Header click sorts","how":"synthesized mouse down and up on the Name header (in VM)","result":"ok","evidence":"Name, A to Z -> Name, Z to A, first row styles.css (files first when descending, Explorer's rule)"},{"test":"Row selection and status bar","how":"row index 3 (in VM)","result":"ok","evidence":"main.go selected; status reads \"48 items, 1 selected, 4 KB\"; the synthesized click did not select, selectRowIndexes fallback did"},{"test":"Light theme, amber accent","how":"Folio --uitest new --theme light --accent amber (in VM)","result":"ok","evidence":"Fig. 1.5: light surfaces, amber accent, HUD strip stays dark"},{"test":"No horizontal scrollbar","how":"second run after the column fix (in VM)","result":"ok","evidence":"Fig. 1.4: Size column visible, no horizontal scroller, tick strip in its own gutter"},{"test":"Real mouse clicks on rows","how":"needs System Events in the VM","result":"miss","evidence":"not run yet: the uitest synthesizes events and the row click needed a fallback; milestone 2's VM script drives real events"}]},"text":"CheckHow it ranResultEvidenceUnit testsmake testPassedTest run with 59 tests passed (theme tokens per theme and accent, persistence, breadcrumbs, volume capacity, status and ticker text, HUD, SVG path parser, column fit, uitest fixture)Builds without Xcodemake appPassedrelease build, bundle with Contents/Resources/Fonts (Archivo, ChivoMono, OFL.txt), ad-hoc codesignNever ran on the physical Macgolden rulePassedonly swift build, make test, make app, rsync on the host; every launch inside the VMFonts load in the VMFolio --uitest new (in VM)Passeduitest: fonts: Archivo and Chivo Mono registeredLists the temp folderFolio --uitest new (in VM)Passed48 rows, 40 folders, theme dark, accent greenHeader click sortssynthesized mouse down and up on the Name header (in VM)PassedName, A to Z -> Name, Z to A, first row styles.css (files first when descending, Explorer's rule)Row selection and status barrow index 3 (in VM)Passedmain.go selected; status reads \"48 items, 1 selected, 4 KB\"; the synthesized click did not select, selectRowIndexes fallback didLight theme, amber accentFolio --uitest new --theme light --accent amber (in VM)PassedFig. 1.5: light surfaces, amber accent, HUD strip stays darkNo horizontal scrollbarsecond run after the column fix (in VM)PassedFig. 1.4: Size column visible, no horizontal scroller, tick strip in its own gutterReal mouse clicks on rowsneeds System Events in the VMNot runnot run yet: the uitest synthesizes events and the row click needed a fallback; milestone 2's VM script drives real events"}],"sources":[{"id":"s1","title":"Repo shootdaj/folio, branch m1b-control-room","url":"https://github.com/shootdaj/folio/tree/m1b-control-room"},{"id":"s2","title":"PR #1, milestone 1 engine","url":"https://github.com/shootdaj/folio/pull/1"},{"id":"s3","title":"Build plan report","url":"https://supple-kitten-9jrn.here.now/"}],"footer":"Generated 2026-11-05 by Claude Code with AnshulSources: the commands above; PNGs from the VM; the D1 design shot. Method: real build, real runs in the VM."}</script>
+</body>
+</html>
