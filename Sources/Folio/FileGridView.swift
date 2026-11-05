@@ -62,7 +62,16 @@ private struct SendableImage: @unchecked Sendable { let cg: CGImage? }
 
 /// One item of the icon grid: Small, Medium, Large and Extra large icons, List, Tiles, Content and the
 /// Gallery strip, drawn the D1 way (hover wash, accent fill and brackets when selected).
-final class GridCellView: NSView {
+final class GridCellView: NSView, NSViewToolTipOwner {
+    @objc func view(_ view: NSView, stringForToolTip tag: NSView.ToolTipTag, point: NSPoint, userData data: UnsafeMutableRawPointer?) -> String {
+        tip?() ?? ""
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        if tip != nil { removeAllToolTips(); addToolTip(bounds, owner: self, userData: nil) }
+    }
+
     var entry: FileEntry? { didSet { thumbnail = nil; needsDisplay = true; setAccessibilityLabel(entry?.name) } }
     var mode: ViewMode = .largeIcons { didSet { needsDisplay = true } }
     var isSelected = false { didSet { if isSelected != oldValue { needsDisplay = true } } }
@@ -72,6 +81,12 @@ final class GridCellView: NSView {
     var isCut = false { didSet { if isCut != oldValue { needsDisplay = true } } }
     var showsExtension = true
     var thumbnail: NSImage? { didSet { needsDisplay = true } }
+    /// Display file icon on thumbnails: the type's small icon in the thumbnail's corner.
+    var showsTypeBadge = true
+    var tagColors: [TagColor] = [] { didSet { if tagColors != oldValue { needsDisplay = true } } }
+    var isFlagDimmed = false
+    /// Show pop-up description: built when the tip is about to show.
+    var tip: (() -> String?)? { didSet { removeAllToolTips(); if tip != nil { addToolTip(bounds, owner: self, userData: nil) } } }
     /// Tiles and Content: Type, Size, Date modified and, when known, dimensions or duration.
     var details: [(key: String, value: String)] = [] { didSet { needsDisplay = true } }
 
@@ -131,7 +146,7 @@ final class GridCellView: NSView {
         }
         if mode == .content { fillRect(NSRect(x: 8, y: bounds.maxY - 1, width: bounds.width - 16, height: 1), p.line) }
         NSGraphicsContext.saveGraphicsState()
-        if isCut || entry.isHidden { NSGraphicsContext.current?.cgContext.setAlpha(0.45) }
+        if isCut || entry.isHidden || isFlagDimmed { NSGraphicsContext.current?.cgContext.setAlpha(0.45) }
         drawIcon(entry, p)
         drawText(entry, p)
         NSGraphicsContext.restoreGraphicsState()
@@ -147,6 +162,12 @@ final class GridCellView: NSView {
             let frame = NSRect(x: icon.midX - w / 2, y: icon.maxY - h, width: w, height: h).integral
             thumbnail.draw(in: frame, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
             strokeRounded(frame.insetBy(dx: -0.5, dy: -0.5), radius: 1, p.line2)
+            if showsTypeBadge, frame.width >= 40 {
+                let b = max(14, min(24, frame.width * 0.22))
+                let badge = NSRect(x: frame.maxX - b - 2, y: frame.maxY - b - 2, width: b, height: b)
+                fillRounded(badge.insetBy(dx: -2, dy: -2), radius: 3, p.s1.withAlpha(0.9))
+                ItemIcon.drawFile(named: entry.name, in: badge, palette: p)
+            }
         } else if entry.isFolder {
             let h = icon.width * 16 / 20
             ItemIcon.drawFolder(in: NSRect(x: icon.minX, y: icon.midY - h / 2, width: icon.width, height: h), palette: p, lit: isSelected)
@@ -267,6 +288,8 @@ final class GridGroupHeader: NSView, NSCollectionViewElement {
 @MainActor
 protocol GridHost: AnyObject {
     var gridLayout: ListLayout { get }
+    /// Folder Options > Single-click to open an item.
+    var singleClickOpens: Bool { get }
     func configure(_ cell: GridCellView, item: Int)
     func gridZoom(_ steps: Int)
     /// A drag over the grid: `item` is the item under it (nil for the background).
@@ -285,6 +308,7 @@ final class FileGridView: NSCollectionView {
     private let flow = NSCollectionViewFlowLayout()
     private let band = BandOverlay()
     private(set) var hoveredItem: Int?
+    private var hoverSelect: Timer?
     var mode: ViewMode = .largeIcons {
         didSet {
             guard mode != oldValue else { return }
@@ -488,7 +512,19 @@ final class FileGridView: NSCollectionView {
         hoveredItem = i
         if let old { cell(ofItem: old)?.isHovered = false }
         if let i { cell(ofItem: i)?.isHovered = true }
+        // Single-click mode's point to select: resting on an item a moment selects it.
+        hoverSelect?.invalidate()
+        hoverSelect = nil
+        if singleClickOpens, let i, NSEvent.pressedMouseButtons == 0 {
+            hoverSelect = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: false) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, self.hoveredItem == i, self.listDelegate?.listIsSelected(i) == false else { return }
+                    self.listDelegate?.list(self, clicked: i, modifiers: NSEvent.modifierFlags.intersection([.command, .shift]))
+                }
+            }
+        }
     }
+
 
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
@@ -503,6 +539,7 @@ final class FileGridView: NSCollectionView {
             rubberBand(from: point, adding: mods.contains(.command))
             return
         }
+        if singleClickOpens, event.clickCount >= 2 { return }
         if event.clickCount >= 2, mods.isEmpty {
             if event.modifierFlags.contains(.option) { delegate.list(self, showPropertiesOf: row) } else { delegate.list(self, opened: row) }
             return
@@ -515,7 +552,15 @@ final class FileGridView: NSCollectionView {
             }
         }
         delegate.list(self, clicked: row, modifiers: mods)
-        if delegate.listIsSelected(row) { _ = trackDrag(from: point, right: false) }
+        if delegate.listIsSelected(row) {
+            let dragged = trackDrag(from: point, right: false)
+            if !dragged, singleClickOpens, mods.isEmpty, !event.modifierFlags.contains(.option) { delegate.list(self, opened: row) }
+        }
+    }
+
+    /// Folder Options > Single-click to open an item.
+    var singleClickOpens: Bool {
+        get { host?.singleClickOpens ?? false }
     }
 
     private func trackDrag(from start: NSPoint, right: Bool) -> Bool {

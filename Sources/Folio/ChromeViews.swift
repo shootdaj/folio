@@ -103,6 +103,14 @@ final class ChromeButton: NSButton {
     var iconSize: CGFloat = 18
     var hoverBrackets = true
     fileprivate(set) var isHovered = false
+    /// Access keys (Option tapped): the letter that presses this button, shown as a key cap.
+    var accessKey: String? {
+        didSet {
+            guard accessKey != oldValue else { return }
+            setAccessibilityValue(accessKey ?? "")
+            needsDisplay = true
+        }
+    }
 
     init(glyph: Glyph, label: String, target: AnyObject?, action: Selector?) {
         self.glyph = glyph
@@ -174,6 +182,15 @@ final class ChromeButtonCell: NSButtonCell {
         button.glyph.draw(in: icon, color: tone.withAlpha(isEnabled ? 1 : 0.34).ns)
         if hot && button.hoverBrackets {
             drawBrackets(cellFrame, color: p.bracket.ns, length: 7)
+        }
+        if let key = button.accessKey {
+            // D1's kbd: line-3 outline with a 2 pt bottom edge, s2, Chivo Mono 500.
+            let font = Typeface.mono(11, weight: 600)
+            let w = max(16, textWidth(key, font: font) + 8)
+            let cap = NSRect(x: cellFrame.maxX - w - 1, y: cellFrame.maxY - 18, width: w, height: 17)
+            fillRounded(cap, radius: 3, p.line3)
+            fillRounded(NSRect(x: cap.minX + 1, y: cap.minY + 1, width: cap.width - 2, height: cap.height - 3), radius: 2.5, p.s2)
+            drawLine(key, font: font, color: p.accent, x: cap.midX - textWidth(key, font: font) / 2, midY: cap.minY + 7.5)
         }
     }
 }

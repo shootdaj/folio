@@ -62,10 +62,20 @@ enum PinEdit {
     case unpin(String)
 }
 
+/// Folder Options' navigation pane settings.
+struct NavigationLayout: Equatable {
+    var showAllFolders = false
+    var showNetwork = true
+    var showThisPC = true
+    var hideEmptyDrives = true
+    var showDriveLetters = false
+}
+
 /// One row of the navigation pane. Objects stay the same across reloads so the outline keeps what is
 /// expanded.
 final class SideNode: NSObject, @unchecked Sendable {
-    enum Section: String, CaseIterable { case quickAccess, thisPC, network }
+    /// `allFolders` replaces This PC and Network with Folder Options > Show all folders on.
+    enum Section: String, CaseIterable { case quickAccess, thisPC, network, allFolders }
 
     enum Kind {
         case header(Section), footer(Section)
@@ -77,6 +87,8 @@ final class SideNode: NSObject, @unchecked Sendable {
         case folder(TreeFolder)
         case share(VolumeCapacity)
         case browse, server(String), connect, notice(String)
+        /// An iPhone or camera seen through Image Capture (a Mac has no MTP).
+        case device(String)
     }
 
     var kind: Kind
@@ -101,6 +113,7 @@ final class SideNode: NSObject, @unchecked Sendable {
         case .header(.quickAccess): "Quick access"
         case .header(.thisPC): "This PC"
         case .header(.network): "Network"
+        case .header(.allFolders): "All folders"
         case .footer: ""
         case .home: "Home"
         case .pin(let place, _): place.title
@@ -110,6 +123,7 @@ final class SideNode: NSObject, @unchecked Sendable {
         case .folder(let f): f.name
         case .browse: "Browse network"
         case .server(let name): name
+        case .device(let name): name
         case .connect: "Connect to server..."
         case .notice(let text): text
         }
@@ -131,6 +145,9 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
     var onBrowse: (() -> Void)?
     var onServer: ((String) -> Void)?
     var onRenameVolume: ((VolumeCapacity) -> Void)?
+    /// A phone or camera: Image Capture imports from it.
+    var onDevice: (() -> Void)?
+    private var deviceNodes: [SideNode] = []
     /// Files dropped on the Recycle Bin row.
     var onTrash: (([URL]) -> Void)?
     /// Right-click a row: the window builds the menu.
@@ -156,6 +173,23 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
     private var dirNodes: [String: SideNode] = [:]
     private var collapsed: Set<String>
     private static let collapsedKey = "navPaneCollapsed"
+    /// Folder Options' navigation pane settings, and the volumes as last given (for Hide empty drives).
+    private(set) var layoutOptions = NavigationLayout()
+    private var allVolumes: [VolumeCapacity] = []
+    /// Show all folders: the home folder as a tree of its own, under All folders.
+    private lazy var homeFolderNode: SideNode = {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return SideNode(.cloud(CloudPlace(name: FileManager.default.displayName(atPath: home.path), path: home.path)))
+    }()
+
+    /// The sections shown, top to bottom.
+    var sections: [SideNode.Section] {
+        var out: [SideNode.Section] = [.quickAccess]
+        if layoutOptions.showAllFolders { return out + [.allFolders] }
+        if layoutOptions.showThisPC { out.append(.thisPC) }
+        if layoutOptions.showNetwork { out.append(.network) }
+        return out
+    }
 
     /// The folder the window shows (a resolved path), or Home's.
     var currentPath = "" { didSet { if currentPath != oldValue { outline?.redrawRows() } } }
@@ -206,13 +240,37 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
     func headerCount(_ s: SideNode.Section) -> Int {
         switch s {
         case .quickAccess: pinNodes.count
-        case .thisPC: volumeNodes.count
+        case .thisPC, .allFolders: volumeNodes.count
         case .network: shareNodes.count
         }
     }
 
+    /// Folder Options changed: sections come and go, drives are filtered and labelled again.
+    func setLayout(_ layout: NavigationLayout) {
+        guard layout != layoutOptions else { return }
+        let sectionsChanged = layout.showAllFolders != layoutOptions.showAllFolders || layout.showNetwork != layoutOptions.showNetwork
+            || layout.showThisPC != layoutOptions.showThisPC
+        layoutOptions = layout
+        setVolumes(allVolumes)
+        if sectionsChanged {
+            outline?.reloadData()
+            expandOpenSections()
+        }
+        outline?.redrawRows()
+    }
+
+    /// Phones and cameras connected now (ImageCaptureCore's device browser).
+    func setDevices(_ names: [String]) {
+        deviceNodes = names.map { name in deviceNodes.first { $0.title == name } ?? SideNode(.device(name)) }
+        reload(.thisPC)
+    }
+
+    /// A drive's name, with its mount path when Show drive letters is on.
+    func label(_ v: VolumeCapacity) -> String { VolumeList.label(v, showPath: layoutOptions.showDriveLetters) }
+
     func setVolumes(_ volumes: [VolumeCapacity]) {
-        let (drives, network) = VolumeList.arrange(volumes)
+        allVolumes = volumes
+        let (drives, network) = VolumeList.arrange(volumes, hideEmpty: layoutOptions.hideEmptyDrives)
         func reuse(_ old: [SideNode], _ list: [VolumeCapacity], share: Bool) -> [SideNode] {
             list.map { v in
                 if let node = old.first(where: { $0.path == v.path }) {
@@ -226,6 +284,7 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
         shareNodes = reuse(shareNodes, network, share: true)
         reload(.thisPC)
         reload(.network)
+        reload(.allFolders)
     }
 
     func setServers(_ names: [String], notice: String?) {
@@ -243,10 +302,13 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
     }
 
     private func children(of section: SideNode.Section) -> [SideNode] {
+        let network = shareNodes + serverNodes + (noticeNode.map { [$0] } ?? []) + [browseNode, connectNode]
         switch section {
-        case .quickAccess: [homeNode] + pinNodes + cloudNodes + [recycleNode]
-        case .thisPC: volumeNodes
-        case .network: shareNodes + serverNodes + (noticeNode.map { [$0] } ?? []) + [browseNode, connectNode]
+        case .quickAccess: return [homeNode] + pinNodes + cloudNodes + (layoutOptions.showAllFolders ? [] : [recycleNode])
+        case .thisPC: return volumeNodes + deviceNodes
+        case .network: return network
+        // The top of the Mac: Home, the drives, Network and the Recycle Bin, as Explorer's Desktop root.
+        case .allFolders: return [homeFolderNode] + volumeNodes + (layoutOptions.showNetwork ? network : []) + [recycleNode]
         }
     }
 
@@ -269,7 +331,7 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
     // MARK: Data source
 
     func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
-        guard let node = item as? SideNode else { return SideNode.Section.allCases.count * 2 }
+        guard let node = item as? SideNode else { return sections.count * 2 }
         switch node.kind {
         case .header(let s): return children(of: s).count
         case .volume, .share, .folder, .cloud: return node.path.map { treeChildren($0).count } ?? 0
@@ -279,7 +341,7 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
 
     func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
         guard let node = item as? SideNode else {
-            let s = SideNode.Section.allCases[index / 2]
+            let s = sections[index / 2]
             return (index % 2 == 0 ? headers[s] : footers[s]) as Any
         }
         switch node.kind {
@@ -310,7 +372,7 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
         case .header: return 12 + 1 + 36
         case .footer(let s):
             let open = !collapsed.contains(s.rawValue)
-            return (open ? 6 : 0) + 1 + (s == .network ? 12 : 0)
+            return (open ? 6 : 0) + 1 + (s == sections.last ? 12 : 0)
         case .volume, .share: return 77.75
         case .folder: return 26
         default: return 30
@@ -381,7 +443,7 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
             let hr = outline.row(forItem: h), fr = outline.row(forItem: f)
             guard hr >= 0, fr >= 0 else { return nil }
             let top = outline.rect(ofRow: hr).minY + 12
-            let bottom = outline.rect(ofRow: fr).maxY - (s == .network ? 12 : 0)
+            let bottom = outline.rect(ofRow: fr).maxY - (s == sections.last ? 12 : 0)
             return NSRect(x: 10, y: top, width: w - 20, height: bottom - top)
         }
     }
@@ -405,6 +467,7 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
         case .connect: onConnect?()
         case .browse: onBrowse?()
         case .server(let name): onServer?(name)
+        case .device: onDevice?()
         case .footer, .notice: break
         }
     }
@@ -451,7 +514,8 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
             if changed == root { outline.reloadItem(rootNode, reloadChildren: true) }
             else if let node = dirNodes[changed] { outline.reloadItem(node, reloadChildren: true) }
         }
-        let section: SideNode.Section = rootNode.isShare ? .network : rootNode.isCloud ? .quickAccess : .thisPC
+        let section: SideNode.Section = rootNode.isCloud ? .quickAccess : layoutOptions.showAllFolders ? .allFolders
+            : rootNode.isShare ? .network : .thisPC
         if let header = headers[section], !outline.isItemExpanded(header) { outline.expandItem(header) }
         outline.expandItem(rootNode)
         var last: SideNode = rootNode
@@ -983,7 +1047,7 @@ final class SideRowView: NSTableRowView {
         let r = NSRect(x: 10, y: 13, width: bounds.width - 20, height: 36)
         if hovered { fillRounded(r.insetBy(dx: 1, dy: 0), radius: 4, p.txt2.withAlpha(0.08)) }
         let mid = r.midY
-        let glyph: Glyph = switch s { case .quickAccess: .star; case .thisPC: .pc; case .network: .globe }
+        let glyph: Glyph = switch s { case .quickAccess: .star; case .thisPC: .pc; case .network: .globe; case .allFolders: .desktop }
         glyph.draw(in: NSRect(x: r.minX + 11, y: mid - 8, width: 16, height: 16), color: p.txt2.ns)
         let title = node?.title ?? ""
         let tw = drawLine(title, font: Typeface.ui(12, weight: 700, width: 124), color: p.txt, x: r.minX + 35, midY: mid, kern: 0.48)
@@ -1024,7 +1088,8 @@ final class SideRowView: NSTableRowView {
                 Glyph.chevron.draw(in: NSRect(x: r.minX + 8, y: mid - 6, width: 12, height: 12), color: p.txt3.ns, lineWidth: 2,
                                    rotation: outline.isItemExpanded(node) ? .pi / 2 : 0)
             }
-            Glyph.cloud.draw(in: NSRect(x: r.minX + 24, y: mid - 8, width: 16, height: 16), color: (on ? p.accent : p.txt2).ns)
+            let glyph: Glyph = c.path == FileManager.default.homeDirectoryForCurrentUser.path ? .home : .cloud
+            glyph.draw(in: NSRect(x: r.minX + 24, y: mid - 8, width: 16, height: 16), color: (on ? p.accent : p.txt2).ns)
             drawLine(c.name, font: font, color: on ? p.accent : p.txt, x: r.minX + 50, midY: mid, maxWidth: r.width - 58)
         case .recycle:
             if on { drawLight(at: NSPoint(x: r.minX + 8, y: (mid - 3).rounded()), p) }
@@ -1047,6 +1112,9 @@ final class SideRowView: NSTableRowView {
         case .browse:
             Glyph.globe.draw(in: NSRect(x: r.minX + 24, y: mid - 8, width: 16, height: 16), color: p.txt2.ns)
             drawLine(pane?.browseStatus ?? "Browse network", font: font, color: p.txt2, x: r.minX + 50, midY: mid, maxWidth: r.width - 58)
+        case .device(let name):
+            Glyph.pics.draw(in: NSRect(x: r.minX + 24, y: mid - 8, width: 16, height: 16), color: p.txt2.ns)
+            drawLine(name, font: font, color: p.txt, x: r.minX + 50, midY: mid, maxWidth: r.width - 58)
         case .server(let name):
             Glyph.server.draw(in: NSRect(x: r.minX + 24, y: mid - 8, width: 16, height: 16), color: p.txt2.ns)
             drawLine(name, font: font, color: p.txt, x: r.minX + 50, midY: mid, maxWidth: r.width - 58)
@@ -1095,7 +1163,7 @@ final class SideRowView: NSTableRowView {
         glyph.draw(in: NSRect(x: r.minX + 18, y: topMid - 8, width: 16, height: 16), color: (on ? p.accent : p.txt2).ns)
         let ejectRoom: CGFloat = v.canEject ? 26 : 0
         let pctW = drawLine(v.percentText, font: Typeface.mono(12), color: tone, x: r.maxX - 8 - ejectRoom, midY: topMid, alignRight: true)
-        drawLine(v.name, font: Typeface.ui(13, weight: 600), color: on ? p.accent : p.txt, x: r.minX + 42, midY: topMid,
+        drawLine(pane?.label(v) ?? v.name, font: Typeface.ui(13, weight: 600), color: on ? p.accent : p.txt, x: r.minX + 42, midY: topMid,
                  maxWidth: r.width - 42 - 8 - pctW - 8 - ejectRoom)
         // 24 segments, gap 2, the used share lit in the accent (red from 90% full).
         let barY = r.minY + 8 + 17.55 + 9

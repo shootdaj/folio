@@ -57,6 +57,7 @@ extension BrowserWindowController {
     }
 
     func itemMenu(extended: Bool) -> NSMenu {
+        if isInZip { return zipItemMenu() }
         let urls = selectedURLs
         let items = selectedEntries
         let menu = styled("Item")
@@ -114,17 +115,64 @@ extension BrowserWindowController {
         share.title = "Share"
         menu.addItem(share)
         submenu(menu, "Send to", sendToMenu(extended: extended))
-        let compress = NSMenuItem(title: "Compress to ZIP file", action: nil, keyEquivalent: "")
-        compress.toolTip = "Arrives with milestone 8"
-        menu.addItem(compress)
+        let compress = styled("Compress to")
+        for format in ArchiveFormat.allCases {
+            add(compress, format.title, #selector(compressSelection(_:)), object: format.rawValue)
+        }
+        submenu(menu, "Compress to", compress)
+        if items.count == 1, let one = urls.first, ArchiveNaming.isExtractable(one) {
+            add(menu, "Extract all...", #selector(extractAll(_:)))
+        }
+        if !isTrashView { submenu(menu, "Tags", tagsMenu()) }
+        if !selectedImages.isEmpty {
+            menu.addItem(.separator())
+            if selectedImages.count == 1 { add(menu, "Set as desktop background", #selector(setDesktopBackground(_:))) }
+            add(menu, "Rotate right", #selector(rotateRight(_:)))
+            add(menu, "Rotate left", #selector(rotateLeft(_:)))
+        }
+        if !selectedCloudItems.isEmpty {
+            menu.addItem(.separator())
+            add(menu, "Always keep on this device", #selector(keepOnDevice(_:)))
+            add(menu, "Free up space", #selector(freeUpSpace(_:)))
+        }
+        menu.addItem(.separator())
+        if oneFolder {
+            let access = styled("Give access to")
+            add(access, "Share on the network...", #selector(shareOnNetwork(_:)))
+            add(access, "Stop sharing", #selector(stopSharing(_:)))
+            submenu(menu, "Give access to", access)
+            add(menu, "Customize this folder...", #selector(customizeFolder(_:)))
+        }
+        if items.count == 1 { add(menu, "Restore previous versions", #selector(showPreviousVersions(_:))) }
         add(menu, "Print", #selector(printSelection(_:)))
         menu.addItem(.separator())
         add(menu, "Properties", #selector(showProperties(_:)), key: "\r", mods: .option)
         return menu
     }
 
+    /// Inside a zip (read-only, as Explorer's Compressed folder): open, copy out, extract.
+    private func zipItemMenu() -> NSMenu {
+        let menu = styled("Item")
+        add(menu, "Open", #selector(openSelection(_:)))
+        menu.addItem(.separator())
+        add(menu, "Copy", #selector(copy(_:)), key: "c")
+        add(menu, "Copy as path", #selector(copyAsPath(_:)), key: "c", mods: [.command, .shift])
+        menu.addItem(.separator())
+        add(menu, "Extract all...", #selector(extractAll(_:)))
+        return menu
+    }
+
     func backgroundMenu() -> NSMenu {
         let menu = styled("Background")
+        if isInZip {
+            add(menu, "Extract all...", #selector(extractAll(_:)))
+            add(menu, "Refresh", #selector(refresh(_:)), key: String(utf16CodeUnits: [unichar(NSF5FunctionKey)], count: 1), mods: [])
+            menu.addItem(.separator())
+            let view = styled("View")
+            for item in MainMenu.viewItems(compactMenu: true) { view.addItem(item) }
+            submenu(menu, "View", view)
+            return menu
+        }
         if isSearching {
             add(menu, "Save search", #selector(saveSearch(_:)))
             menu.addItem(.separator())
@@ -156,6 +204,13 @@ extension BrowserWindowController {
         submenu(menu, "New", new)
         add(menu, "Open in Terminal", #selector(openInTerminal(_:)))
         if isTrashView { add(menu, "Empty Recycle Bin", #selector(emptyRecycleBin(_:))) }
+        if !isTrashView {
+            let access = styled("Give access to")
+            add(access, "Share on the network...", #selector(shareOnNetwork(_:)))
+            add(access, "Stop sharing", #selector(stopSharing(_:)))
+            submenu(menu, "Give access to", access)
+            add(menu, "Customize this folder...", #selector(customizeFolder(_:)))
+        }
         let here = history.current.path
         if pins.isPinned(here) {
             add(menu, "Unpin from Quick access", #selector(unpinFolder(_:)), object: here)
@@ -196,9 +251,7 @@ extension BrowserWindowController {
         add(menu, "Desktop (create alias)", #selector(sendToDesktop(_:)))
         add(menu, "Mail recipient", #selector(sendToMail(_:)))
         add(menu, "AirDrop", #selector(sendToAirDrop(_:)))
-        let zip = NSMenuItem(title: "Compressed (zipped) folder", action: nil, keyEquivalent: "")
-        zip.toolTip = "Arrives with milestone 8"
-        menu.addItem(zip)
+        add(menu, "Compressed (zipped) folder", #selector(sendToCompressedFolder(_:)))
         let here = VolumeCapacity.read(history.current)?.path
         let drives = volumes.filter { $0.path != here && $0.isLocal }
         if !drives.isEmpty {
@@ -408,6 +461,18 @@ extension BrowserWindowController {
 
     @objc func showFolderProperties(_ sender: Any?) {
         PropertiesWindowController.show([history.current], near: window)
+    }
+
+    /// Customize this folder: the folder's Properties at Customize (the selected folder, or this one).
+    @objc func customizeFolder(_ sender: Any?) {
+        let folder = selectedEntries.count == 1 && selectedEntries[0].isFolder ? selectedEntries[0].url : history.current
+        PropertiesWindowController.show([folder], near: window, tab: .customize)
+    }
+
+    /// Restore previous versions: Properties at Previous Versions.
+    @objc func showPreviousVersions(_ sender: Any?) {
+        guard let url = selectedURLs.first else { return }
+        PropertiesWindowController.show([url], near: window, tab: .versions)
     }
 
     func list(_ list: NSView, showPropertiesOf row: Int) {

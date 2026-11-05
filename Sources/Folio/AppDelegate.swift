@@ -54,6 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // Other apps' Services take the selected files' URLs or paths (the menus' Services submenu).
         NSApp.registerServicesMenuSendTypes([.fileURL, .string], returnTypes: [])
         VolumeCenter.shared.start()
+        if uitest == nil { DeviceCenter.shared.start() }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -70,7 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         // Folders passed with `open -a` or dropped on the Dock icon arrive in application(_:open:) first;
         // then those windows open and the saved session does not. Otherwise the last session comes back.
-        if windows.isEmpty && !restoreSession() { openWindow(at: NavigationHistory.home) }
+        if windows.isEmpty && !restoreSession() { openWindow(at: Self.startPlace) }
         VolumeCenter.shared.remountMappedShares()
         NSApp.activate()
     }
@@ -145,7 +146,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag && uitest == nil { openWindow(at: NavigationHistory.home) }
+        if !flag && uitest == nil { openWindow(at: Self.startPlace) }
         return true
     }
 
@@ -158,11 +159,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     /// Cmd+N: another window on the folder this one shows (Home when none is open).
     @objc func newWindow(_ sender: Any?) {
-        openWindow(at: keyController?.history.current ?? NavigationHistory.home)
+        openWindow(at: keyController?.history.current ?? Self.startPlace)
     }
 
     /// Cmd+T with no window open.
-    @objc func newTab(_ sender: Any?) { openWindow(at: NavigationHistory.home) }
+    @objc func newTab(_ sender: Any?) { openWindow(at: Self.startPlace) }
+
+    /// Folder Options > Open Folio to: Home, or This PC (the startup disk, as the This PC search does).
+    static var startPlace: URL {
+        ListOptions.folder.openTo == .thisPC ? URL(fileURLWithPath: "/", isDirectory: true) : NavigationHistory.home
+    }
 
     /// Cmd+W in a window that has no tabs (Properties): it closes.
     @objc func closeTab(_ sender: Any?) { NSApp.keyWindow?.performClose(nil) }

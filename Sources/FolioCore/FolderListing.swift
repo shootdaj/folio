@@ -12,9 +12,11 @@ public enum FolderListing {
 
     /// `includeHidden` is View > Hidden items: dot files and items with the hidden flag too.
     /// `cloud` (a folder in iCloud Drive or ~/Library/CloudStorage) also reads which files are online only.
-    public static func list(_ folder: URL, includeHidden: Bool = false, cloud: Bool = false) throws -> [FileEntry] {
-        let urls = try FileManager.default.contentsOfDirectory(
+    /// `hideProtected` is Folder Options' Hide protected operating system files (.DS_Store and the like).
+    public static func list(_ folder: URL, includeHidden: Bool = false, cloud: Bool = false, hideProtected: Bool = false) throws -> [FileEntry] {
+        var urls = try FileManager.default.contentsOfDirectory(
             at: folder, includingPropertiesForKeys: resourceKeys, options: includeHidden ? [] : [.skipsHiddenFiles])
+        if hideProtected { urls.removeAll { ProtectedFiles.isProtected(name: $0.lastPathComponent) } }
         var kinds: [String: String] = [:]
         let entries = urls.map { entry(for: $0, kinds: &kinds) }
         guard cloud else { return entries }

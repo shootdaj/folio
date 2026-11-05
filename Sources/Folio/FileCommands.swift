@@ -75,6 +75,22 @@ enum ListOptions {
 
     private static func set(_ value: Bool, _ key: String) {
         UserDefaults.standard.set(value, forKey: key)
+        reload()
+        NotificationCenter.default.post(name: didChange, object: nil)
+    }
+
+    // MARK: Folder Options
+
+    private static let store = FolderOptionsStore(defaults: .standard)
+    /// Every Folder Options setting, read once and again after each change (they share the keys above).
+    private(set) static var folder = FolderOptionsStore(defaults: .standard).load()
+
+    static func reload() { folder = store.load() }
+
+    /// OK or Apply in Folder Options: saved, and every window follows.
+    static func apply(_ options: FolderOptions) {
+        store.save(options)
+        folder = options
         NotificationCenter.default.post(name: didChange, object: nil)
     }
 }
@@ -158,6 +174,8 @@ extension BrowserWindowController: FileListDelegate {
 
     @objc func copy(_ sender: Any?) {
         guard !selectedURLs.isEmpty else { NSSound.beep(); return }
+        // Inside a zip the entries are copied out first (Explorer copies them from the Compressed folder).
+        if isInZip { copyOutOfZip(); return }
         FileClipboard.write(selectedURLs, cut: false)
     }
 
@@ -392,7 +410,34 @@ extension BrowserWindowController: FileListDelegate {
             default: break
             }
         }
+        // Inside a zip: read-only, as Explorer's Compressed folder. Open, Copy and Extract all stay.
+        if isInZip {
+            switch item.action {
+            case #selector(cut(_:)), #selector(paste(_:)), #selector(pasteShortcut(_:)), #selector(pasteIntoFolder(_:)),
+                 #selector(newFolder(_:)), #selector(newTextDocument(_:)), #selector(renameSelection(_:)), #selector(moveToTrash(_:)),
+                 #selector(deletePermanently(_:)), #selector(createAlias(_:)), #selector(createSymlink(_:)), #selector(share(_:)),
+                 #selector(printSelection(_:)), #selector(openInTerminal(_:)), #selector(copyTo(_:)), #selector(moveTo(_:)),
+                 #selector(compressSelection(_:)), #selector(sendToCompressedFolder(_:)), #selector(showProperties(_:)),
+                 #selector(showFolderProperties(_:)), #selector(toggleFavorite(_:)):
+                return false
+            default: break
+            }
+        }
         switch item.action {
+        case #selector(extractAll(_:)):
+            return archiveForExtract != nil && !editingText
+        case #selector(compressSelection(_:)), #selector(sendToCompressedFolder(_:)):
+            return any && !editingText
+        case #selector(rotateRight(_:)), #selector(rotateLeft(_:)), #selector(setDesktopBackground(_:)):
+            return !selectedImages.isEmpty
+        case #selector(formatDrive(_:)):
+            return (item.representedObject as? String).map { p in volumes.contains { $0.path == p && !$0.isRoot && $0.isLocal } }
+                ?? (currentDrive.map { !$0.isRoot && $0.isLocal } ?? false)
+        case #selector(checkDrive(_:)):
+            return item.representedObject != nil || currentDrive != nil
+        case #selector(toggleFullScreenWindow(_:)):
+            item.title = window?.styleMask.contains(.fullScreen) == true ? "Exit Full Screen" : "Full Screen"
+            return true
         case #selector(undoOperation(_:)):
             if editingText, let text = window?.firstResponder as? NSTextView {
                 item.title = "Undo"
@@ -552,9 +597,8 @@ extension BrowserWindowController: FileListDelegate {
         items += [("Copy as path", #selector(copyAsPath(_:))), ("Open in Terminal", #selector(openInTerminal(_:)))]
             .map { NSMenuItem(title: $0.0, action: $0.1, keyEquivalent: "") }
         items.append(.separator())
-        // Folder Options arrives later; it shows where Explorer has it.
         items += [NSMenuItem(title: "Properties", action: #selector(showProperties(_:)), keyEquivalent: ""),
-                  NSMenuItem(title: "Options", action: nil, keyEquivalent: "")]
+                  NSMenuItem(title: "Options", action: #selector(showFolderOptions(_:)), keyEquivalent: "")]
         popUp(items, from: sender)
     }
 

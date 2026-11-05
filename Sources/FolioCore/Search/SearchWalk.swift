@@ -145,6 +145,8 @@ public struct SearchWalk: Sendable {
         public var includeHidden = false
         public var systemFiles = false
         public var fileContents = false
+        /// Search options > Zipped (compressed) folders: the walk also lists what each zip holds.
+        public var zippedFolders = false
         public var contentCap = 4 * 1024 * 1024
         public var home = FileManager.default.homeDirectoryForCurrentUser.path
         /// Folders not to go into (already covered by Spotlight, or another volume).
@@ -186,6 +188,9 @@ public struct SearchWalk: Sendable {
                 if matcher.matches(subject, trustUnknown: false) {
                     batch.append(SearchHit(entry: entry, score: matcher.score(subject)))
                 }
+                if options.zippedFolders, options.recursive, !entry.isFolder, ArchiveNaming.isBrowsable(url) {
+                    batch += zipHits(url)
+                }
                 if options.recursive, entry.isFolder, !entry.isLink, !options.skip.contains(url.path),
                    options.systemFiles || !SearchPlan.isSystemFolder(url.path, home: options.home) {
                     pending.append(url)
@@ -198,6 +203,26 @@ public struct SearchWalk: Sendable {
             }
         }
         onBatch(batch, 1)
+    }
+
+    /// Every entry of a zip, checked like a file (names, sizes, dates, kinds; contents are not read).
+    private func zipHits(_ archive: URL) -> [SearchHit] {
+        guard let zip = try? ZipArchive(url: archive) else { return [] }
+        var hits: [SearchHit] = []
+        var pending = [""]
+        while let folder = pending.popLast() {
+            for entry in ZipFolder.rows(zip, folder) {
+                if !options.includeHidden && entry.isHidden { continue }
+                let subject = FileSubject(entry: entry, policy: .off, readsProperties: false)
+                if matcher.matches(subject, trustUnknown: false) {
+                    hits.append(SearchHit(entry: entry, score: matcher.score(subject)))
+                }
+                if entry.isFolder {
+                    pending.append(String(entry.url.path.dropFirst(archive.path.count + 1)))
+                }
+            }
+        }
+        return hits
     }
 
     /// Every hit at once (tests and small trees).

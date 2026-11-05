@@ -65,6 +65,9 @@ final class FolioTableView: NSTableView {
         }
     }
     private let band = BandView()
+    /// Folder Options > Single-click to open an item (point to select).
+    var singleClickOpens = false
+    private var hoverSelect: Timer?
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -88,6 +91,17 @@ final class FolioTableView: NSTableView {
         guard row != hoveredRow else { return }
         let old = hoveredRow
         hoveredRow = row
+        // Point to select: resting on an item a moment selects it.
+        hoverSelect?.invalidate()
+        hoverSelect = nil
+        if singleClickOpens, row >= 0, let item = itemAtRow(row), NSEvent.pressedMouseButtons == 0 {
+            hoverSelect = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: false) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, self.hoveredRow == row, self.listDelegate?.listIsSelected(item) == false else { return }
+                    self.listDelegate?.list(self, clicked: item, modifiers: NSEvent.modifierFlags.intersection([.command, .shift]))
+                }
+            }
+        }
         for r in [old, row] where r >= 0 && r < numberOfRows {
             if let view = rowView(atRow: r, makeIfNecessary: false) as? FolioRowView {
                 view.isHovered = r == row
@@ -126,6 +140,8 @@ final class FolioTableView: NSTableView {
             delegate.list(self, toggledCheckboxOf: row)
             return
         }
+        // Single-click mode: the first click opened it already.
+        if singleClickOpens, event.clickCount >= 2 { return }
         if event.clickCount >= 2, mods.isEmpty {
             if event.modifierFlags.contains(.option) {
                 delegate.list(self, showPropertiesOf: row)
@@ -141,8 +157,11 @@ final class FolioTableView: NSTableView {
             return
         }
         delegate.list(self, clicked: row, modifiers: mods)
-        // A press on a selected row can become a drag of the selection.
-        if delegate.listIsSelected(row) { _ = trackDrag(from: point, button: .left) }
+        // A press on a selected row can become a drag of the selection; single-click mode opens on release.
+        if delegate.listIsSelected(row) {
+            let dragged = trackDrag(from: point, button: .left)
+            if !dragged, singleClickOpens, mods.isEmpty, !event.modifierFlags.contains(.option) { delegate.list(self, opened: row) }
+        }
     }
 
     private enum Button { case left, right }
@@ -596,8 +615,18 @@ protocol RowCellView: AnyObject {
     func rowSelectionChanged(_ selected: Bool)
 }
 
-/// Name cell: selection light, folder or file icon, name (accent and semibold when selected).
-final class NameCellView: NSTableCellView, RowCellView, ThemeAware {
+/// Name cell: selection light, folder or file icon, tag dots, name (accent and semibold when selected).
+final class NameCellView: NSTableCellView, RowCellView, ThemeAware, NSViewToolTipOwner {
+    /// Finder tags with a colour: a dot each before the name, as Finder marks them.
+    var tagColors: [TagColor] = [] { didSet { if tagColors != oldValue { needsDisplay = true } } }
+    /// Single-click to open: names underlined always, or only under the pointer; nil in double-click mode.
+    var underline: FolderOptions.Underline? { didSet { if underline != oldValue { needsDisplay = true } } }
+    /// Show encrypted or compressed files in colour: a locked or compressed item draws dimmed.
+    var isFlagDimmed = false { didSet { if isFlagDimmed != oldValue { needsDisplay = true } } }
+    /// A folder with a custom icon (Customize this folder) shows it instead of D1's folder.
+    var customIcon: NSImage? { didSet { needsDisplay = true } }
+    /// Show pop-up description: the hover tip, built when it is about to show.
+    var tip: (() -> String?)? { didSet { needsLayout = true } }
     var entry: FileEntry? {
         didSet {
             needsDisplay = true
@@ -649,6 +678,12 @@ final class NameCellView: NSTableCellView, RowCellView, ThemeAware {
     override func layout() {
         super.layout()
         light.place(dotAt: NSPoint(x: ListMetrics.rowLead, y: (bounds.midY - 3).rounded()))
+        removeAllToolTips()
+        if tip != nil { addToolTip(bounds, owner: self, userData: nil) }
+    }
+
+    @objc func view(_ view: NSView, stringForToolTip tag: NSView.ToolTipTag, point: NSPoint, userData data: UnsafeMutableRawPointer?) -> String {
+        tip?() ?? ""
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -659,10 +694,14 @@ final class NameCellView: NSTableCellView, RowCellView, ThemeAware {
         if showsCheckbox && (selected || hovered) {
             CheckBox.draw(in: NSRect(x: Self.boxX, y: (mid - 7).rounded(), width: 14, height: 14), on: selected, mixed: false, p)
         }
-        if isCut || entry.isHidden { NSGraphicsContext.current?.cgContext.setAlpha(0.45) }
+        if isCut || entry.isHidden || isFlagDimmed { NSGraphicsContext.current?.cgContext.setAlpha(0.45) }
         let iconX = ListMetrics.rowLead + 6 + 8 + (showsCheckbox ? Self.boxShift : 0)
-        let textX: CGFloat
-        if entry.isFolder {
+        var textX: CGFloat
+        if let customIcon, entry.isFolder {
+            customIcon.draw(in: NSRect(x: iconX, y: mid - 9, width: 18, height: 18), from: .zero, operation: .sourceOver,
+                            fraction: 1, respectFlipped: true, hints: nil)
+            textX = iconX + 18 + 8
+        } else if entry.isFolder {
             ItemIcon.drawFolder(in: NSRect(x: iconX, y: mid - 7.5, width: 18, height: 15), palette: p, lit: selected)
             textX = iconX + 18 + 8
         } else {
@@ -670,6 +709,9 @@ final class NameCellView: NSTableCellView, RowCellView, ThemeAware {
             textX = iconX + 15 + 8
         }
         if entry.isLink { ItemIcon.drawLinkBadge(in: NSRect(x: iconX - 2, y: mid + 1, width: 9, height: 9), palette: p) }
+        if !tagColors.isEmpty {
+            textX += TagDots.draw(tagColors, x: textX - 2, midY: mid, p) + 4
+        }
         let shown = entry.displayName(extensions: showsExtension)
         let font = Typeface.ui(13, weight: selected ? 600 : 400)
         let maxW = max(0, bounds.width - textX - (entry.isCloudOnly ? 22 : 0))
@@ -685,9 +727,50 @@ final class NameCellView: NSTableCellView, RowCellView, ThemeAware {
             }
         }
         let nameW = drawLine(shown, font: font, color: selected ? p.accent : p.txt, x: textX, midY: mid, maxWidth: maxW)
+        if let underline, underline == .always || hovered {
+            fillRect(NSRect(x: textX, y: (mid + 7).rounded(), width: nameW, height: 1), selected ? p.accent : p.txt.withAlpha(0.7))
+        }
         if entry.isCloudOnly {
             // Online only: a cloud after the name, as Explorer marks OneDrive files.
             Glyph.cloud.draw(in: NSRect(x: textX + nameW + 6, y: mid - 7, width: 14, height: 14), color: p.txt3.ns, lineWidth: 1.6)
+        }
+    }
+}
+
+/// Finder's tag dots: one per colour, overlapping a little, each ringed in the row's background.
+@MainActor
+enum TagDots {
+    static func color(_ c: TagColor, _ p: Palette) -> RGBA {
+        let dark = p.appearance == .dark
+        switch c {
+        case .red: return p.miss
+        case .orange: return p.typeData
+        case .yellow: return p.typeCode
+        case .green: return p.ok
+        case .blue: return p.typeDoc
+        case .purple: return RGBA(hex: dark ? 0xB794F6 : 0x6D4BB0)
+        case .gray, .none: return p.txt3
+        }
+    }
+
+    /// Returns the width drawn.
+    @discardableResult
+    static func draw(_ colors: [TagColor], x: CGFloat, midY: CGFloat, _ p: Palette, size: CGFloat = 8) -> CGFloat {
+        let shown = Array(colors.prefix(3))
+        for (i, c) in shown.enumerated().reversed() {
+            let r = NSRect(x: x + CGFloat(i) * (size - 3), y: (midY - size / 2).rounded(), width: size, height: size)
+            fillRounded(r.insetBy(dx: -1, dy: -1), radius: size / 2 + 1, p.s1)
+            fillRounded(r, radius: size / 2, color(c, p))
+        }
+        return shown.isEmpty ? 0 : size + CGFloat(shown.count - 1) * (size - 3)
+    }
+
+    /// A menu item's coloured dot.
+    static func image(_ c: TagColor) -> NSImage {
+        let p = Palette.current
+        return NSImage(size: NSSize(width: 12, height: 12), flipped: false) { r in
+            fillRounded(r.insetBy(dx: 1, dy: 1), radius: 5, color(c, p))
+            return true
         }
     }
 }

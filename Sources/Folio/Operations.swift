@@ -65,7 +65,7 @@ final class OperationCenter {
     private(set) var history = UndoHistory()
     let trash: any Trasher = SystemTrash()
     private let jobOptions = JobOptions.fromEnvironment(ProcessInfo.processInfo.environment)
-    private(set) var jobs: [FileJob] = []
+    private(set) var jobs: [any ProgressJob] = []
     private(set) var snapshots: [Int: JobSnapshot] = [:]
     private var started: [Int: Double] = [:]
     private var finishedAt: [Int: Double] = [:]
@@ -82,8 +82,19 @@ final class OperationCenter {
 
     func start(_ kind: JobKind, sources: [URL], into folder: URL, near window: NSWindow?) {
         guard !sources.isEmpty else { return }
-        let job = FileJob(kind: kind, sources: sources, into: folder, options: jobOptions)
-        job.onChange = { _ in Task { @MainActor in OperationCenter.shared.tick() } }
+        var options = jobOptions
+        // Folder Options > Hide folder merge conflicts off: same-named folders wait for an answer.
+        options.askBeforeMerge = !ListOptions.folder.hideFolderMergeConflicts
+        run(FileJob(kind: kind, sources: sources, into: folder, options: options), near: window)
+    }
+
+    /// Compress to and Extract all run in the same window as copies (`then` sees how it ended).
+    func startArchive(_ job: ArchiveJob, near window: NSWindow?, then: (@MainActor (JobResult) -> Void)? = nil) {
+        run(job, near: window, then: then)
+    }
+
+    private func run(_ job: any ProgressJob, near window: NSWindow?, then: (@MainActor (JobResult) -> Void)? = nil) {
+        job.observe { Task { @MainActor in OperationCenter.shared.tick() } }
         jobs.append(job)
         started[job.id] = now
         anchorWindow = window ?? anchorWindow
@@ -93,20 +104,23 @@ final class OperationCenter {
         Task { @MainActor in
             let result = await job.finished()
             self.jobFinished(job, result)
+            then?(result)
         }
         tick()
     }
 
-    private func jobFinished(_ job: FileJob, _ result: JobResult) {
+    private func jobFinished(_ job: any ProgressJob, _ result: JobResult) {
         if let record = result.record { history.record(record) }
         finishedAt[job.id] = now
         if result.state == .cancelled { progress.reveal(near: anchorWindow) }
+        // An archive bsdtar could not read or write says why.
+        if result.state == .cancelled, let message = job.errorMessage { present(FileOpError.system(message), window: anchorWindow) }
         postChanged(select: result.placed)
         tick()
     }
 
     /// Close on a finished job, or a done job's moment of 100% has passed.
-    func dismiss(_ job: FileJob) {
+    func dismiss(_ job: any ProgressJob) {
         jobs.removeAll { $0 === job }
         snapshots[job.id] = nil
         started[job.id] = nil
@@ -125,13 +139,13 @@ final class OperationCenter {
         guard let first = live.first else { return nil }
         let pct = Int((live.map(\.fraction).reduce(0, +) / Double(live.count) * 100).rounded(.down))
         if live.count > 1 { return "\(live.count) jobs, \(pct)%" }
-        let verb = first.kind == .copy ? "Copy" : "Move"
+        let verb = JobWords.noun(first.kind)
         switch first.state {
         case .paused: return "\(verb) paused, \(pct)%"
         case .waitingOnConflict, .waitingOnProblem: return "\(verb) waiting on you"
         default:
             let n = ByteText.grouped(first.itemsTotal)
-            return (first.kind == .copy ? "Copying " : "Moving ") + n + (first.itemsTotal == 1 ? " item" : " items") + ", \(pct)%"
+            return JobWords.doing(first.kind) + " " + n + (first.itemsTotal == 1 ? " item" : " items") + ", \(pct)%"
         }
     }
 
@@ -163,7 +177,7 @@ final class OperationCenter {
         // Files appear in the destination window as they land.
         if t - lastRefresh > 1, jobs.contains(where: { snapshots[$0.id]?.state == .running }) {
             lastRefresh = t
-            let folders = Set(jobs.map { FilePaths.folderKey($0.destination) })
+            let folders = Set(jobs.map { FilePaths.folderKey($0.kind == .compress ? $0.destination.deletingLastPathComponent() : $0.destination) })
             NotificationCenter.default.post(name: Self.filesChanged, object: nil, userInfo: ["folders": folders])
         }
         let live = jobs.compactMap { snapshots[$0.id] }.filter { !$0.state.isFinished }
@@ -196,6 +210,23 @@ final class OperationCenter {
 
     func trash(_ urls: [URL], window: NSWindow?) {
         guard !urls.isEmpty else { return }
+        // Folder Options > Display delete confirmation dialog (off by default, as in Explorer).
+        if ListOptions.folder.confirmDelete, let window {
+            let alert = NSAlert()
+            alert.messageText = urls.count == 1 ? "Move \u{201C}\(urls[0].lastPathComponent)\u{201D} to the Recycle Bin?"
+                : "Move these \(urls.count) items to the Recycle Bin?"
+            alert.addButton(withTitle: "Move to Recycle Bin")
+            alert.addButton(withTitle: "Cancel")
+            alert.beginSheetModal(for: window) { response in
+                guard response == .alertFirstButtonReturn else { return }
+                MainActor.assumeIsolated { OperationCenter.shared.trashNow(urls, window: window) }
+            }
+            return
+        }
+        trashNow(urls, window: window)
+    }
+
+    private func trashNow(_ urls: [URL], window: NSWindow?) {
         let trasher = trash
         Task.detached {
             let result = Result { try FileOps.trash(urls, using: trasher) }
@@ -287,6 +318,31 @@ final class OperationCenter {
     }
 
     private var now: Double { ProcessInfo.processInfo.systemUptime }
+}
+
+/// How the progress window and the status chip name each kind of job.
+enum JobWords {
+    static func noun(_ k: JobKind) -> String {
+        switch k { case .copy: "Copy"; case .move: "Move"; case .compress: "Compress"; case .extract: "Extract" }
+    }
+    static func doing(_ k: JobKind) -> String {
+        switch k { case .copy: "Copying"; case .move: "Moving"; case .compress: "Compressing"; case .extract: "Extracting" }
+    }
+    static func done(_ k: JobKind) -> String {
+        switch k { case .copy: "Copied"; case .move: "Moved"; case .compress: "Compressed"; case .extract: "Extracted" }
+    }
+    /// Under the ring's percentage.
+    static func ring(_ k: JobKind) -> String {
+        switch k { case .copy: "copied"; case .move: "moved"; case .compress: "compressed"; case .extract: "extracted" }
+    }
+    static func graph(_ k: JobKind) -> String {
+        switch k {
+        case .copy: "Speed over the copy"
+        case .move: "Speed over the move"
+        case .compress: "Speed over the compression"
+        case .extract: "Speed over the extraction"
+        }
+    }
 }
 
 /// The Dock icon shows the progress of the running jobs, amber while paused or waiting.

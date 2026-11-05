@@ -8,6 +8,12 @@ final class BrowserWindow: NSWindow {
 
     override func sendEvent(_ event: NSEvent) {
         if let controller = windowController as? BrowserWindowController {
+            // Access keys: an Option tap shows the command bar's letters; the next key uses or hides them.
+            if event.type == .flagsChanged { controller.handleFlagsChanged(event) }
+            if event.type == .keyDown, controller.handleAccessKeyDown(event) { return }
+            if [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type), controller.showsAccessKeys {
+                controller.setAccessKeys(false)
+            }
             if event.type == .keyDown, controller.handleKeyDown(event) { return }
             // Explorer's Ctrl+wheel (Cmd+scroll here) and a trackpad pinch step through the views.
             if event.type == .scrollWheel, event.modifierFlags.contains(.command), controller.zoomsWithScroll {
@@ -188,6 +194,20 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     /// What Quick Look shows: the selection when it opened.
     var quickLookItems: [URL] = []
 
+    // MARK: Milestone 8 state
+
+    /// The tab shows the inside of a zip (read-only, Explorer's Compressed folder).
+    var isInZip = false
+    var extractSheet: ExtractSheetController?
+    /// Auto-refresh: every tab's folder (kqueue and FSEvents) and the tree's roots (FSEvents).
+    var folderWatcher: FolderWatcher?
+    var treeWatcher: TreeWatcher?
+    /// Access keys: Option tapped alone shows the command bar's letters until a letter, Esc or a click.
+    var optionTap = OptionTap()
+    var showsAccessKeys = false
+    /// What the listing was last read with, to tell when Folder Options need it read again.
+    var listedWith: (hidden: Bool, protected: Bool) = (false, true)
+
     let tableView = FolioTableView()
     /// Every view but Details.
     let grid = FileGridView()
@@ -239,6 +259,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         window.minSize = NSSize(width: 500, height: 480)
         window.backgroundColor = Palette.current.bg.ns
         window.allowsOffscreen = options.uitest
+        window.collectionBehavior.insert(.fullScreenPrimary)
         if options.uitest { window.isRestorable = false }
         super.init(window: window)
         window.delegate = self
@@ -257,11 +278,14 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         center.addObserver(self, selector: #selector(homeDataChanged(_:)), name: HomeData.didChange, object: nil)
         center.addObserver(self, selector: #selector(viewModeChanged(_:)), name: ViewCenter.didChange, object: nil)
         center.addObserver(self, selector: #selector(columnsChanged(_:)), name: ColumnCenter.didChange, object: nil)
+        center.addObserver(self, selector: #selector(devicesChanged(_:)), name: DeviceCenter.didChange, object: nil)
         loadVolumes()
         updateTabStrip()
         header.sort = sortSpec
         applyViewMode()
+        applyFolderOptions()
         load()
+        startWatching()
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
@@ -533,9 +557,14 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         }
         let key = arrangeKey
         let hidden = ListOptions.showHidden
+        let protected = ListOptions.folder.hideProtectedOSFiles
+        listedWith = (hidden, protected)
         let home = FileManager.default.homeDirectoryForCurrentUser
         let trash = RecycleBin.isTrash(folder, home: home)
         let cloud = CloudFolders.isCloud(folder, home: home)
+        // A zip, or a folder inside one, lists from its central directory (Explorer's Compressed folder).
+        let zip = ZipPath.split(folder) != nil
+        isInZip = zip
         isTrashView = trash
         requestID += 1
         let id = requestID
@@ -551,16 +580,21 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             updateChrome()
         }
         let started = Date()
+        // Tags, flags and custom icons are read again for what the list shows next.
+        ItemDecorCache.shared.clear()
         Task.detached(priority: .userInitiated) { [weak self] in
             let result = Result { () -> ([FileEntry], ListLayout) in
                 let rows: [FileEntry]
-                if trash {
+                if zip {
+                    let all = try ZipFolder.list(folder)
+                    rows = hidden ? all : all.filter { !$0.isHidden }
+                } else if trash {
                     // The Recycle Bin: Date deleted and Original location in the Date and Type columns.
                     let origins = TrashOrigins(defaults: .standard)
                     rows = RecycleBin.rows(try FolderListing.list(folder), original: { origins.original(of: $0) },
                                            deleted: { (try? $0.resourceValues(forKeys: [.addedToDirectoryDateKey]))?.addedToDirectoryDate })
                 } else {
-                    rows = try FolderListing.list(folder, includeHidden: hidden, cloud: cloud)
+                    rows = try FolderListing.list(folder, includeHidden: hidden, cloud: cloud, hideProtected: protected)
                 }
                 return (rows, Self.arrange(rows, key))
             }
@@ -600,6 +634,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         toolbar.address.volumes = volumes
         chassis.sidebar.needsLayout = true
         if !history.isHome, ListOptions.expandToCurrent { revealCurrentFolder(select: false) }
+        updateWatches()
     }
 
     private func finishLoad(_ result: Result<([FileEntry], ListLayout), any Error>, volume: VolumeCapacity?, id: Int,
@@ -783,8 +818,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         let folder = history.current
         let name = displayName(folder)
         defer { updateSearchChrome() }
-        window?.title = name
-        titleBar.folderName = name
+        // Folder Options > Display the full path in the title bar.
+        let title = ListOptions.folder.fullPathInTitleBar && !history.isHome ? folder.path : name
+        window?.title = title
+        titleBar.folderName = title
         titleBar.folderPath = history.isHome ? "Quick access, Favorites, Recent" : folder.path
         toolbar.back.isEnabled = history.canGoBack
         toolbar.forward.isEnabled = history.canGoForward
@@ -898,8 +935,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     @objc private func listOptionsChanged(_ note: Notification) {
         if chassis.sidebar.pane.tree.showHidden != ListOptions.showHidden {
             chassis.sidebar.pane.setShowHidden(ListOptions.showHidden)
+        }
+        let folderOptions = ListOptions.folder
+        if listedWith != (ListOptions.showHidden, folderOptions.hideProtectedOSFiles) {
+            listedWith = (ListOptions.showHidden, folderOptions.hideProtectedOSFiles)
             if isSearching { runSearch(keepingState: true) } else if !history.isHome { reloadContents() }
         }
+        applyFolderOptions()
         applyNavigationPaneOptions()
         tableView.showsCheckboxes = ListOptions.checkboxes
         let rowH = ListOptions.compact ? ListMetrics.compactRowHeight : ListMetrics.rowHeight
@@ -964,13 +1006,20 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     func open(rows: IndexSet) {
         let items = rows.map { entries[$0] }
         if let s = history.search, !items.isEmpty { recentSearches.record(s.text) }
-        if items.count == 1, let folder = items.first, folder.isFolder {
+        // A zip opens like a folder; Folder Options > Open each folder in its own window opens a window.
+        if items.count == 1, let folder = items.first, folder.isFolder || ArchiveNaming.isBrowsable(folder.url) {
             if isSearching { window?.makeFirstResponder(listView) }
-            navigate(to: folder.url)
+            if ListOptions.folder.openFoldersInNewWindow && !isInZip {
+                (NSApp.delegate as? AppDelegate)?.openWindow(at: folder.url)
+            } else {
+                navigate(to: folder.url)
+            }
             return
         }
         for item in items {
-            if item.isFolder {
+            if isInZip && !item.isFolder {
+                openFromZip(item.url)
+            } else if item.isFolder {
                 (NSApp.delegate as? AppDelegate)?.openWindow(at: item.url)
             } else {
                 openFile(item.url)
@@ -1053,6 +1102,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         case (16, .command) where !editingText: redoOperation(nil)             // Cmd+Y (Explorer's Ctrl+Y)
         case (114, .control) where !editingText: copy(nil)                     // Ctrl+Insert
         case (114, .shift) where !editingText: paste(nil)                      // Shift+Insert
+        case (103, []): toggleFullScreenWindow(nil)             // F11, when it reaches the app
         case (96, []), (15, .control): refresh(nil)             // F5, Ctrl+R
         case (118, []): showAddressHistory(nil)                 // F4
         case (118, .option): window?.performClose(nil)          // Option+F4 (Cmd+F4 after Karabiner)
@@ -1060,7 +1110,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         case (97, .shift): cycleFocus(forward: false)
         case (48, []) where !editingText: cycleFocus(forward: true)    // Tab
         case (48, .shift) where !editingText: cycleFocus(forward: false)
-        default: return false
+        default:
+            // Folder Options > When typing into list view > Automatically type into the Search Box.
+            return tableFocused && typeIntoSearchBox(event, modifiers: modifiers)
         }
         return true
     }
@@ -1148,6 +1200,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             cell.showsExtension = ListOptions.showExtensions
             cell.highlights = searchHighlights(entry.displayName(extensions: ListOptions.showExtensions))
             cell.showsCheckbox = self.tableView.showsCheckboxes
+            decorate(cell, entry)
             cell.themeDidChange()
             return cell
         }
@@ -1294,6 +1347,14 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     }
 
     func windowDidExitFullScreen(_ notification: Notification) {
+        // Back from full screen the window may come back larger than its screen: it is fitted to it.
+        if let window, let visible = (window.screen ?? NSScreen.main)?.visibleFrame, !options.uitest,
+           window.frame.width > visible.width || window.frame.height > visible.height {
+            let w = min(window.frame.width, visible.width), h = min(window.frame.height, visible.height)
+            let x = min(max(window.frame.minX, visible.minX), visible.maxX - w)
+            let y = min(max(window.frame.minY, visible.minY), visible.maxY - h)
+            window.setFrame(NSRect(x: x, y: y, width: w, height: h), display: true)
+        }
         (window as? BrowserWindow)?.placeTrafficLights()
     }
 
@@ -1306,6 +1367,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             for (i, tab) in tabs.tabs.enumerated() { app.closedTabs.push(tab, index: i) }
         }
         NotificationCenter.default.removeObserver(self)
+        stopWatching()
         (NSApp.delegate as? AppDelegate)?.windowClosed(self)
     }
 }

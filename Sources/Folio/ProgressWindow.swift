@@ -15,7 +15,7 @@ final class ProgressWindowController {
 
     static let width: CGFloat = 680
 
-    func add(_ job: FileJob) {
+    func add(_ job: any ProgressJob) {
         let panel = JobPanelView(job: job)
         panel.onHide = { [weak self] in self?.hide() }
         panel.onClose = { OperationCenter.shared.dismiss(job) }
@@ -26,7 +26,7 @@ final class ProgressWindowController {
         relayout()
     }
 
-    func remove(_ job: FileJob) {
+    func remove(_ job: any ProgressJob) {
         panels.removeAll { panel in
             guard panel.job === job else { return false }
             panel.removeFromSuperview()
@@ -167,7 +167,7 @@ final class ProgressContentView: NSView {
 /// and Items, the speed graph and bar, Pause and Cancel; under it the conflict card (existing and
 /// incoming with dates and sizes, Replace, Skip, Keep both, Compare) or a problem card.
 final class JobPanelView: NSView {
-    let job: FileJob
+    let job: any ProgressJob
     var onHide: (() -> Void)?
     var onClose: (() -> Void)?
     /// Compare opened or closed the tags: the window must grow or shrink with the panel.
@@ -202,7 +202,7 @@ final class JobPanelView: NSView {
 
     static let bodyH: CGFloat = 440
 
-    init(job: FileJob) {
+    init(job: any ProgressJob) {
         self.job = job
         super.init(frame: NSRect(x: 0, y: 0, width: ProgressWindowController.width, height: Self.bodyH))
         for v in [headLight, cardLight] as [NSView] { addSubview(v) }
@@ -233,7 +233,11 @@ final class JobPanelView: NSView {
         skipProblemButton.onPress = { [weak self] in self?.job.answer(.skip) }
         stopButton.onPress = { [weak self] in self?.job.answer(.cancel) }
         fromLink.onPress = { [weak self] in self?.open(self?.job.sources.first?.deletingLastPathComponent()) }
-        toLink.onPress = { [weak self] in self?.open(self?.job.destination) }
+        toLink.onPress = { [weak self] in
+            guard let job = self?.job else { return }
+            // A new archive opens in its folder; everything else is a folder already.
+            self?.open(job.kind == .compress ? job.destination.deletingLastPathComponent() : job.destination)
+        }
         // An element of its own, labelled with its title ("Copying 3 items", "Copy paused").
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
@@ -404,18 +408,17 @@ final class JobPanelView: NSView {
     // MARK: Drawing
 
     private func title(_ s: JobSnapshot) -> String {
-        let copy = s.kind == .copy
         let n = ByteText.grouped(s.itemsTotal) + (s.itemsTotal == 1 ? " item" : " items")
         switch s.state {
-        case .preparing, .running: return (copy ? "Copying " : "Moving ") + n
-        case .paused: return copy ? "Copy paused" : "Move paused"
+        case .preparing, .running: return JobWords.doing(s.kind) + " " + n
+        case .paused: return JobWords.noun(s.kind) + " paused"
         case .waitingOnConflict:
             return s.conflictsLeft == 1 ? "Waiting on 1 conflict" : "Waiting on \(s.conflictsLeft) conflicts"
         case .waitingOnProblem: return "Waiting on you"
         case .done:
             let done = ByteText.grouped(s.itemsDone) + (s.itemsDone == 1 ? " item" : " items")
-            return (copy ? "Copied " : "Moved ") + done + (s.skipped > 0 ? ", skipped \(s.skipped)" : "")
-        case .cancelled: return copy ? "Copy cancelled" : "Move cancelled"
+            return JobWords.done(s.kind) + " " + done + (s.skipped > 0 ? ", skipped \(s.skipped)" : "")
+        case .cancelled: return JobWords.noun(s.kind) + " cancelled"
         }
     }
 
@@ -499,7 +502,7 @@ final class JobPanelView: NSView {
         let pctFont = Typeface.ui(36, weight: 750, width: 125)
         let pw = textWidth("\(pct)%", font: pctFont)
         drawLine("\(pct)%", font: pctFont, color: p.txt, x: c.x - pw / 2, midY: c.y - 10)
-        let sub = s.kind == .copy ? "copied" : "moved"
+        let sub = JobWords.ring(s.kind)
         let sw = textWidth(sub, font: Typeface.mono(12))
         drawLine(sub, font: Typeface.mono(12), color: p.txt2, x: c.x - sw / 2, midY: c.y + 20)
     }
@@ -551,7 +554,7 @@ final class JobPanelView: NSView {
         let box = NSRect(x: 18, y: 254, width: bounds.width - 36, height: 116)
         fillRounded(box, radius: 3, p.s1)
         strokeRounded(box, radius: 3, p.line)
-        drawLine(s.kind == .copy ? "Speed over the copy" : "Speed over the move", font: Typeface.ui(12, weight: 650, width: 116),
+        drawLine(JobWords.graph(s.kind), font: Typeface.ui(12, weight: 650, width: 116),
                  color: p.txt2, x: 30, midY: 270)
         let shownBytes = s.state == .done ? s.bytesTotal : Int64(Double(s.bytesTotal) * shown)
         drawLine(ProgressText.bytesOf(shownBytes, s.bytesTotal), font: Typeface.mono(12), color: p.txt,

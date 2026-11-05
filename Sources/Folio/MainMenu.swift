@@ -103,7 +103,12 @@ enum MainMenu {
                 item("Always Expand to Current Folder", #selector(BrowserWindowController.toggleExpandToCurrent(_:))),
             ]),
             .separator(),
-            item("Enter Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control]),
+            // Explorer's F11; macOS keeps F11 for Show Desktop, so Ctrl+Cmd+F is the key here.
+            item("Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control]),
+        ] + fullScreenF11() + [
+            .separator(),
+            // Explorer's See more > Options (Folder Options).
+            item("Options...", #selector(BrowserWindowController.showFolderOptions(_:)), ",", [.command, .option]),
         ])
         // Finder shortcuts here; Option+arrows (Anshul's Karabiner-swapped Cmd) live in BrowserWindow.
         add("Go", to: main, [
@@ -137,6 +142,12 @@ enum MainMenu {
         ])
         NSApp.windowsMenu = window
         return main
+    }
+
+    /// F11 as a second Full Screen line, when the Mac's function keys send F1 to F12.
+    static func fullScreenF11() -> [NSMenuItem] {
+        guard FullScreenKeys.offersF11(fnState: BrowserWindowController.fnState) else { return [] }
+        return [item("Full Screen (F11)", #selector(BrowserWindowController.toggleFullScreenWindow(_:)), key(NSF11FunctionKey), [])]
     }
 
     /// Edit > New and the command bar's New: Folder (Explorer's Ctrl+Shift+N) and Text document.

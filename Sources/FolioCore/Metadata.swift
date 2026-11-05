@@ -16,7 +16,8 @@ public enum MetadataReader {
         m.created = v?.creationDate
         m.accessed = v?.contentAccessDate
         m.added = v?.addedToDirectoryDate
-        m.tags = v?.tagNames ?? []
+        // Straight from Finder's attribute: URL resource values are cached per URL and miss our own edits.
+        m.tags = FileTags.read(url).map(\.name)
         m.isLocked = v?.isUserImmutable ?? false
         m.isHidden = v?.isHidden ?? false
         let type = v?.contentType
@@ -72,8 +73,12 @@ public enum MetadataReader {
     private static func readImage(_ url: URL, into m: inout ItemMetadata) {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else { return }
-        if m.pixelWidth == nil { m.pixelWidth = (props[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue }
-        if m.pixelHeight == nil { m.pixelHeight = (props[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue }
+        // Dimensions as the picture shows: EXIF orientations 5 to 8 (Rotate right on a JPEG) swap them.
+        if let w = (props[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue,
+           let h = (props[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue {
+            let o = (props[kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1
+            (m.pixelWidth, m.pixelHeight) = (5...8).contains(o) ? (h, w) : (w, h)
+        }
         if m.dateTaken == nil, let exif = props[kCGImagePropertyExifDictionary] as? [CFString: Any],
            let raw = exif[kCGImagePropertyExifDateTimeOriginal] as? String {
             // EXIF carries no zone: the camera's wall clock, read as local time (as Explorer does).
@@ -122,8 +127,9 @@ public enum MetadataReader {
 
 /// The Details pane's edits: Tags and Comments.
 public enum MetadataWriter {
+    /// Tags typed as names keep the colours they had (FileTags), so Finder's labels survive the edit.
     public static func setTags(_ tags: [String], of url: URL) throws {
-        try (url as NSURL).setResourceValue(tags, forKey: .tagNamesKey)
+        try FileTags.setNames(tags, of: url)
     }
 
     /// An empty comment removes it.
