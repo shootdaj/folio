@@ -47,7 +47,7 @@ extension BrowserWindowController {
 
     /// The widest value the column shows (and its header with the sort and filter slots), at most 600.
     func fitWidth(of c: ColumnID) -> CGFloat {
-        let head = textWidth(columnTitle(c), font: Typeface.ui(12, weight: 650, width: 116), kern: 0.24) + 14 + 6 + 15 + FolioHeaderView.chevronW
+        let head = textWidth(columnTitle(c), font: Typeface.ui(12, weight: 650), kern: 0.24) + 14 + 6 + 15 + FolioHeaderView.chevronW
         let font = c.isMono ? Typeface.mono(12) : Typeface.ui(13)
         var widest: CGFloat = 0
         var seen = Set<String>()
@@ -109,11 +109,11 @@ final class ColumnChooserPanel: NSObject, NSTableViewDataSource, NSTableViewDele
         panel.title = "Choose Details"
         let root = ChooserBackground(frame: panel.contentRect(forFrameRect: panel.frame))
         panel.contentView = root
-        let title = label("CHOOSE DETAILS", font: Typeface.ui(13, weight: 700, width: 116), color: Palette.current.accent)
+        let title = label("CHOOSE DETAILS", font: Typeface.ui(13, weight: 700), color: Palette.current.accent)
         title.frame = NSRect(x: 20, y: 14, width: 300, height: 20)
-        let intro = label("Select the details you want to display for the items in every folder.", font: Typeface.ui(13), color: Palette.current.txt2)
+        let intro = label("Select the details you want to display for the items in every folder.", font: Typeface.ui(13), color: Palette.current.text2)
         intro.frame = NSRect(x: 20, y: 36, width: 430, height: 20)
-        let head = label("Details:", font: Typeface.ui(12, weight: 650, width: 116), color: Palette.current.txt2)
+        let head = label("Details:", font: Typeface.ui(12, weight: 650), color: Palette.current.text2)
         head.frame = NSRect(x: 20, y: 54, width: 200, height: 16)
         let scroll = NSScrollView(frame: NSRect(x: 20, y: 72, width: 300, height: 360))
         scroll.hasVerticalScroller = true
@@ -141,7 +141,7 @@ final class ColumnChooserPanel: NSObject, NSTableViewDataSource, NSTableViewDele
         down.frame = NSRect(x: 336, y: 114, width: 114, height: 34)
         up.onPress = { [weak self] in self?.move(up: true) }
         down.onPress = { [weak self] in self?.move(up: false) }
-        let wl = label("Width of selected column (in pixels):", font: Typeface.ui(13), color: Palette.current.txt)
+        let wl = label("Width of selected column (in pixels):", font: Typeface.ui(13), color: Palette.current.text)
         wl.frame = NSRect(x: 20, y: 446, width: 250, height: 20)
         width.frame = NSRect(x: 272, y: 444, width: 60, height: 24)
         width.font = Typeface.mono(12)
@@ -221,7 +221,7 @@ final class ColumnChooserPanel: NSObject, NSTableViewDataSource, NSTableViewDele
 
     func tableViewSelectionDidChange(_ notification: Notification) { syncControls() }
 
-    /// D1's selected row (selection fill and accent brackets), not the system's blue.
+    /// D4's selected row (the --sel fill and the accent edge), not the system's blue.
     func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? { FolioRowView() }
 
     func tableView(_ tableView: NSTableView, typeSelectStringFor tableColumn: NSTableColumn?, row: Int) -> String? {
@@ -241,7 +241,6 @@ final class ColumnChooserPanel: NSObject, NSTableViewDataSource, NSTableViewDele
         override func draw(_ dirtyRect: NSRect) {
             let p = Palette.current
             fillRect(bounds, p.s1)
-            drawBrackets(bounds.insetBy(dx: 6, dy: 6), color: p.bracket.ns, length: 12)
         }
     }
 

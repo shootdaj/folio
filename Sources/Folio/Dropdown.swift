@@ -263,9 +263,9 @@ final class DropdownView: NSView {
         strokeRounded(bounds, radius: 4, p.line2)
         guard case .field(let header, let count) = content.style else { return }
         let mid = 1 + Self.headerH / 2
-        drawLine(header, font: Typeface.ui(12, weight: 650, width: 116), color: p.txt2, x: 13, midY: mid,
+        drawLine(header, font: Typeface.ui(12, weight: 650), color: p.text2, x: 13, midY: mid,
                  maxWidth: bounds.width - 120)
-        drawLine(count, font: Typeface.mono(12), color: p.txt2, x: bounds.width - 13, midY: mid, alignRight: true)
+        drawLine(count, font: Typeface.mono(12), color: p.text2, x: bounds.width - 13, midY: mid, alignRight: true)
         fillRect(NSRect(x: 1, y: Self.headerH, width: bounds.width - 2, height: 1), p.line)
         // Footer: "Tab fills, Enter opens, Esc cancels" with key caps.
         let footTop = bounds.height - 1 - Self.pad - Self.footerH
@@ -277,7 +277,7 @@ final class DropdownView: NSView {
             : [("Tab", " fills, ", false), ("Enter", " opens, ", false), ("Esc", " cancels", true)]
         for (key, words, tall) in keys {
             x += drawKey(key, x: x, midY: lineMid, height: tall ? 24 : 20, p) + 2
-            x += drawLine(words, font: body, color: p.txt2, x: x, midY: lineMid)
+            x += drawLine(words, font: body, color: p.text2, x: x, midY: lineMid)
         }
     }
 
@@ -286,9 +286,9 @@ final class DropdownView: NSView {
         let font = Typeface.mono(12, weight: 500)
         let w = textWidth(key, font: font) + 12 + 2
         let r = NSRect(x: x, y: (midY - height / 2).rounded(), width: w, height: height)
-        fillRounded(r, radius: 3, p.line3)
+        fillRounded(r, radius: 3, p.outline)
         fillRounded(NSRect(x: r.minX + 1, y: r.minY + 1, width: r.width - 2, height: r.height - 3), radius: 2, p.s2)
-        drawLine(key, font: font, color: p.txt, x: r.minX + 7, midY: r.minY + 1 + (r.height - 3) / 2)
+        drawLine(key, font: font, color: p.text, x: r.minX + 7, midY: r.minY + 1 + (r.height - 3) / 2)
         return w
     }
 }
@@ -342,7 +342,7 @@ final class DropdownRowsView: NSView {
         let p = Palette.current
         let content = owner.content
         if content.rows.isEmpty {
-            drawLine(content.empty, font: Typeface.ui(13), color: p.txt2, x: DropdownView.pad + 12,
+            drawLine(content.empty, font: Typeface.ui(13), color: p.text2, x: DropdownView.pad + 12,
                      midY: DropdownView.pad + (owner.isField ? 23 : 19), maxWidth: bounds.width - 32)
             return
         }
@@ -359,28 +359,24 @@ final class DropdownRowsView: NSView {
 
     /// `.ta-row`: light, folder, then the directory (ellipsized) and the leaf name, typed part bold.
     private func drawFieldRow(_ row: DropdownRow, in r: NSRect, hi: Bool, _ p: Palette) {
+        // `.ta-row.hi`: the --sel fill and a glowing 3 pt accent edge, 7 pt short of top and bottom.
         if hi {
-            fillRounded(r, radius: 3, p.selectionFill)
-            drawBrackets(r, color: p.accent.ns, length: 6)
-            let dot = NSRect(x: r.minX + 10, y: r.midY - 3, width: 6, height: 6)
-            p.accent.withAlpha(0.18).ns.setFill()
-            NSBezierPath(ovalIn: dot.insetBy(dx: -2, dy: -2)).fill()
-            p.accent.ns.setFill()
-            NSBezierPath(ovalIn: dot).fill()
+            fillRounded(r, radius: 8, p.selectionFill)
+            drawEdgeBar(NSRect(x: r.minX, y: r.minY + 7, width: 3, height: r.height - 14), color: p.accent, glowAlpha: 1, rounded: true)
         }
         if owner?.content.isSearchList == true {
-            Glyph.search.draw(in: NSRect(x: r.minX + 27, y: r.midY - 8, width: 16, height: 16), color: (hi ? p.accent : p.txt2).ns)
+            Glyph.search.draw(in: NSRect(x: r.minX + 12, y: r.midY - 8, width: 16, height: 16), color: (hi ? p.accent : p.muted).ns)
         } else {
-            ItemIcon.drawFolder(in: NSRect(x: r.minX + 26, y: r.midY - 7.5, width: 18, height: 15), palette: p, lit: hi)
+            ItemIcon.drawFolder(in: NSRect(x: r.minX + 12, y: r.midY - 8, width: 16, height: 16), palette: p, lit: hi)
         }
-        let textX = r.minX + 26 + 18 + 10
+        let textX = r.minX + 12 + 16 + 10
         let room = r.maxX - 10 - textX
         let slash = row.text.lastIndex(of: "/").map { row.text.index(after: $0) } ?? row.text.startIndex
         let dir = String(row.text[..<slash]), leaf = String(row.text[slash...])
         let dirBold = min(row.boldLength, dir.count)
         let leafBold = max(0, min(row.boldLength - dir.count, leaf.count))
-        let strong: [NSAttributedString.Key: Any] = [.font: Typeface.mono(13, weight: 600), .foregroundColor: (hi ? p.accent : p.txt).ns]
-        let plain: [NSAttributedString.Key: Any] = [.font: Typeface.mono(13), .foregroundColor: (hi ? p.txt : p.txt2).ns]
+        let strong: [NSAttributedString.Key: Any] = [.font: Typeface.mono(13, weight: 700), .foregroundColor: p.text.ns]
+        let plain: [NSAttributedString.Key: Any] = [.font: Typeface.mono(13), .foregroundColor: (hi ? p.text : p.text2).ns]
         func styled(_ s: String, bold: Int) -> NSAttributedString {
             let out = NSMutableAttributedString(string: String(s.prefix(bold)), attributes: strong)
             out.append(NSAttributedString(string: String(s.dropFirst(bold)), attributes: plain))
@@ -394,20 +390,21 @@ final class DropdownRowsView: NSView {
         drawAttributed(leafText, x: textX + dirW, midY: r.midY, width: leafW, font: font)
     }
 
-    /// `.mi`: folder and name; `.mi.cur` in the accent with a fill and brackets.
+    /// `.mi`: folder and name in Geist 500; the folder on the path (`.mi.cur`) in the text colour with
+    /// the accent tick at the right.
     private func drawMenuRow(_ row: DropdownRow, in r: NSRect, hi: Bool, keyboard: Bool, _ p: Palette) {
-        let tone = row.isCurrent ? p.accent : p.txt
-        if row.isCurrent {
-            fillRounded(r, radius: 3, p.selectionFill)
-            drawBrackets(r.insetBy(dx: 2, dy: 0), color: p.accent.ns, length: 6)
-        }
+        let tone = row.isCurrent || hi ? p.text : p.text2
         if hi {
-            fillRounded(r, radius: 3, tone.withAlpha(keyboard ? 0.10 : 0.08))
-            if keyboard { strokeRounded(r.insetBy(dx: 2, dy: 2), radius: 2, p.accent, width: 2) }
+            fillRounded(r, radius: 8, p.text.withAlpha(0.07))
+            if keyboard { strokeRounded(r.insetBy(dx: 1, dy: 1), radius: 7, p.accent, width: 2) }
         }
-        ItemIcon.drawFolder(in: NSRect(x: r.minX + 10, y: r.midY - 7.5, width: 18, height: 15), palette: p, lit: row.isCurrent)
-        drawLine(row.text, font: Typeface.mono(13, weight: 500), color: tone, x: r.minX + 10 + 18 + 10, midY: r.midY,
-                 maxWidth: r.maxX - 10 - (r.minX + 38))
+        ItemIcon.drawFolder(in: NSRect(x: r.minX + 10, y: r.midY - 8, width: 16, height: 16), palette: p, lit: row.isCurrent)
+        let tick: CGFloat = row.isCurrent ? 24 : 0
+        drawLine(row.text, font: Typeface.ui(13, weight: 500), color: tone, x: r.minX + 10 + 16 + 9, midY: r.midY,
+                 maxWidth: r.maxX - 10 - tick - (r.minX + 35))
+        if row.isCurrent {
+            Glyph.check.draw(in: NSRect(x: r.maxX - 10 - 14, y: r.midY - 7, width: 14, height: 14), color: p.accent.ns)
+        }
     }
 
     // MARK: Accessibility: one button per row, so a test can count and press them.
@@ -434,13 +431,9 @@ final class DropdownRowElement: NSAccessibilityElement {
     override func accessibilityPerformPress() -> Bool { press?(); return true }
 }
 
-/// Field-style corner brackets in the accent, above the scrolling rows.
+/// Above the scrolling rows: nothing to draw in D4 (kept as the place the panel's edge would go).
 final class DropdownOverlay: NSView {
     weak var owner: DropdownView?
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
-    override func draw(_ dirtyRect: NSRect) {
-        guard owner?.isField == true else { return }
-        drawBrackets(bounds, color: Palette.current.accent.ns, length: 10)
-    }
 }

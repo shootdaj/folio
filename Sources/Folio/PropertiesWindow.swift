@@ -106,7 +106,7 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
         header.infos = infos
         nameField.stringValue = urls.count == 1 ? (infos.first?.name ?? "") : "\(urls.count) items selected"
         nameField.isEditable = urls.count == 1
-        nameField.textColor = Palette.current.txt.ns
+        nameField.textColor = Palette.current.text.ns
         if !tabs.contains(tab) { tab = .general }
         layout()
         build()
@@ -397,7 +397,7 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
         var lines: [PropertySheet.Line] = [.init("Owner", info.owner), .init("Group", info.group), .separator]
         let header = FlowView()
         for title in ["Read", "Write", "Execute"] {
-            let label = LabelView(title, font: Typeface.ui(12, weight: 650, width: 116), color: { $0.txt2 })
+            let label = LabelView(title, font: Typeface.ui(12, weight: 650), color: { $0.text2 })
             header.add(label, width: 90)
         }
         lines.append(.init("", "", control: header, controlWidth: 270))
@@ -599,7 +599,7 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
 
     @objc private func themeChanged(_ note: Notification) {
         window?.backgroundColor = Palette.current.s2.ns
-        nameField.textColor = Palette.current.txt.ns
+        nameField.textColor = Palette.current.text.ns
         if let content = window?.contentView { refreshTheme(in: content) }
     }
 
@@ -651,7 +651,7 @@ final class PropertiesContentView: NSView {
         override var isFlipped: Bool { true }
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func draw(_ dirtyRect: NSRect) {
-            drawBrackets(bounds.insetBy(dx: 5, dy: 5), color: Palette.current.accent.ns, length: 14, width: 2)
+            strokeRounded(bounds, radius: 12, Palette.current.line2)
         }
     }
 }
@@ -668,7 +668,7 @@ final class PropertiesHeader: NSView {
         let p = Palette.current
         fillRect(NSRect(x: 0, y: 0, width: bounds.width, height: 44), p.s1)
         fillRect(NSRect(x: 0, y: 43, width: bounds.width, height: 1), p.line)
-        drawLine(title, font: Typeface.ui(14, weight: 700, width: 124), color: p.txt, x: 82, midY: 22,
+        drawLine(title, font: Typeface.ui(14, weight: 700), color: p.text, x: 82, midY: 22,
                  maxWidth: bounds.width - 82 - 16)
         let icon = NSRect(x: 26, y: 56, width: 56, height: 56)
         if let info = infos.first {
@@ -683,7 +683,7 @@ final class PropertiesHeader: NSView {
         }
         let kind = infos.count == 1 ? (infos.first.map { $0.link == .alias ? "Alias" : $0.link == .symlink ? "Symbolic link" : $0.kind } ?? "")
             : "\(infos.count) items"
-        drawLine(kind, font: Typeface.mono(12), color: p.txt2, x: 102, midY: 102, maxWidth: bounds.width - 126)
+        drawLine(kind, font: Typeface.mono(12), color: p.text2, x: 102, midY: 102, maxWidth: bounds.width - 126)
         // The name box under it (the field sits on top).
         strokeRounded(NSRect(x: 94, y: 58, width: bounds.width - 94 - 18, height: 32), radius: 5, p.line2)
     }
@@ -717,10 +717,10 @@ final class SegmentButton: NSButton {
         let r = bounds.insetBy(dx: 0.5, dy: 0.5)
         if isOn { fillRect(r, p.selectionFill) }
         strokeRounded(r, radius: 0, p.line2)
-        if isHighlighted { fillRect(r, p.txt.withAlpha(0.14)) }
+        if isHighlighted { fillRect(r, p.text.withAlpha(0.14)) }
         let font = Typeface.ui(13, weight: isOn ? 600 : 400)
         let tw = textWidth(title, font: font)
-        drawLine(title, font: font, color: isOn ? p.accent : p.txt2, x: (bounds.width - tw) / 2, midY: bounds.midY)
+        drawLine(title, font: font, color: isOn ? p.accent : p.text2, x: (bounds.width - tw) / 2, midY: bounds.midY)
         if isOn { fillRect(NSRect(x: 0, y: bounds.height - 2, width: bounds.width, height: 2), p.accent) }
     }
 }
@@ -819,11 +819,11 @@ final class PropertySheet: NSView {
                 continue
             }
             let top = line.wraps ? r.minY + 14 : r.midY
-            drawLine(line.key, font: Typeface.ui(12, weight: 650, width: 116), color: p.txt2, x: Self.keyX, midY: top,
+            drawLine(line.key, font: Typeface.ui(12, weight: 650), color: p.text2, x: Self.keyX, midY: top,
                      maxWidth: Self.valueX - Self.keyX - 10)
             guard !line.value.isEmpty else { continue }
             let font = line.mono ? Typeface.mono(12) : Typeface.ui(13)
-            let color = line.live ? p.accent : p.txt
+            let color = line.live ? p.accent : p.text
             if line.wraps {
                 let w = bounds.width - Self.valueX - 28
                 (line.value as NSString).draw(with: NSRect(x: Self.valueX, y: r.minY + 6, width: w, height: r.height - 6),
@@ -908,7 +908,7 @@ final class TagField: NSTextField, NSTextFieldDelegate {
         drawsBackground = false
         focusRingType = .none
         font = Typeface.mono(12)
-        textColor = Palette.current.txt.ns
+        textColor = Palette.current.text.ns
         delegate = self
         setAccessibilityLabel("Tags")
     }

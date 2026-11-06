@@ -3,7 +3,7 @@ import Testing
 @testable import FolioCore
 
 /// Everything Folio keeps outside the session file, each written by its store and read back by a fresh
-/// store on the same defaults (what a relaunch does): theme and accent, the default view, the Details
+/// store on the same defaults (what a relaunch does): the accent hue, the default view, the Details
 /// columns, Folder Options, the sidebar's width and folded sections, pins, favorites, recent files,
 /// address history, recent searches and a saved search file.
 @Suite struct PersistenceTests {
@@ -18,8 +18,7 @@ import Testing
         let d = defaults()
         let home = URL(fileURLWithPath: "/Users/someone", isDirectory: true)
 
-        ThemeSettings(defaults: d).theme = .light
-        ThemeSettings(defaults: d).accent = .amber
+        AccentSettings(defaults: d).hue = 55
         var view = ViewSettings(defaults: d)
         view.set(.tiles)
         view.makeDefault(in: d)
@@ -42,8 +41,7 @@ import Testing
         RecentSearches(defaults: d).record("bert kind:document")
 
         // A relaunch: new stores, same defaults.
-        #expect(ThemeSettings(defaults: d).theme == .light)
-        #expect(ThemeSettings(defaults: d).accent == .amber)
+        #expect(AccentSettings(defaults: d).hue == 55)
         #expect(ViewSettings(defaults: d).current == .tiles)
         #expect(ColumnSetStore(defaults: d).load() == columns)
         #expect(FolderOptionsStore(defaults: d).load() == options)

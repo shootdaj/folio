@@ -127,21 +127,20 @@ final class GridCellView: NSView, NSViewToolTipOwner {
         let p = Palette.current
         let r = bounds.insetBy(dx: 2, dy: 2)
         if isSelected {
-            fillRounded(r, radius: 3, p.selectionFill)
-            drawBrackets(r, color: p.accent.ns, length: 7)
+            fillRounded(r, radius: 8, p.selectionFill)
+            strokeRounded(r, radius: 8, p.accent.withAlpha(0.55))
         } else if isHovered {
-            fillRounded(r, radius: 3, p.txt.withAlpha(0.055))
+            fillRounded(r, radius: 8, p.text.withAlpha(0.05))
         }
         if isDropTarget {
-            fillRounded(r, radius: 3, p.markFill)
-            strokeRounded(r, radius: 3, p.accent)
-            drawBrackets(r, color: p.accent.ns, length: 7)
+            fillRounded(r, radius: 8, p.markFill)
+            strokeRounded(r, radius: 8, p.accent)
         }
         if isFocusItem && !isSelected {
             let path = NSBezierPath(rect: r.insetBy(dx: 0.5, dy: 0.5))
             path.lineWidth = 1
             path.setLineDash([2, 2], count: 2, phase: 0)
-            p.txt3.ns.setStroke()
+            p.muted.ns.setStroke()
             path.stroke()
         }
         if mode == .content { fillRect(NSRect(x: 8, y: bounds.maxY - 1, width: bounds.width - 16, height: 1), p.line) }
@@ -182,7 +181,7 @@ final class GridCellView: NSView, NSViewToolTipOwner {
 
     private func drawText(_ entry: FileEntry, _ p: Palette) {
         let name = entry.displayName(extensions: showsExtension)
-        let tone = isSelected ? p.accent : p.txt
+        let tone = isSelected ? p.accent : p.text
         let font = Typeface.ui(13, weight: isSelected ? 600 : 400)
         let nr = nameRect
         switch mode {
@@ -192,7 +191,7 @@ final class GridCellView: NSView, NSViewToolTipOwner {
             drawLine(name, font: Typeface.ui(13, weight: 600), color: tone, x: nr.minX, midY: nr.midY, maxWidth: nr.width)
             if mode == .tiles {
                 for (i, d) in details.prefix(2).enumerated() {
-                    drawLine(d.value, font: Typeface.ui(12), color: p.txt2, x: nr.minX, midY: nr.maxY + 8 + CGFloat(i) * 16, maxWidth: nr.width)
+                    drawLine(d.value, font: Typeface.ui(12), color: p.text2, x: nr.minX, midY: nr.maxY + 8 + CGFloat(i) * 16, maxWidth: nr.width)
                 }
             } else {
                 // Content: Type under the name; Date modified and Size in the rightmost column, Explorer's
@@ -206,7 +205,7 @@ final class GridCellView: NSView, NSViewToolTipOwner {
                 if let kind = details.first {
                     // Too narrow for a column of their own: dimensions or duration follow the type.
                     let line = ([kind.value] + (mediaFits ? [] : media.map(\.value))).joined(separator: "  \u{00B7}  ")
-                    drawLine(line, font: Typeface.ui(12), color: p.txt2, x: nr.minX, midY: nr.maxY + 9,
+                    drawLine(line, font: Typeface.ui(12), color: p.text2, x: nr.minX, midY: nr.maxY + 9,
                              maxWidth: max(nr.width * 0.4, right - colW - nr.minX - 12))
                 }
                 for (col, list) in [(1, main), (0, media)] {
@@ -214,8 +213,8 @@ final class GridCellView: NSView, NSViewToolTipOwner {
                     guard x > nr.minX + min(220, nr.width * 0.4) else { continue }
                     for (line, d) in list.prefix(2).enumerated() {
                         let y = bounds.midY - 9 + CGFloat(line) * 18
-                        let kw = drawLine(d.key + ": ", font: Typeface.ui(12), color: p.txt3, x: x, midY: y)
-                        drawLine(d.value, font: Typeface.mono(12), color: p.txt2, x: x + kw, midY: y, maxWidth: colW - kw - 12)
+                        let kw = drawLine(d.key + ": ", font: Typeface.ui(12), color: p.muted, x: x, midY: y)
+                        drawLine(d.value, font: Typeface.mono(12), color: p.text2, x: x + kw, midY: y, maxWidth: colW - kw - 12)
                     }
                 }
             }

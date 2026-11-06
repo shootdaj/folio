@@ -42,9 +42,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // Folio draws its own tabs; macOS's window tabs would add a second kind.
         NSWindow.allowsAutomaticWindowTabbing = false
         if let uitest {
-            ThemeController.shared.start(defaults: uitest.defaults)
-            ThemeController.shared.theme = uitest.theme
-            ThemeController.shared.accent = uitest.accent
+            ThemeController.shared.start(defaults: uitest.defaults, forcedAppearance: uitest.appearance)
+            ThemeController.shared.hue = uitest.hue
         } else {
             ThemeController.shared.start(defaults: .standard)
         }
@@ -86,23 +85,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         uitest == nil && !ListOptions.folder.keepRunning
     }
 
-    // MARK: View > Theme, View > Accent
-
-    @objc func selectTheme(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String, let choice = ThemeChoice(rawValue: raw) else { return }
-        ThemeController.shared.theme = choice
-    }
-
-    @objc func selectAccent(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String, let choice = AccentChoice(rawValue: raw) else { return }
-        ThemeController.shared.accent = choice
-    }
-
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
-        let raw = item.representedObject as? String
         switch item.action {
-        case #selector(selectTheme(_:)): item.state = raw == ThemeController.shared.theme.rawValue ? .on : .off
-        case #selector(selectAccent(_:)): item.state = raw == ThemeController.shared.accent.rawValue ? .on : .off
         case #selector(closeTab(_:)): return NSApp.keyWindow != nil
         case #selector(reopenClosedTab(_:)): return closedTabs.count > 0
         case #selector(tileWindows(_:)): return !windows.isEmpty

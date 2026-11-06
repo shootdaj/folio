@@ -157,8 +157,7 @@ final class ProgressContentView: NSView {
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func draw(_ dirtyRect: NSRect) {
             let p = Palette.current
-            strokeRounded(bounds, radius: 4, p.line2)
-            drawBrackets(bounds, color: p.accent.ns, length: 14, width: 2)
+            strokeRounded(bounds, radius: 16, p.line2)
         }
     }
 }
@@ -430,7 +429,7 @@ final class JobPanelView: NSView {
         // Header.
         fillRect(NSRect(x: 0, y: 0, width: w, height: 52), p.s1)
         fillRect(NSRect(x: 0, y: 51, width: w, height: 1), p.line)
-        drawLine(title(s), font: Typeface.ui(16, weight: 750, width: 124), color: p.txt, x: 39, midY: 26,
+        drawLine(title(s), font: Typeface.ui(16, weight: 750), color: p.text, x: 39, midY: 26,
                  maxWidth: hideButton.frame.minX - 12 - 39)
         drawRing(s, p)
         drawRoute(s, p)
@@ -442,7 +441,7 @@ final class JobPanelView: NSView {
         let itemsLeft = max(0, s.itemsTotal - s.itemsDone)
         now += ByteText.grouped(itemsLeft) + (itemsLeft == 1 ? " item" : " items") + " left"
         if s.skipped > 0 { now += ", \(s.skipped) skipped" }
-        drawLine(now, font: Typeface.mono(12), color: p.txt3, x: 18, midY: 404, maxWidth: pauseButton.frame.minX - 18 - 12)
+        drawLine(now, font: Typeface.mono(12), color: p.muted, x: 18, midY: 404, maxWidth: pauseButton.frame.minX - 18 - 12)
         if showsConflict, let c = s.conflict { drawConflict(c, p) }
         if showsProblem, let problem = s.problem { drawProblem(problem, p) }
         if showsResolution, let resolution { drawResolution(resolution, p) }
@@ -475,7 +474,7 @@ final class JobPanelView: NSView {
         let ticks = circle(75 * k)
         ticks.lineWidth = 5 * k
         ticks.setLineDash([1.2 * k, 6.654 * k], count: 2, phase: 0)
-        p.line3.ns.setStroke()
+        p.outline.ns.setStroke()
         ticks.stroke()
         let track = circle(62 * k)
         track.lineWidth = 10 * k
@@ -499,12 +498,12 @@ final class JobPanelView: NSView {
         tone.ns.setFill()
         NSBezierPath(ovalIn: NSRect(x: head.x - r, y: head.y - r, width: 2 * r, height: 2 * r)).fill()
         let pct = s.state == .done ? 100 : Int((shown * 100).rounded(.down))
-        let pctFont = Typeface.ui(36, weight: 750, width: 125)
+        let pctFont = Typeface.ui(36, weight: 750)
         let pw = textWidth("\(pct)%", font: pctFont)
-        drawLine("\(pct)%", font: pctFont, color: p.txt, x: c.x - pw / 2, midY: c.y - 10)
+        drawLine("\(pct)%", font: pctFont, color: p.text, x: c.x - pw / 2, midY: c.y - 10)
         let sub = JobWords.ring(s.kind)
         let sw = textWidth(sub, font: Typeface.mono(12))
-        drawLine(sub, font: Typeface.mono(12), color: p.txt2, x: c.x - sw / 2, midY: c.y + 20)
+        drawLine(sub, font: Typeface.mono(12), color: p.text2, x: c.x - sw / 2, midY: c.y + 20)
     }
 
     private func drawRoute(_ s: JobSnapshot, _ p: Palette) {
@@ -515,10 +514,10 @@ final class JobPanelView: NSView {
         let from = (s.sources.first?.deletingLastPathComponent() ?? s.destination).standardizedFileURL
         for (i, (key, url)) in [("From", from), ("To", s.destination.standardizedFileURL)].enumerated() {
             let x = colX + CGFloat(i) * (cw + 44)
-            drawLine(key, font: Typeface.ui(12, weight: 650, width: 116), color: p.txt2, x: x, midY: top + 6)
+            drawLine(key, font: Typeface.ui(12, weight: 650), color: p.text2, x: x, midY: top + 6)
             let name = url.path == "/" ? "/" : url.lastPathComponent
-            drawLine(name, font: Typeface.ui(14, weight: 700), color: p.txt, x: x, midY: top + 24, maxWidth: cw)
-            drawLine(url.path, font: Typeface.mono(12), color: p.txt3, x: x, midY: top + 43, maxWidth: cw)
+            drawLine(name, font: Typeface.ui(14, weight: 700), color: p.text, x: x, midY: top + 24, maxWidth: cw)
+            drawLine(url.path, font: Typeface.mono(12), color: p.muted, x: x, midY: top + 43, maxWidth: cw)
         }
         Glyph.arrow.draw(in: NSRect(x: colX + cw + 12, y: top + 15, width: 20, height: 20), color: p.accent.ns)
         fillRect(NSRect(x: colX, y: top + 65, width: colW, height: 1), p.line)
@@ -543,8 +542,8 @@ final class JobPanelView: NSView {
         for (i, (key, value)) in [("Speed", speed), ("Time left", left), ("Items", items)].enumerated() {
             let x = colX + CGFloat(i) * (rw + 12)
             fillRect(NSRect(x: x, y: y, width: 2, height: 33), p.line2)
-            drawLine(key, font: Typeface.ui(12, weight: 650, width: 116), color: p.txt2, x: x + 10, midY: y + 6)
-            drawLine(value, font: Typeface.mono(15, weight: 600), color: p.txt, x: x + 10, midY: y + 26, maxWidth: rw - 10)
+            drawLine(key, font: Typeface.ui(12, weight: 650), color: p.text2, x: x + 10, midY: y + 6)
+            drawLine(value, font: Typeface.mono(15, weight: 600), color: p.text, x: x + 10, midY: y + 26, maxWidth: rw - 10)
         }
     }
 
@@ -554,10 +553,10 @@ final class JobPanelView: NSView {
         let box = NSRect(x: 18, y: 254, width: bounds.width - 36, height: 116)
         fillRounded(box, radius: 3, p.s1)
         strokeRounded(box, radius: 3, p.line)
-        drawLine(JobWords.graph(s.kind), font: Typeface.ui(12, weight: 650, width: 116),
-                 color: p.txt2, x: 30, midY: 270)
+        drawLine(JobWords.graph(s.kind), font: Typeface.ui(12, weight: 650),
+                 color: p.text2, x: 30, midY: 270)
         let shownBytes = s.state == .done ? s.bytesTotal : Int64(Double(s.bytesTotal) * shown)
-        drawLine(ProgressText.bytesOf(shownBytes, s.bytesTotal), font: Typeface.mono(12), color: p.txt,
+        drawLine(ProgressText.bytesOf(shownBytes, s.bytesTotal), font: Typeface.mono(12), color: p.text,
                  x: bounds.width - 30, midY: 270, alignRight: true)
         let plot = NSRect(x: 30, y: 284, width: bounds.width - 60, height: 64)
         var gy = plot.minY
@@ -599,7 +598,7 @@ final class JobPanelView: NSView {
         now.line(to: NSPoint(x: plot.maxX, y: y(cur)))
         now.lineWidth = 1
         now.setLineDash([3, 4], count: 2, phase: 0)
-        p.txt3.ns.setStroke()
+        p.muted.ns.setStroke()
         now.stroke()
         let bar = NSRect(x: 30, y: 356, width: bounds.width - 60, height: 4)
         fillRounded(bar, radius: 2, p.line2)
@@ -628,9 +627,9 @@ final class JobPanelView: NSView {
         fillRect(NSRect(x: 0, y: top, width: w, height: 1), p.line)
         let hy = top + 14 + 9
         let nameFont = Typeface.mono(13, weight: 700)
-        let nw = drawLine(c.incoming.name, font: nameFont, color: p.txt, x: 35, midY: hy, maxWidth: w / 2)
+        let nw = drawLine(c.incoming.name, font: nameFont, color: p.text, x: 35, midY: hy, maxWidth: w / 2)
         let folder = c.destination.deletingLastPathComponent().lastPathComponent
-        drawLine(" already exists in " + folder, font: Typeface.ui(14), color: p.txt, x: 35 + nw, midY: hy,
+        drawLine(" already exists in " + folder, font: Typeface.ui(14), color: p.text, x: 35 + nw, midY: hy,
                  maxWidth: w - 35 - nw - 18)
         let cy = top + 14 + 18 + 12
         let cw = (w - 36 - 10) / 2
@@ -658,16 +657,16 @@ final class JobPanelView: NSView {
                 ItemIcon.drawFile(named: c.incoming.name, in: icon, palette: p)
             }
             let tx = r.minX + 12 + 24 + 12
-            drawLine(side.key, font: Typeface.ui(12, weight: 650, width: 116), color: p.txt2, x: tx, midY: r.minY + 17,
+            drawLine(side.key, font: Typeface.ui(12, weight: 650), color: p.text2, x: tx, midY: r.minY + 17,
                      maxWidth: r.maxX - 12 - tx)
-            drawLine(facts(side.f), font: Typeface.mono(12), color: p.txt, x: tx, midY: r.minY + 36, maxWidth: r.maxX - 12 - tx)
+            drawLine(facts(side.f), font: Typeface.mono(12), color: p.text, x: tx, midY: r.minY + 36, maxWidth: r.maxX - 12 - tx)
             guard compare else { continue }
             var x = r.minX + 12
             for tag in side.tags {
                 let tw = textWidth(tag, font: Typeface.mono(12, weight: 500)) + 16
                 let tr = NSRect(x: x, y: r.minY + 48, width: tw, height: 22)
                 fillRounded(tr, radius: 3, side.accent ? p.selectionFill : p.line)
-                drawLine(tag, font: Typeface.mono(12, weight: 500), color: side.accent ? p.accent : p.txt2,
+                drawLine(tag, font: Typeface.mono(12, weight: 500), color: side.accent ? p.accent : p.text2,
                          x: tr.minX + 8, midY: tr.midY)
                 x += tw + 6
             }
@@ -680,9 +679,9 @@ final class JobPanelView: NSView {
         fillRect(NSRect(x: 0, y: top, width: w, height: preferredHeight - top), p.miss.withAlpha(0.05))
         fillRect(NSRect(x: 0, y: top, width: w, height: 1), p.line)
         let hy = top + 14 + 9
-        let nw = drawLine(problem.url.lastPathComponent, font: Typeface.mono(13, weight: 700), color: p.txt, x: 35, midY: hy,
+        let nw = drawLine(problem.url.lastPathComponent, font: Typeface.mono(13, weight: 700), color: p.text, x: 35, midY: hy,
                           maxWidth: w / 2)
-        drawLine(": " + problem.message, font: Typeface.ui(14), color: p.txt, x: 35 + nw, midY: hy, maxWidth: w - 35 - nw - 18)
+        drawLine(": " + problem.message, font: Typeface.ui(14), color: p.text, x: 35 + nw, midY: hy, maxWidth: w - 35 - nw - 18)
     }
 
     /// D1's `.conf.res`: a green light and what was decided.
@@ -691,7 +690,7 @@ final class JobPanelView: NSView {
         fillRect(NSRect(x: 0, y: top, width: bounds.width, height: 1), p.line)
         let hy = top + 14 + 9
         fillRounded(NSRect(x: 18, y: hy - 3.5, width: 7, height: 7), radius: 3.5, p.ok)
-        drawLine(text, font: Typeface.ui(14), color: p.txt, x: 35, midY: hy, maxWidth: bounds.width - 53)
+        drawLine(text, font: Typeface.ui(14), color: p.text, x: 35, midY: hy, maxWidth: bounds.width - 53)
     }
 }
 

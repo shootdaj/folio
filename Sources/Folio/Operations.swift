@@ -381,9 +381,9 @@ final class DockTileView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         NSApp.applicationIconImage?.draw(in: bounds)
-        let p = Theme.palette(.dark, accent: ThemeController.shared.accent)
+        let p = Theme.palette(.dark, hue: ThemeController.shared.hue)
         let bar = NSRect(x: bounds.width * 0.1, y: bounds.height * 0.08, width: bounds.width * 0.8, height: bounds.height * 0.11)
-        fillRounded(bar, radius: bar.height / 2, p.hudBg)
+        fillRounded(bar, radius: bar.height / 2, p.s3)
         let inner = bar.insetBy(dx: 3, dy: 3)
         fillRounded(NSRect(x: inner.minX, y: inner.minY, width: max(inner.height, inner.width * fraction), height: inner.height),
                     radius: inner.height / 2, paused ? p.part : p.accent)

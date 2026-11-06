@@ -125,9 +125,9 @@ final class ExtractSheetController: NSObject, NSTextFieldDelegate {
         sheet.backgroundColor = Palette.current.s2.ns
         let content = PropertiesContentView()
         sheet.contentView = content
-        let heading = LabelView("Select a Destination and Extract Files", font: Typeface.ui(16, weight: 750, width: 124), color: { $0.txt })
-        let sub = LabelView(archive.lastPathComponent, font: Typeface.mono(12), color: { $0.txt3 })
-        let label = LabelView("Files will be extracted to this folder:", font: Typeface.ui(13), color: { $0.txt2 })
+        let heading = LabelView("Select a Destination and Extract Files", font: Typeface.ui(16, weight: 750), color: { $0.text })
+        let sub = LabelView(archive.lastPathComponent, font: Typeface.mono(12), color: { $0.muted })
+        let label = LabelView("Files will be extracted to this folder:", font: Typeface.ui(13), color: { $0.text2 })
         heading.frame = NSRect(x: 28, y: 26, width: 520, height: 24)
         sub.frame = NSRect(x: 28, y: 52, width: 520, height: 18)
         label.frame = NSRect(x: 28, y: 92, width: 520, height: 20)

@@ -297,8 +297,7 @@ extension BrowserWindowController {
         guard let s = history.search else { return }
         let title = searchTitle
         window?.title = title
-        titleBar.folderName = title
-        titleBar.folderPath = "\u{201C}" + s.text + "\u{201D} in " + (history.search?.everywhere == true ? "This PC" : (history.isHome ? "Home" : history.current.path))
+        _ = s
         toolbar.address.searchTitle = title
         toolbar.address.searchDone = searchFinished
         toolbar.address.searchProgress = searchDisplayProgress

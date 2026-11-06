@@ -22,13 +22,21 @@ extension BrowserWindowController {
     func updateTabStrip() {
         updateWatches()
         let items = tabs.tabs.map { tab in
-            TabItem(id: tab.id, title: tab.history.search.map { s in
-                        "Search Results in " + (s.everywhere ? "This PC" : displayName(tab.current))
-                    } ?? displayName(tab.current), isHome: tab.history.isHome,
-                    folder: tab.history.isHome ? nil : tab.current)
+            var item = TabItem(id: tab.id, title: tab.history.search.map { s in
+                                   "Search Results in " + (s.everywhere ? "This PC" : displayName(tab.current))
+                               } ?? tabTitle(tab), isHome: tab.history.isHome,
+                               folder: tab.history.isHome ? nil : tab.current)
+            item.isSearch = tab.history.search != nil
+            return item
         }
         chassis.tabStrip.items = items
         chassis.tabStrip.activeIndex = tabs.activeIndex
+    }
+
+    /// A folder tab's title: its name, or with Folder Options > Display the full path in the title bar,
+    /// its full path (the tabs are the title bar now).
+    private func tabTitle(_ tab: BrowserTab) -> String {
+        ListOptions.folder.fullPathInTitleBar && !tab.history.isHome ? tab.current.path : displayName(tab.current)
     }
 
     /// The shown tab's selection and scroll place, kept for when it is shown again.

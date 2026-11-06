@@ -66,10 +66,14 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
     private var axParts: [AddressPart] = []
     private var axKey: [String] = []
 
-    static let iconWidth: CGFloat = 40
-    static let arrowWidth: CGFloat = 30
-    static let crumbPad: CGFloat = 8
+    /// D4's `.addr` padding: the crumbs start 4 pt in; the field and the search title 12 pt in.
+    static let iconWidth: CGFloat = 4
+    /// `.cchev`: 20 pt.
+    static let arrowWidth: CGFloat = 20
+    static let crumbPad: CGFloat = 7
     static let minHit: CGFloat = 40
+    /// The volume crumb is D4's root: the drive glyph alone.
+    static let rootWidth: CGFloat = 30
 
     enum Part: Equatable { case overflow, crumb(Int), arrow(Int), history, empty, token(Int) }
     private struct Slot { let rect: NSRect; let part: Part }
@@ -128,18 +132,24 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
 
     // MARK: Layout of the crumbs
 
-    private var crumbFont: NSFont { Typeface.mono(13, weight: 500) }
-    private var currentFont: NSFont { Typeface.mono(13, weight: 600) }
+    private var crumbFont: NSFont { Typeface.ui(13, weight: 500) }
+    private var currentFont: NSFont { Typeface.ui(13, weight: 600) }
+
+    /// The root crumb is the volume's glyph (Home keeps its name).
+    private func isRoot(_ crumb: Crumb) -> Bool { crumb.isVolume && !isHome }
 
     private func crumbWidth(_ crumb: Crumb) -> CGFloat {
-        textWidth(crumb.title, font: crumb.isCurrent ? currentFont : crumbFont) + 2 * Self.crumbPad
+        isRoot(crumb) ? Self.rootWidth : textWidth(crumb.title, font: crumb.isCurrent ? currentFont : crumbFont) + 2 * Self.crumbPad
     }
+
+    /// The field box: 3 pt in from top and bottom (`.addr::before{inset:3px 0}`).
+    private var box: NSRect { bounds.insetBy(dx: 0, dy: 3) }
 
     private var historyRect: NSRect {
-        NSRect(x: bounds.width - 1 - Self.arrowWidth, y: 1, width: Self.arrowWidth, height: bounds.height - 2)
+        NSRect(x: bounds.width - 4 - 28, y: 3, width: 28, height: bounds.height - 6)
     }
 
-    private var tokenFont: NSFont { Typeface.mono(12, weight: 500) }
+    private var tokenFont: NSFont { Typeface.ui(12, weight: 500) }
 
     private func tokenWidth(_ t: FilterToken) -> CGFloat { textWidth(t.text, font: tokenFont) + 10 + 8 + 14 + 6 }
 
@@ -201,53 +211,61 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
         return slots().first { $0.rect.contains(point) }.map { ($0.part, $0.rect) }
     }
 
+    /// D4's `.addr`: the --field box with a line-2 hairline (outline on hover, accent while editing, coral
+    /// for a bad path) at radius 12; the root crumb is the drive glyph in the accent, crumbs in Geist 500
+    /// text-2 with the current one 600 in the text colour, chevrons muted (accent and turned when open).
     override func draw(_ dirtyRect: NSRect) {
         let p = Palette.current
-        let box = bounds
-        fillRounded(box, radius: 5, p.s2)
+        fillRounded(box, radius: 12, p.field)
         if let title = searchTitle, !isEditing {
             drawSearchMode(title, p)
             drawArrow(historyRect, open: dropdown?.isOpen("history") == true, down: true, hot: hovered == .history, p)
             return
         }
-        let border: RGBA = isInvalid ? p.miss : isEditing ? p.accent : (isHovered ? p.line3 : p.line2)
-        strokeRounded(box, radius: 5, border)
-        ItemIcon.drawFolder(in: NSRect(x: 11, y: box.midY - 7.5, width: 18, height: 15), palette: p, lit: false)
+        let border: RGBA = isInvalid ? p.miss : isEditing ? p.accent : (isHovered ? p.outline : p.line2)
+        strokeRounded(box, radius: 12, border)
         drawArrow(historyRect, open: dropdown?.isOpen("history") == true, down: true, hot: hovered == .history, p)
-        guard !isEditing else { return }
+        if isEditing {
+            // `.addr.edit`: the accent folder 12 pt in, then the path in Geist Mono.
+            ItemIcon.drawFolder(in: NSRect(x: 12, y: box.midY - 8, width: 16, height: 16), palette: p, lit: false)
+            return
+        }
 
         NSGraphicsContext.saveGraphicsState()
-        NSBezierPath(rect: NSRect(x: Self.iconWidth, y: 0, width: historyRect.minX - Self.iconWidth, height: box.height)).addClip()
+        NSBezierPath(rect: NSRect(x: Self.iconWidth, y: 0, width: historyRect.minX - Self.iconWidth, height: bounds.height)).addClip()
         for slot in slots() {
             let hot = hovered == slot.part
+            // `.crumb::after`: currentColor at 9% (hover), inset 9 pt top and bottom, radius 5.
+            let wash = NSRect(x: slot.rect.minX, y: 9, width: slot.rect.width, height: bounds.height - 18)
             switch slot.part {
             case .overflow:
-                if hot { fillRounded(slot.rect, radius: 3, p.txt3.withAlpha(0.08)) }
+                if hot { fillRounded(wash, radius: 5, p.text.withAlpha(0.09)) }
                 let open = dropdown?.isOpen("overflow") == true
-                drawLine("\u{00AB}", font: crumbFont, color: open ? p.accent : p.txt3,
-                         x: slot.rect.midX - textWidth("\u{00AB}", font: crumbFont) / 2, midY: box.midY)
+                Glyph.more.draw(in: NSRect(x: slot.rect.midX - 8, y: box.midY - 8, width: 16, height: 16), color: (open ? p.accent : p.text2).ns)
             case .crumb(let i):
                 let crumb = crumbs[i]
-                let tone = crumb.isCurrent ? p.accent : p.txt
+                let tone = crumb.isCurrent ? p.text : (hot ? p.text : p.text2)
                 if dropCrumb == i {
-                    let r = slot.rect.insetBy(dx: 0, dy: 5)
-                    fillRounded(r, radius: 3, p.markFill)
-                    strokeRounded(r.insetBy(dx: 0.5, dy: 0.5), radius: 3, p.accent)
-                    drawBrackets(r, color: p.accent.ns, length: 6)
-                } else if hot { fillRounded(slot.rect, radius: 3, tone.withAlpha(0.08)) }
-                drawLine(crumb.title, font: crumb.isCurrent ? currentFont : crumbFont, color: tone,
-                         x: slot.rect.minX + Self.crumbPad, midY: box.midY, maxWidth: slot.rect.width - 2 * Self.crumbPad)
+                    fillRounded(wash, radius: 5, p.markFill)
+                    strokeRounded(wash, radius: 5, p.accent)
+                } else if hot { fillRounded(wash, radius: 5, tone.withAlpha(0.09)) }
+                if isRoot(crumb) {
+                    Glyph.drive.draw(in: NSRect(x: slot.rect.midX - 8, y: box.midY - 8, width: 16, height: 16), color: p.accent.ns)
+                } else {
+                    drawLine(crumb.title, font: crumb.isCurrent ? currentFont : crumbFont, color: tone,
+                             x: slot.rect.minX + Self.crumbPad, midY: box.midY, maxWidth: slot.rect.width - 2 * Self.crumbPad)
+                }
             case .arrow(let i):
                 drawArrow(slot.rect, open: dropdown?.isOpen("crumb:" + crumbs[i].path) == true, down: false, hot: hot, p)
             case .token(let i):
+                // A filter token as D4's pressed chip: the accent border over a 14% accent tint.
                 let r = slot.rect
-                fillRounded(r, radius: 4, p.selectionFill)
-                strokeRounded(r, radius: 4, p.accent.withAlpha(0.7))
-                drawBrackets(r, color: p.accent.ns, length: 5)
-                drawLine(tokens[i].text, font: tokenFont, color: p.accent, x: r.minX + 10, midY: r.midY, maxWidth: r.width - 10 - 24)
+                fillRounded(r, radius: 10, p.accent.withAlpha(0.14).over(p.field))
+                strokeRounded(r, radius: 10, p.accent)
+                drawLine(tokens[i].text, font: tokenFont, color: p.text, x: r.minX + 10, midY: r.midY, maxWidth: r.width - 10 - 24)
                 let x = clearRect(r)
-                if hot { fillRounded(x.insetBy(dx: 2, dy: 3), radius: 3, p.accent.withAlpha(0.16)) }
-                Glyph.close.draw(in: NSRect(x: x.midX - 6, y: x.midY - 6, width: 12, height: 12), color: (hot ? p.accent : p.txt2).ns,
+                if hot { fillRounded(x.insetBy(dx: 2, dy: 3), radius: 6, p.text.withAlpha(0.10)) }
+                Glyph.close.draw(in: NSRect(x: x.midX - 6, y: x.midY - 6, width: 12, height: 12), color: (hot ? p.text : p.text2).ns,
                                  lineWidth: 2)
             case .empty, .history:
                 break
@@ -256,30 +274,23 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
         NSGraphicsContext.restoreGraphicsState()
     }
 
-    /// D1's search address (`.sfill`, `.sprog`): a 10% accent fill and a 2 pt accent line with a lit dot
-    /// at its head grow left to right while results gather; when done the fill fades and the line dims.
+    /// D4's search address (`.addr.is-search`): the magnifier in the accent and "Search Results in work";
+    /// while results gather a 2 pt accent line grows along the field's bottom edge, dimming when done.
     private func drawSearchMode(_ title: String, _ p: Palette) {
-        let box = bounds
         let progress = CGFloat(max(0, min(1, searchProgress)))
+        strokeRounded(box, radius: 12, isHovered ? p.outline : p.line2)
         NSGraphicsContext.saveGraphicsState()
-        NSBezierPath(roundedRect: box.insetBy(dx: 1, dy: 1), xRadius: 4, yRadius: 4).addClip()
-        if !searchDone {
-            fillRect(NSRect(x: 0, y: 0, width: box.width * progress, height: box.height), p.accent.withAlpha(0.10))
+        NSBezierPath(roundedRect: box.insetBy(dx: 1, dy: 1), xRadius: 11, yRadius: 11).addClip()
+        let line = NSRect(x: box.minX + 1, y: box.maxY - 3, width: (box.width - 2) * (searchDone ? 1 : progress), height: 2)
+        if searchDone {
+            fillRect(line, p.accent.withAlpha(0.4))
+        } else if progress > 0 {
+            withGlow(p.accent, blur: 10) { fillRect(line, p.accent) }
         }
-        let line = NSRect(x: 1, y: box.height - 3, width: (box.width - 2) * (searchDone ? 1 : progress), height: 2)
-        fillRect(line, searchDone ? p.accent.withAlpha(0.45) : p.accent)
         NSGraphicsContext.restoreGraphicsState()
-        strokeRounded(box, radius: 5, isHovered ? p.line3 : p.line2)
-        if !searchDone, progress > 0, let ctx = NSGraphicsContext.current?.cgContext {
-            ctx.saveGState()
-            if p.glows { ctx.setShadow(offset: .zero, blur: 8, color: p.accent.withAlpha(0.8).cg) }
-            p.accent.ns.setFill()
-            NSBezierPath(ovalIn: NSRect(x: line.maxX - 3, y: line.minY - 2, width: 6, height: 6)).fill()
-            ctx.restoreGState()
-        }
         Glyph.search.draw(in: NSRect(x: 12, y: box.midY - 8, width: 16, height: 16), color: p.accent.ns)
-        drawLine(title, font: Typeface.ui(13, weight: 600, width: 112), color: p.txt, x: Self.iconWidth, midY: box.midY,
-                 maxWidth: historyRect.minX - Self.iconWidth - 12)
+        drawLine(title, font: Typeface.ui(13, weight: 600), color: p.text, x: 12 + 16 + 8, midY: box.midY,
+                 maxWidth: historyRect.minX - 36 - 8)
     }
 
     /// The search label as an element a test can read: its value says how far the search got.
@@ -287,15 +298,15 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
         searchElement?.setAccessibilityValue(searchDone ? "done" : "searching \(Int(searchProgress * 100))%")
     }
 
-    /// `.cr-arrow`: a 14 pt chevron in txt3; open, it turns to point down in the accent.
+    /// `.cchev`: a 14 pt chevron, muted; open, it turns to point down in the accent.
     private func drawArrow(_ r: NSRect, open: Bool, down: Bool, hot: Bool, _ p: Palette) {
-        if hot && !open { fillRounded(r, radius: 3, p.txt3.withAlpha(0.08)) }
+        if hot || open { fillRounded(NSRect(x: r.minX, y: 9, width: r.width, height: bounds.height - 18), radius: 5, p.text.withAlpha(0.09)) }
         let s: CGFloat = 14
         let icon = NSRect(x: r.midX - s / 2, y: bounds.midY - s / 2, width: s, height: s)
         if down {
-            Glyph.chevronDown.draw(in: icon, color: (open ? p.accent : p.txt3).ns, rotation: open ? .pi : 0)
+            Glyph.chevronDown.draw(in: icon, color: (open ? p.accent : p.muted).ns, rotation: open ? .pi : 0)
         } else {
-            Glyph.chevron.draw(in: icon, color: (open ? p.accent : p.txt3).ns, rotation: open ? .pi / 2 : 0)
+            Glyph.chevron.draw(in: icon, color: (open ? p.accent : p.muted).ns, rotation: open ? .pi / 2 : 0)
         }
     }
 
@@ -447,7 +458,7 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
         hovered = nil
         let p = Palette.current
         field.font = Typeface.mono(13, weight: 500)
-        field.textColor = p.txt.ns
+        field.textColor = p.text.ns
         field.stringValue = isHome ? "" : folder.path
         placeField()
         field.isHidden = false
@@ -482,7 +493,7 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
     private func placeField() {
         guard let font = field.font else { return }
         let h = ceil(font.ascender - font.descender) + 4
-        field.frame = NSRect(x: Self.iconWidth, y: (bounds.height - h) / 2, width: historyRect.minX - 4 - Self.iconWidth, height: h)
+        field.frame = NSRect(x: 12 + 16 + 8, y: (bounds.height - h) / 2, width: historyRect.minX - 4 - 36, height: h)
     }
 
     private func caretToEnd() {
@@ -661,7 +672,7 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
             e.setAccessibilityRole(.staticText)
             e.setAccessibilityLabel(title)
             e.setAccessibilityParent(self)
-            e.setAccessibilityFrameInParentSpace(NSRect(x: Self.iconWidth, y: 1, width: historyRect.minX - Self.iconWidth, height: bounds.height - 2))
+            e.setAccessibilityFrameInParentSpace(NSRect(x: 36, y: 3, width: historyRect.minX - 36, height: bounds.height - 6))
             e.setAccessibilityValue(searchDone ? "done" : "searching \(Int(searchProgress * 100))%")
             key.append("search|\(title)")
             parts.append(e)
@@ -701,9 +712,9 @@ final class AddressPart: NSAccessibilityElement {
     override func accessibilityPerformPress() -> Bool { press?(); return true }
 }
 
-/// The 56 pt toolbar (`.toolbar`): Back, Forward, Up, the address bar, the command bar (Explorer's New,
-/// Cut, Copy, Paste, Rename, Share, Delete, Sort, View and See more, as D1 toolbar buttons), Refresh
-/// and the search box. Commands that do not fit fold into See more, which always lists everything.
+/// D4's 52 pt frosted toolbar (`.toolbar`): Back, Forward, Up, the address bar, the command bar (Explorer's
+/// New, Cut, Copy, Paste, Rename, Share, Delete, Sort, View and See more, as `.ib` buttons), Refresh and
+/// the search box. Commands that do not fit fold into See more, which always lists everything.
 final class ToolbarView: NSView {
     let back: ChromeButton
     let forward: ChromeButton
@@ -741,7 +752,7 @@ final class ToolbarView: NSView {
         address.onEditingChanged = { [weak self] in self?.needsDisplay = true }
         searchEdge.onDrag = { [weak self] x in
             guard let self else { return }
-            let w = min(max(180, self.search.frame.maxX - x), max(180, self.bounds.width - 154 - Self.addressMin - 120))
+            let w = min(max(180, self.search.frame.maxX - x), max(180, self.bounds.width - Self.addressX - Self.addressMin - 120))
             self.searchWidth = w
             UserDefaults.standard.set(Double(w), forKey: Self.searchWidthKey)
         }
@@ -751,18 +762,22 @@ final class ToolbarView: NSView {
 
     override var isFlipped: Bool { true }
 
+    /// Where the address bar starts: 8 pt in, three 44 pt buttons 4 pt apart, then its 8 pt margin.
+    static let addressX: CGFloat = 156
+
     override func layout() {
         super.layout()
-        let y = (bounds.height - 1 - 44) / 2
-        back.frame = NSRect(x: 10, y: y, width: 44, height: 44)
+        let y = ((bounds.height - 1 - 44) / 2).rounded()
+        back.frame = NSRect(x: 8, y: y, width: 44, height: 44)
         forward.frame = NSRect(x: 56, y: y, width: 44, height: 44)
-        up.frame = NSRect(x: 102, y: y, width: 44, height: 44)
+        up.frame = NSRect(x: 104, y: y, width: 44, height: 44)
+        let left = Self.addressX
         // Narrow windows (two side by side) give the search box's room to the address bar.
         let standard: CGFloat = bounds.width < 1180 ? 220 : 280
         let searchW: CGFloat = bounds.width < 720 ? 0
-            : min(searchWidth ?? standard, max(standard, bounds.width - 154 - Self.addressMin - 120))
+            : min(searchWidth ?? standard, max(standard, bounds.width - left - Self.addressMin - 120))
         search.isHidden = searchW == 0
-        search.frame = NSRect(x: bounds.width - 10 - searchW, y: y, width: searchW, height: 44)
+        search.frame = NSRect(x: bounds.width - 12 - searchW, y: y, width: searchW, height: 44)
         searchEdge.isHidden = search.isHidden
         searchEdge.frame = NSRect(x: search.frame.minX - 4, y: y, width: 8, height: 44)
         refresh.frame = NSRect(x: (searchW == 0 ? bounds.width - 2 : search.frame.minX) - 8 - 44, y: y, width: 44, height: 44)
@@ -776,7 +791,7 @@ final class ToolbarView: NSView {
             right -= 7
             let rest = commands.dropLast()
             // Filter tokens widen the address bar; the commands that no longer fit fold into See more.
-            let room = right - 154 - max(Self.addressMin, 230 + address.tokensWidth)
+            let room = right - left - max(Self.addressMin, 230 + address.tokensWidth)
             let groups = CGFloat(groupEnds.filter { $0 < rest.count - 1 }.count)
             var fit = rest.count
             while fit > 0, CGFloat(fit) * Self.commandW + groups * 13 > room { fit -= 1 }
@@ -796,16 +811,19 @@ final class ToolbarView: NSView {
             if fit == 0 { separators.removeAll() }
             right = fit > 0 ? left - 8 : right + 7
         }
-        address.frame = NSRect(x: 154, y: y, width: max(80, right - 154), height: 44)
+        address.frame = NSRect(x: left, y: y, width: max(80, right - left), height: 44)
     }
 
+    /// `--bar` (s1 at 78% over the bg; white in light) with a hairline under it. While the address is
+    /// edited its box carries the accent's 3 pt halo and a soft glow (`.addr.edit::before`).
     override func draw(_ dirtyRect: NSRect) {
         let p = Palette.current
-        fillRect(bounds, p.s1)
+        fillRect(bounds, p.bar)
         fillRect(NSRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1), p.line)
         if address.isEditing {
-            // The 3 pt accent ring around the address bar while editing (`.addr.mode-address`).
-            fillRounded(address.frame.insetBy(dx: -3, dy: -3), radius: 8, (address.isInvalid ? p.miss : p.accent).withAlpha(0.16))
+            let tone = address.isInvalid ? p.miss : p.accent
+            let box = address.frame.insetBy(dx: 0, dy: 3).insetBy(dx: -3, dy: -3)
+            withGlow(tone.withAlpha(0.18), blur: 24) { fillRounded(box, radius: 15, tone.withAlpha(p.accentSoft.a)) }
         }
         for x in separators {
             fillRect(NSRect(x: x, y: (bounds.height - 1) / 2 - 11, width: 1, height: 22), p.line)

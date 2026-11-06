@@ -58,7 +58,7 @@ final class D1Button: NSButton {
     override func draw(_ dirtyRect: NSRect) {
         let p = Palette.current
         let r = bounds.insetBy(dx: 0.5, dy: 0.5)
-        var text = p.txt
+        var text = p.text
         let enabled = isEnabled
         switch style {
         case .primary:
@@ -67,20 +67,20 @@ final class D1Button: NSButton {
                 text = p.onAccent
             } else {
                 fillRounded(r, radius: 5, p.line2)
-                text = p.txt2
+                text = p.text2
             }
         case .warn:
             strokeRounded(bounds, radius: 5, p.miss)
             text = p.miss
         case .ghost:
-            text = p.txt2
+            text = p.text2
         case .plain:
             if isOn {
                 fillRounded(r, radius: 5, p.selectionFill)
                 strokeRounded(bounds, radius: 5, p.accent)
                 text = p.accent
             } else {
-                strokeRounded(bounds, radius: 5, p.line3)
+                strokeRounded(bounds, radius: 5, p.outline)
             }
         }
         if enabled && (hovered || isHighlighted) {
@@ -143,7 +143,7 @@ final class D1Check: NSButton {
         // Greyed when it cannot change (Choose details' Name).
         if !isEnabled { NSGraphicsContext.current?.cgContext.setAlpha(0.5) }
         CheckBox.draw(in: box, on: isChecked && !isMixed, mixed: isMixed, p)
-        drawLine(title, font: labelFont, color: isChecked || isMixed ? p.txt : p.txt2, x: 22, midY: bounds.midY,
+        drawLine(title, font: labelFont, color: isChecked || isMixed ? p.text : p.text2, x: 22, midY: bounds.midY,
                  maxWidth: bounds.width - 22)
     }
 }
@@ -171,7 +171,7 @@ enum CheckBox {
             path.stroke()
         } else {
             fillRounded(box, radius: 3, p.s1)
-            strokeRounded(box, radius: 3, p.line3, width: 1.25)
+            strokeRounded(box, radius: 3, p.outline, width: 1.25)
         }
     }
 }

@@ -186,7 +186,7 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
         let clear = D1Button("Clear", glyph: .trash)
         clear.setAccessibilityLabel("Clear Folio history")
         clear.onPress = { [weak self] in self?.clearHistory() }
-        let label = LabelView("Clear recent files, folders, addresses", font: Typeface.mono(12), color: { $0.txt2 })
+        let label = LabelView("Clear recent files, folders, addresses", font: Typeface.mono(12), color: { $0.text2 })
         let clearRow = FlowView()
         let clearW = clear.fit(minimum: 96)
         clearRow.add(label, width: (body.bounds.width - 12) / 2 - 28 - clearW - 10)
@@ -239,7 +239,7 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
             let indent = CGFloat(row.indent) * 20 - 6
             switch row.kind {
             case .heading:
-                rows.append((LabelView(row.title, font: Typeface.ui(12, weight: 700, width: 116), color: { $0.txt }), max(0, indent), true))
+                rows.append((LabelView(row.title, font: Typeface.ui(12, weight: 700), color: { $0.text }), max(0, indent), true))
             case .check:
                 rows.append((check(row.title, row.setting, note: row.note), indent, false))
             case .radio:
@@ -334,12 +334,11 @@ final class OptionsHeader: NSView {
         let p = Palette.current
         fillRect(bounds, p.s1)
         fillRect(NSRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1), p.line)
-        drawLine("Folder Options", font: Typeface.ui(14, weight: 700, width: 124), color: p.txt, x: 82, midY: 22)
+        drawLine("Folder Options", font: Typeface.ui(14, weight: 700), color: p.text, x: 82, midY: 22)
     }
 }
 
-/// D1's `.sgrp`: the bg at 86% with a hairline, radius 4, 8 pt brackets at 55% accent, and the `.sh`
-/// heading (Archivo 700, wide, tracked).
+/// A settings group as a D4 spotlight card: s1 with a hairline, radius 12, and a mono uppercase label.
 final class FormGroupView: NSView {
     static let headH: CGFloat = 34
     let title: String
@@ -355,10 +354,10 @@ final class FormGroupView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         let p = Palette.current
-        fillRounded(bounds, radius: 4, p.bg.withAlpha(0.86))
-        strokeRounded(bounds.insetBy(dx: 0.5, dy: 0.5), radius: 4, p.line)
-        drawBrackets(bounds, color: p.accent.withAlpha(0.55).ns, length: 8)
-        drawLine(title, font: Typeface.ui(12, weight: 700, width: 124), color: p.txt, x: 12, midY: Self.headH / 2, kern: 0.48)
+        fillRounded(bounds, radius: 12, p.s1)
+        strokeRounded(bounds, radius: 12, p.line)
+        drawLine(title.uppercased(), font: Typeface.mono(12, weight: 600), color: p.muted, x: 14, midY: Self.headH / 2,
+                 kern: Typeface.labelKern(12))
     }
 }
 
@@ -423,8 +422,8 @@ final class D1Radio: NSButton {
             fillRounded(box.insetBy(dx: 4, dy: 4), radius: 3, p.accent)
         } else {
             fillRounded(box, radius: 7, p.s1)
-            strokeRounded(box.insetBy(dx: 0.6, dy: 0.6), radius: 6.4, p.line3, width: 1.25)
+            strokeRounded(box.insetBy(dx: 0.6, dy: 0.6), radius: 6.4, p.outline, width: 1.25)
         }
-        drawLine(title, font: labelFont, color: isSelected ? p.txt : p.txt2, x: 22, midY: bounds.midY, maxWidth: bounds.width - 22)
+        drawLine(title, font: labelFont, color: isSelected ? p.text : p.text2, x: 22, midY: bounds.midY, maxWidth: bounds.width - 22)
     }
 }

@@ -340,6 +340,7 @@ extension BrowserWindowController: GridHost {
     func selectionDidChange() {
         let selected = selectedEntries
         sessionChanged()
+        chassis.sidebar.pane.details = DetailsCard.make(history.isHome ? [] : selected)
         if ListOptions.sidePane != .none, !history.isHome {
             var meta: ItemMetadata?
             if selected.count == 1, let one = selected.first {
