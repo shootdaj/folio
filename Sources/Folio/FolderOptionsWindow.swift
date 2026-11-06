@@ -2,8 +2,8 @@ import AppKit
 import FolioCore
 
 /// Explorer's Folder Options (View > Options, See more > Options): General, View and Search tabs with
-/// Explorer's wording, each with Restore Defaults; OK, Cancel and Apply. Drawn as D1's bracket panel
-/// (the Properties window's form): `.sgrp` groups with `.sh` headings, D1 check boxes and radios.
+/// Explorer's wording, each with Restore Defaults; OK, Cancel and Apply. Drawn as a D4 panel (the
+/// Properties window's form): spotlight-card groups with mono uppercase labels, D4 check boxes and radios.
 /// Settings that mean nothing on a Mac stay in the list, greyed, with "Not on macOS" as their tip.
 @MainActor
 final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate {
@@ -37,15 +37,15 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
     private let body = FlippedView()
     private let scroll = NSScrollView()
     private let list = OptionsListView()
-    private let restore = D1Button("Restore Defaults", glyph: .refresh)
-    private let ok = D1Button("OK", glyph: .check, style: .primary)
-    private let cancel = D1Button("Cancel", glyph: .close)
-    private let apply = D1Button("Apply")
+    private let restore = OSButton("Restore Defaults", glyph: .refresh)
+    private let ok = OSButton("OK", glyph: .check, style: .primary)
+    private let cancel = OSButton("Cancel", glyph: .close)
+    private let apply = OSButton("Apply")
     /// Every check box and radio on screen, with the setting it shows.
     private var controls: [(NSButton, FolderOptions.Setting)] = []
     /// General's two boxes that change macOS itself at once (not on OK): they show what the Mac reports.
-    private var folderHandlerBox: D1Check?
-    private var loginItemBox: D1Check?
+    private var folderHandlerBox: OSCheck?
+    private var loginItemBox: OSCheck?
 
     private init() {
         // 860 wide: General's two columns (milestone 9 added Folio and macOS) fit a 1024 pt screen.
@@ -129,8 +129,8 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
         content.needsDisplay = true
     }
 
-    private func check(_ title: String, _ setting: FolderOptions.Setting?, note: String? = nil) -> D1Check {
-        let c = D1Check(title)
+    private func check(_ title: String, _ setting: FolderOptions.Setting?, note: String? = nil) -> OSCheck {
+        let c = OSCheck(title)
         if let setting {
             c.onToggle = { [weak self] _ in self?.flip(setting) }
             controls.append((c, setting))
@@ -143,8 +143,8 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
         return c
     }
 
-    private func radio(_ title: String, _ setting: FolderOptions.Setting) -> D1Radio {
-        let r = D1Radio(title)
+    private func radio(_ title: String, _ setting: FolderOptions.Setting) -> OSRadio {
+        let r = OSRadio(title)
         r.onPick = { [weak self] in self?.flip(setting) }
         controls.append((r, setting))
         return r
@@ -153,7 +153,7 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
     /// One `.sgrp`: its heading, then a line per control (24 pt; a button line 36 pt). `column` 0 or 1 puts
     /// it in General's left or right half; nil spans the width.
     private func group(_ title: String, at y: inout CGFloat, column: Int? = nil, rows: [(NSView, CGFloat)]) {
-        func lineH(_ v: NSView) -> CGFloat { v is D1Button || v is FlowView ? 38 : 24 }
+        func lineH(_ v: NSView) -> CGFloat { v is OSButton || v is FlowView ? 38 : 24 }
         let height = FormGroupView.headH + rows.reduce(CGFloat(0)) { $0 + lineH($1.0) } + 6
         let g = FormGroupView(title: title)
         let half = (body.bounds.width - 12) / 2
@@ -161,7 +161,7 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
             ?? NSRect(x: 0, y: y, width: body.bounds.width, height: height)
         var ry = FormGroupView.headH - 2
         for (view, indent) in rows {
-            let fit = (view as? D1Check)?.fit() ?? (view as? D1Radio)?.fit() ?? (view as? D1Button)?.fit() ?? (g.bounds.width - 28)
+            let fit = (view as? OSCheck)?.fit() ?? (view as? OSRadio)?.fit() ?? (view as? OSButton)?.fit() ?? (g.bounds.width - 28)
             let h = lineH(view)
             let rowH: CGFloat = h > 24 ? 34 : 20
             view.frame = NSRect(x: 14 + indent, y: ry + (h - rowH) / 2, width: min(fit, g.bounds.width - 28 - indent), height: rowH)
@@ -183,7 +183,7 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
             (radio("Underline icon titles only when I point at them", .underlineHover), 22),
             (radio("Double-click to open an item (single-click to select)", .doubleClick), 0),
         ])
-        let clear = D1Button("Clear", glyph: .trash)
+        let clear = OSButton("Clear", glyph: .trash)
         clear.setAccessibilityLabel("Clear Folio history")
         clear.onPress = { [weak self] in self?.clearHistory() }
         let label = LabelView("Clear recent files, folders, addresses", font: Typeface.mono(12), color: { $0.text2 })
@@ -196,11 +196,11 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
                                                        (check("Show frequently used folders", .showFrequentFolders), 0),
                                                        (clearRow, 0)])
         // Milestone 9. The first and last change macOS at once and show what it reports; the rest wait for OK.
-        let handler = D1Check("Open folders in Folio instead of Finder")
+        let handler = OSCheck("Open folders in Folio instead of Finder")
         handler.toolTip = "Asks macOS to open folders and drives in Folio, then says what macOS kept"
         handler.onToggle = { [weak self] on in self?.setFolderHandler(on) }
         folderHandlerBox = handler
-        let login = D1Check("Launch Folio at login")
+        let login = OSCheck("Launch Folio at login")
         login.toolTip = "Adds Folio to your login items (System Settings > General > Login Items)"
         login.onToggle = { [weak self] on in self?.setLoginItem(on) }
         loginItemBox = login
@@ -273,8 +273,8 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
     /// Every control shows the draft; Apply lights when it differs from what is saved.
     private func refresh() {
         for (control, setting) in controls {
-            if let c = control as? D1Check { c.isChecked = draft.isOn(setting) }
-            if let r = control as? D1Radio { r.isSelected = draft.isOn(setting) }
+            if let c = control as? OSCheck { c.isChecked = draft.isOn(setting) }
+            if let r = control as? OSRadio { r.isSelected = draft.isOn(setting) }
         }
         folderHandlerBox?.isChecked = SystemSettings.foldersOpenInFolio
         loginItemBox?.isChecked = SystemSettings.launchesAtLogin
@@ -370,7 +370,7 @@ final class OptionsListView: NSView {
         subviews.forEach { $0.removeFromSuperview() }
         var y: CGFloat = 4
         for (view, indent, heading) in rows {
-            let fit = (view as? D1Check)?.fit() ?? (view as? D1Radio)?.fit() ?? width
+            let fit = (view as? OSCheck)?.fit() ?? (view as? OSRadio)?.fit() ?? width
             view.frame = NSRect(x: 14 + indent, y: y + 3, width: min(fit, width - 28 - indent), height: 20)
             addSubview(view)
             y += heading ? Self.rowH + 2 : Self.rowH
@@ -379,9 +379,9 @@ final class OptionsListView: NSView {
     }
 }
 
-/// D1's radio: a 14 pt ring (line-3), the accent ring and dot when chosen, a mono label. An NSButton of the
+/// A radio in D4's language: a 14 pt ring (outline), the accent ring and dot when chosen, a Geist label. An NSButton of the
 /// radio type, so accessibility sees a radio button.
-final class D1Radio: NSButton {
+final class OSRadio: NSButton {
     var onPick: (() -> Void)?
 
     init(_ title: String) {
@@ -408,7 +408,7 @@ final class D1Radio: NSButton {
         onPick?()
     }
 
-    private var labelFont: NSFont { Typeface.mono(12) }
+    private var labelFont: NSFont { Typeface.ui(13) }
 
     func fit() -> CGFloat { 14 + 8 + textWidth(title, font: labelFont) + 2 }
 

@@ -77,7 +77,7 @@ protocol DropHost: AnyObject {
     func springLoad(_ folder: URL?)
 }
 
-/// D1's `.tip`, following the drag: the action and the folder ("Move to target"), like Explorer's
+/// D4's `.tip`, following the drag: the action and the folder ("Move to target"), like Explorer's
 /// drag tooltip.
 final class DropTipView: NSView {
     var text = "" { didSet { needsDisplay = true } }

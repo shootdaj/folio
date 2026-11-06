@@ -13,9 +13,9 @@ struct DropdownRow: Equatable {
 }
 
 enum DropdownStyle: Equatable {
-    /// Under the address bar at its full width: header, rows of full paths, key footer (D1 `.ta`).
+    /// Under the address bar at its full width: header, rows of full paths, key footer (D4 `.ta`).
     case field(header: String, count: String)
-    /// A folder list under a crumb arrow or a toolbar button (D1 `.menu`).
+    /// A folder list under a crumb arrow or a toolbar button (D4 `.menu`).
     case menu
 }
 
@@ -56,7 +56,7 @@ final class Dropdown {
     }
 
     /// Opens below `anchor` (in `view`'s coordinates). Field style takes the anchor's width; menu style
-    /// sizes to its rows and starts 6 pt left of the anchor, as D1 places `.menu`.
+    /// sizes to its rows and starts 6 pt left of the anchor, as D4 places `.menu`.
     func show(_ content: DropdownContent, id: String, below anchor: NSRect, in view: NSView,
               onPick: @escaping (DropdownRow) -> Void) {
         guard let window = view.window else { return }
@@ -174,9 +174,9 @@ final class DropdownPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
-/// Draws a dropdown the D1 way. Field style (`.ta`): s3 panel, line-2 border, accent corner brackets,
-/// a 32 pt header, 32 pt rows with a light, folder icon and the path (typed part bold), a key footer.
-/// Menu style (`.menu`): 30 pt rows of folder names in Chivo Mono, the current one in the accent.
+/// Draws a dropdown as D4's spotlight panels. Field style (`.ta`): --pop with a line-2 border at radius 12,
+/// a header (mono uppercase label and the count), 32 pt rows (folder, the path in Geist Mono with the typed
+/// part bold), a key footer. Menu style (`.menu`): 30 pt rows of folder names, the current one ticked.
 final class DropdownView: NSView {
     var content: DropdownContent { didSet { rowsView.needsDisplay = true; needsDisplay = true; needsLayout = true } }
     private(set) var highlighted: Int?
@@ -187,7 +187,7 @@ final class DropdownView: NSView {
     private let rowsView = DropdownRowsView()
     private let overlay = DropdownOverlay()
 
-    static let pad: CGFloat = 4
+    static let pad: CGFloat = 6
     static let headerH: CGFloat = 32
     static let footerH: CGFloat = 41
     static let menuMinW: CGFloat = 220, menuMaxW: CGFloat = 340, menuMaxH: CGFloat = 360
@@ -240,9 +240,9 @@ final class DropdownView: NSView {
         if !isField { h = min(h, Self.menuMaxH) }
         h = min(h, maxHeight)
         if let width { return NSSize(width: width, height: h) }
-        let font = Typeface.mono(13, weight: 500)
+        let font = Typeface.ui(13, weight: 500)
         let widest = content.rows.map { textWidth($0.text, font: font) }.max() ?? textWidth(content.empty, font: Typeface.ui(13))
-        let w = 2 + 2 * Self.pad + 10 + 18 + 10 + widest + 10
+        let w = 2 + 2 * Self.pad + 10 + 16 + 9 + widest + 10 + 24
         return NSSize(width: min(max(w, Self.menuMinW), Self.menuMaxW), height: h)
     }
 
@@ -259,36 +259,36 @@ final class DropdownView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         let p = Palette.current
-        fillRounded(bounds, radius: 4, p.s3)
-        strokeRounded(bounds, radius: 4, p.line2)
+        fillRounded(bounds, radius: 12, p.pop.over(p.bg))
+        strokeRounded(bounds, radius: 12, p.line2)
         guard case .field(let header, let count) = content.style else { return }
-        let mid = 1 + Self.headerH / 2
-        drawLine(header, font: Typeface.ui(12, weight: 650), color: p.text2, x: 13, midY: mid,
-                 maxWidth: bounds.width - 120)
-        drawLine(count, font: Typeface.mono(12), color: p.text2, x: bounds.width - 13, midY: mid, alignRight: true)
-        fillRect(NSRect(x: 1, y: Self.headerH, width: bounds.width - 2, height: 1), p.line)
+        let mid = 1 + Self.headerH / 2 + 2
+        drawLine(header.uppercased(), font: Typeface.mono(12, weight: 600), color: p.muted, x: 18, midY: mid,
+                 maxWidth: bounds.width - 120, kern: Typeface.labelKern(12))
+        drawLine(count, font: Typeface.mono(12, weight: 500), color: p.muted, x: bounds.width - 16, midY: mid, alignRight: true)
         // Footer: "Tab fills, Enter opens, Esc cancels" with key caps.
         let footTop = bounds.height - 1 - Self.pad - Self.footerH
-        fillRect(NSRect(x: 1, y: footTop, width: bounds.width - 2, height: 1), p.line)
-        let lineMid = footTop + 1 + 9 + 13
-        var x: CGFloat = 13
-        let body = Typeface.ui(13)
+        fillRect(NSRect(x: 7, y: footTop, width: bounds.width - 14, height: 1), p.line)
+        let lineMid = footTop + 1 + 9 + 11
+        var x: CGFloat = 18
+        let body = Typeface.ui(12)
         let keys = content.isSearchList ? [("Enter", " runs, ", false), ("Esc", " closes", true)]
             : [("Tab", " fills, ", false), ("Enter", " opens, ", false), ("Esc", " cancels", true)]
         for (key, words, tall) in keys {
-            x += drawKey(key, x: x, midY: lineMid, height: tall ? 24 : 20, p) + 2
-            x += drawLine(words, font: body, color: p.text2, x: x, midY: lineMid)
+            _ = tall
+            x += drawKey(key, x: x, midY: lineMid, height: 20, p) + 2
+            x += drawLine(words, font: body, color: p.muted, x: x, midY: lineMid)
         }
     }
 
-    /// D1's `kbd`: s2 cap, line-3 border with a 2 pt bottom, Chivo Mono 12.
+    /// D4's `kbd`: s2 cap, line-2 border with a 2 pt bottom, Geist Mono 500 12 in text-2.
     private func drawKey(_ key: String, x: CGFloat, midY: CGFloat, height: CGFloat, _ p: Palette) -> CGFloat {
         let font = Typeface.mono(12, weight: 500)
         let w = textWidth(key, font: font) + 12 + 2
         let r = NSRect(x: x, y: (midY - height / 2).rounded(), width: w, height: height)
-        fillRounded(r, radius: 3, p.outline)
-        fillRounded(NSRect(x: r.minX + 1, y: r.minY + 1, width: r.width - 2, height: r.height - 3), radius: 2, p.s2)
-        drawLine(key, font: font, color: p.text, x: r.minX + 7, midY: r.minY + 1 + (r.height - 3) / 2)
+        fillRounded(r, radius: 5, p.line2)
+        fillRounded(NSRect(x: r.minX + 1, y: r.minY + 1, width: r.width - 2, height: r.height - 3), radius: 4, p.s2)
+        drawLine(key, font: font, color: p.text2, x: r.minX + 7, midY: r.minY + 1 + (r.height - 3) / 2)
         return w
     }
 }
@@ -325,7 +325,7 @@ final class DropdownRowsView: NSView {
     }
 
     override func mouseExited(with event: NSEvent) {
-        // D1 keeps the typeahead highlight where the pointer left it; menus drop it.
+        // D4 keeps the typeahead highlight where the pointer left it; menus drop it.
         if let owner, !owner.isField, !owner.isKeyboardHighlight { owner.setHighlight(nil, fromKeyboard: false) }
     }
 

@@ -5,7 +5,7 @@ import FolioCore
 enum Glyph: Hashable {
     case back, forward, up, chevron, chevronDown, sort, refresh, search, close
     case sun, moon, star, pc, drive, download, desktop, docs, pics, movies
-    // Milestone 3: D1's copy window icons, and the command bar's (Lucide, like the rest of D1's set).
+    // Milestone 3: the copy window's icons, and the command bar's (Lucide, like the rest of the set).
     case copy, pause, play, check, arrow, replace, skip, both, compare, minus
     case cut, paste, rename, trash, newFolder, share, more, sortLines, view
     // Milestone 5: tabs, the navigation pane's places and Home.

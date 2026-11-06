@@ -139,7 +139,7 @@ final class FilterPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
-/// D1's `.menu` panel (s3, line-2 border, accent brackets): a title strip, the calendar for dates,
+/// D4's `.menu` panel (--pop, line-2 border, radius 12): a title strip, the calendar for dates,
 /// then one check box per bucket with its count.
 final class FilterView: NSView {
     weak var controller: FilterPanelController?
@@ -147,9 +147,9 @@ final class FilterView: NSView {
     private var rows: [(bucket: Bucket, count: Int)] = []
     private var filter = ColumnFilter()
     private var message = ""
-    private var checks: [D1Check] = []
+    private var checks: [OSCheck] = []
     private let calendar = MonthCalendarView()
-    private let clearButton = D1Button("Clear", style: .ghost)
+    private let clearButton = OSButton("Clear", style: .ghost)
     static let width: CGFloat = 282
     static let headH: CGFloat = 38
     static let rowH: CGFloat = 28
@@ -188,7 +188,7 @@ final class FilterView: NSView {
         if checks.count != rows.count || zip(checks, rows).contains(where: { $0.0.title != $0.1.bucket.label }) {
             checks.forEach { $0.removeFromSuperview() }
             checks = zip(ids, rows).map { id, row in
-                let check = D1Check(row.bucket.label) { [weak self] _ in self?.controller?.toggle(id) }
+                let check = OSCheck(row.bucket.label) { [weak self] _ in self?.controller?.toggle(id) }
                 addSubview(check)
                 return check
             }

@@ -80,7 +80,7 @@ extension BrowserWindowController {
     }
 }
 
-/// Choose Details: Explorer's dialog in D1 dress. The shown columns come first in their order, then
+/// Choose Details: Explorer's dialog in D4 dress. The shown columns come first in their order, then
 /// all the others alphabetically; Name is always on and greyed.
 @MainActor
 final class ColumnChooserPanel: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate {
@@ -91,15 +91,15 @@ final class ColumnChooserPanel: NSObject, NSTableViewDataSource, NSTableViewDele
     private let titleOf: (ColumnID) -> String
     private let table = ChooserTable()
     private let width = NSTextField(string: "")
-    private let up: D1Button
-    private let down: D1Button
+    private let up: OSButton
+    private let down: OSButton
 
     init(set: ColumnSet, title: @escaping (ColumnID) -> String) {
         self.set = set
         chooser = ColumnChooser(set)
         titleOf = title
-        up = D1Button("Move Up")
-        down = D1Button("Move Down")
+        up = OSButton("Move Up")
+        down = OSButton("Move Down")
         super.init()
         build()
     }
@@ -147,8 +147,8 @@ final class ColumnChooserPanel: NSObject, NSTableViewDataSource, NSTableViewDele
         width.font = Typeface.mono(12)
         width.delegate = self
         width.setAccessibilityLabel("Width of selected column")
-        let ok = D1Button("OK", style: .primary) { [weak self] in self?.finish(true) }
-        let cancel = D1Button("Cancel") { [weak self] in self?.finish(false) }
+        let ok = OSButton("OK", style: .primary) { [weak self] in self?.finish(true) }
+        let cancel = OSButton("Cancel") { [weak self] in self?.finish(false) }
         ok.frame = NSRect(x: 254, y: 476, width: 96, height: 32)
         cancel.frame = NSRect(x: 356, y: 476, width: 96, height: 32)
         ok.keyEquivalent = "\r"
@@ -207,7 +207,7 @@ final class ColumnChooserPanel: NSObject, NSTableViewDataSource, NSTableViewDele
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let c = chooser.order[row]
-        let check = D1Check(titleOf(c)) { [weak self] on in
+        let check = OSCheck(titleOf(c)) { [weak self] on in
             self?.chooser.setChecked(c, on)
             tableView.reloadData(forRowIndexes: IndexSet(integer: row), columnIndexes: IndexSet(integer: 0))
         }

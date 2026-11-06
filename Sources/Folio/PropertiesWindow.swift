@@ -3,7 +3,7 @@ import FolioCore
 import UniformTypeIdentifiers
 
 /// Explorer's Properties dialog (Alt+Enter, here Option+Return, Cmd+I or Option+double-click), drawn
-/// as a D1 bracket panel: General, Permissions, Details, Open with and, for aliases and links, Shortcut.
+/// as a D4 panel: General, Permissions, Details, Open with and, for aliases and links, Shortcut.
 /// Changes apply at once, as in Finder's Get Info. Several items show their totals and shared flags.
 @MainActor
 final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NSTextFieldDelegate {
@@ -42,7 +42,7 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
     private let header = PropertiesHeader()
     private let nameField = NSTextField(string: "")
     private var tabButtons: [Tab: SegmentButton] = [:]
-    private let closeButton = D1Button("Close", glyph: .check, style: .primary)
+    private let closeButton = OSButton("Close", glyph: .check, style: .primary)
     private var tab = Tab.general
     private var tally: FolderTally?
     private var counting = false
@@ -219,13 +219,13 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
             popup.selectItem(at: i)
         }
         popup.setAccessibilityLabel("Optimize this folder for")
-        let applyColumns = D1Button("Apply columns") {
+        let applyColumns = OSButton("Apply columns") {
             guard let raw = popup.selectedItem?.representedObject as? String, let preset = ColumnPreset(rawValue: raw) else { return }
             ColumnCenter.shared.update { $0 = preset.applied(to: $0) }
         }
         let custom = FolderIcon.hasCustomIcon(info.url)
-        let change = D1Button("Change Icon...", glyph: .pics) { [weak self] in self?.chooseIcon(for: info.url) }
-        let restore = D1Button("Restore Default") { [weak self] in self?.apply { try FolderIcon.clear($0) } }
+        let change = OSButton("Change Icon...", glyph: .pics) { [weak self] in self?.chooseIcon(for: info.url) }
+        let restore = OSButton("Restore Default") { [weak self] in self?.apply { try FolderIcon.clear($0) } }
         restore.isEnabled = custom
         let columns = ColumnPreset.matching(ColumnCenter.shared.set).map { $0.title } ?? "Your own columns"
         return [
@@ -260,11 +260,11 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
         let docs = DocumentVersions.list(info.url)
         let snaps = TimeMachineSnapshots.list()
         for v in docs {
-            let copy = D1Button("Copy...") { [weak self] in self?.copyVersion(from: v.url, name: info.name) }
+            let copy = OSButton("Copy...") { [weak self] in self?.copyVersion(from: v.url, name: info.name) }
             lines.append(.init(date(v.date), "Saved version, " + v.source, mono: false, control: copy, controlWidth: copy.fit(minimum: 90)))
         }
         for snap in snaps {
-            let copy = D1Button("Copy...") { [weak self] in self?.copyFromSnapshot(snap, item: info.url) }
+            let copy = OSButton("Copy...") { [weak self] in self?.copyFromSnapshot(snap, item: info.url) }
             lines.append(.init(date(snap.date), "Time Machine snapshot", mono: false, control: copy, controlWidth: copy.fit(minimum: 90)))
         }
         if lines.isEmpty {
@@ -314,8 +314,8 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
 
     private func flagChecks(_ items: [ItemInfo]) -> NSView {
         let row = FlowView()
-        let locked = D1Check("Locked") { [weak self] on in self?.apply { try ItemFlags.setLocked(on, $0) } }
-        let hidden = D1Check("Hidden") { [weak self] on in self?.apply { try ItemFlags.setHidden(on, $0) } }
+        let locked = OSCheck("Locked") { [weak self] on in self?.apply { try ItemFlags.setLocked(on, $0) } }
+        let hidden = OSCheck("Hidden") { [weak self] on in self?.apply { try ItemFlags.setHidden(on, $0) } }
         for (box, tri) in [(locked, Tri.of(items.map(\.isLocked))), (hidden, Tri.of(items.map(\.isHidden)))] {
             box.isChecked = tri == .on
             box.isMixed = tri == .mixed
@@ -358,7 +358,7 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
         var lines: [PropertySheet.Line] = [.init("Type", info.link == .alias ? "Alias" : info.kind, mono: false)]
         if !info.isFolder {
             let app = OpenWith.defaultApp(for: info.url)?.name ?? "No app"
-            let change = D1Button("Change...") { [weak self] in self?.select(.openWith) }
+            let change = OSButton("Change...") { [weak self] in self?.select(.openWith) }
             lines.append(.init("Opens with", app, mono: false, control: change, controlWidth: change.fit(minimum: 96)))
         }
         lines.append(.separator)
@@ -370,7 +370,7 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
         lines.append(.separator)
         lines.append(.init("Attributes", "", control: flagChecks([info]), controlWidth: 260))
         if info.isQuarantined {
-            let unblock = D1Check("Unblock") { [weak self] on in
+            let unblock = OSCheck("Unblock") { [weak self] on in
                 if on { self?.apply { try ItemFlags.unblock($0) } }
             }
             lines.append(.init("Security", "This file came from another computer and might be blocked to help protect this Mac.",
@@ -405,7 +405,7 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
         for (who, name) in [(Permissions.Who.owner, "Owner"), (.group, "Group"), (.others, "Everyone")] {
             let row = FlowView()
             for access in Permissions.Access.allCases {
-                let box = D1Check("") { [weak self] on in
+                let box = OSCheck("") { [weak self] on in
                     guard let self, let current = self.infos.first?.permissions else { return }
                     self.apply { try ItemFlags.setPermissions(current.setting(who, access, on), $0) }
                 }
@@ -417,7 +417,7 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
         }
         lines.append(.init("Mode", p.symbolic + "  (" + p.octal + ")"))
         lines.append(.separator)
-        let readOnly = D1Check("Read-only (nobody can write)") { [weak self] on in
+        let readOnly = OSCheck("Read-only (nobody can write)") { [weak self] on in
             guard let self, let current = self.infos.first?.permissions else { return }
             self.apply { try ItemFlags.setPermissions(current.readOnly(on), $0) }
         }
@@ -447,7 +447,7 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
         }
         lines.append(.init("Tags", "", control: tags, controlWidth: 320))
         if infos.count == 1, let info = infos.first, !info.isFolder {
-            let remove = D1Button("Remove properties and personal information") { [weak self] in self?.removeProperties(info.url) }
+            let remove = OSButton("Remove properties and personal information") { [weak self] in self?.removeProperties(info.url) }
             lines.append(.init("", "", control: remove, controlWidth: remove.fit()))
         }
         if infos.count == 1, let info = infos.first {
@@ -478,7 +478,7 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
         popup.setAccessibilityLabel("Open with")
         popup.target = self
         popup.action = #selector(chooseApp(_:))
-        let all = D1Button("Change all...") { [weak self] in self?.changeAll(popup) }
+        let all = OSButton("Change all...") { [weak self] in self?.changeAll(popup) }
         return [
             .init("Open with", "", control: popup, controlWidth: 300),
             .init("", "", control: all, controlWidth: all.fit(minimum: 120)),
@@ -488,7 +488,7 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
 
     private func shortcut(_ info: ItemInfo) -> [PropertySheet.Line] {
         let target = info.linkTarget
-        let open = D1Button("Open file location", glyph: .forward) {
+        let open = OSButton("Open file location", glyph: .forward) {
             guard let target else { return }
             (NSApp.delegate as? AppDelegate)?.openWindow(at: target.deletingLastPathComponent())
         }
@@ -623,8 +623,7 @@ final class CancelFlag: @unchecked Sendable {
     func cancel() { lock.withLock { flag = true } }
 }
 
-/// The panel: s2, with D1's 14 pt accent brackets in the corners (the copy window's `.cw` form),
-/// drawn above everything else in it.
+/// The panel: --pop over the bg with a line-2 hairline at radius 12, drawn above everything else in it.
 final class PropertiesContentView: NSView {
     private let overlay = Overlay()
 
@@ -644,7 +643,8 @@ final class PropertiesContentView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        fillRect(bounds, Palette.current.s2)
+        let p = Palette.current
+        fillRect(bounds, p.pop.over(p.bg))
     }
 
     private final class Overlay: NSView {
@@ -666,7 +666,7 @@ final class PropertiesHeader: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         let p = Palette.current
-        fillRect(NSRect(x: 0, y: 0, width: bounds.width, height: 44), p.s1)
+        fillRect(NSRect(x: 0, y: 0, width: bounds.width, height: 44), p.chrome)
         fillRect(NSRect(x: 0, y: 43, width: bounds.width, height: 1), p.line)
         drawLine(title, font: Typeface.ui(14, weight: 700), color: p.text, x: 82, midY: 22,
                  maxWidth: bounds.width - 82 - 16)
@@ -685,11 +685,12 @@ final class PropertiesHeader: NSView {
             : "\(infos.count) items"
         drawLine(kind, font: Typeface.mono(12), color: p.text2, x: 102, midY: 102, maxWidth: bounds.width - 126)
         // The name box under it (the field sits on top).
-        strokeRounded(NSRect(x: 94, y: 58, width: bounds.width - 94 - 18, height: 32), radius: 5, p.line2)
+        strokeRounded(NSRect(x: 94, y: 58, width: bounds.width - 94 - 18, height: 32), radius: 8, p.line2)
     }
 }
 
-/// D1's `.seg2` button, one tab of the Properties window. Accessibility sees a button with its name.
+/// One tab of the Properties window, a D4 tab: text-2, the chosen one in text on the thumb with the 2 pt
+/// accent underline. Accessibility sees a button with its name.
 final class SegmentButton: NSButton {
     var isOn = false { didSet { needsDisplay = true; setAccessibilityValue(isOn ? 1 : 0) } }
     private let onPress: () -> Void
@@ -715,17 +716,16 @@ final class SegmentButton: NSButton {
     override func draw(_ dirtyRect: NSRect) {
         let p = Palette.current
         let r = bounds.insetBy(dx: 0.5, dy: 0.5)
-        if isOn { fillRect(r, p.selectionFill) }
-        strokeRounded(r, radius: 0, p.line2)
-        if isHighlighted { fillRect(r, p.text.withAlpha(0.14)) }
-        let font = Typeface.ui(13, weight: isOn ? 600 : 400)
+        if isOn { fillRect(r, p.thumb) }
+        if isHighlighted { fillRect(r, p.text.withAlpha(0.08)) }
+        let font = Typeface.ui(13, weight: 500)
         let tw = textWidth(title, font: font)
-        drawLine(title, font: font, color: isOn ? p.accent : p.text2, x: (bounds.width - tw) / 2, midY: bounds.midY)
-        if isOn { fillRect(NSRect(x: 0, y: bounds.height - 2, width: bounds.width, height: 2), p.accent) }
+        drawLine(title, font: font, color: isOn ? p.text : p.muted, x: (bounds.width - tw) / 2, midY: bounds.midY)
+        if isOn { fillRounded(NSRect(x: 10, y: bounds.height - 2, width: bounds.width - 20, height: 2), radius: 1, p.accent) }
     }
 }
 
-/// The tab's rows: D1's `dt`/`dd` (key in Archivo 12/650 txt2, value in Chivo Mono 12), hairlines between
+/// The tab's rows: D4's `.kv` (the key as a mono uppercase label, the value in Geist Mono 12), hairlines between
 /// groups, and controls (check boxes, buttons, fields) placed in the value column.
 final class PropertySheet: NSView {
     struct Line {
@@ -781,7 +781,7 @@ final class PropertySheet: NSView {
             return max(28, ceil(r.height) + 10)
         }
         if line.control is DriveChartView { return 112 }
-        return line.control is D1Button || line.control is NSPopUpButton || line.control is TagField ? 40 : 28
+        return line.control is OSButton || line.control is NSPopUpButton || line.control is TagField ? 40 : 28
     }
 
     private func frames() -> [NSRect] {
@@ -805,7 +805,7 @@ final class PropertySheet: NSView {
         super.layout()
         for (line, r) in zip(lines, frames()) {
             guard let c = line.control else { continue }
-            let h: CGFloat = c is DriveChartView ? 100 : c is D1Button || c is NSPopUpButton || c is TagField ? 32 : 22
+            let h: CGFloat = c is DriveChartView ? 100 : c is OSButton || c is NSPopUpButton || c is TagField ? 32 : 22
             let x = controlX(line)
             c.frame = NSRect(x: x, y: r.midY - h / 2, width: min(line.controlWidth, bounds.width - x - 24), height: h)
         }
@@ -819,8 +819,8 @@ final class PropertySheet: NSView {
                 continue
             }
             let top = line.wraps ? r.minY + 14 : r.midY
-            drawLine(line.key, font: Typeface.ui(12, weight: 650), color: p.text2, x: Self.keyX, midY: top,
-                     maxWidth: Self.valueX - Self.keyX - 10)
+            drawLine(line.key.uppercased(), font: Typeface.mono(11, weight: 600), color: p.muted, x: Self.keyX, midY: top,
+                     maxWidth: Self.valueX - Self.keyX - 10, kern: Typeface.labelKern(11))
             guard !line.value.isEmpty else { continue }
             let font = line.mono ? Typeface.mono(12) : Typeface.ui(13)
             let color = line.live ? p.accent : p.text
@@ -876,7 +876,7 @@ final class FlowView: NSView {
     }
 }
 
-/// A line of text in a D1 face.
+/// A line of text in a D4 face.
 final class LabelView: NSView {
     private let text: String
     private let font: NSFont
@@ -897,7 +897,7 @@ final class LabelView: NSView {
     }
 }
 
-/// The Tags box: D1's field (s1, line-2, radius 5); Enter applies.
+/// The Tags box: D4's field (--field, line-2, radius 8); Enter applies.
 final class TagField: NSTextField, NSTextFieldDelegate {
     var onCommit: ((String) -> Void)?
 
@@ -917,8 +917,8 @@ final class TagField: NSTextField, NSTextFieldDelegate {
 
     override func draw(_ dirtyRect: NSRect) {
         let p = Palette.current
-        fillRounded(bounds, radius: 5, p.s1)
-        strokeRounded(bounds.insetBy(dx: 0.5, dy: 0.5), radius: 5, p.line2)
+        fillRounded(bounds, radius: 8, p.field)
+        strokeRounded(bounds.insetBy(dx: 0.5, dy: 0.5), radius: 8, p.line2)
         super.draw(dirtyRect)
     }
 

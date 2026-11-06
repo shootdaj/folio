@@ -529,7 +529,7 @@ extension BrowserWindowController: FileListDelegate {
 
     // MARK: The command bar
 
-    /// New, Cut, Copy, Paste, Rename, Share, Delete | Sort, View | See more, as D1 toolbar buttons.
+    /// New, Cut, Copy, Paste, Rename, Share, Delete | Sort, View | See more, as D4 `.ib` buttons.
     func makeCommandBar() -> [ChromeButton] {
         func button(_ glyph: Glyph, _ label: String, _ action: Selector?) -> ChromeButton {
             let b = ChromeButton(glyph: glyph, label: label, target: self, action: action)

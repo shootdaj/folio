@@ -46,7 +46,7 @@ final class BrowserWindow: NSWindow {
         allowsOffscreen ? frameRect : super.constrainFrameRect(frameRect, to: screen)
     }
 
-    /// Centres the window's own close, minimise and zoom buttons in D1's 44 pt title bar,
+    /// Centres the window's own close, minimise and zoom buttons in D4's 44 pt title bar,
     /// 14 pt from the left edge and 20 pt apart.
     func placeTrafficLights() {
         guard !styleMask.contains(.fullScreen),
@@ -192,8 +192,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     let dropTip = DropTipView()
     var springTarget: URL?
     var springTimer: Timer?
-    /// The folder row lit under a drag (-1 for none); the list draws D1's feedback, not AppKit's.
-    /// The folder item lit under a drag (-1 for none); the list draws D1's feedback, not AppKit's.
+    /// The folder row lit under a drag (-1 for none); the list draws D4's feedback, not AppKit's.
+    /// The folder item lit under a drag (-1 for none); the list draws D4's feedback, not AppKit's.
     var dropTargetRow = -1 {
         didSet {
             guard dropTargetRow != oldValue else { return }

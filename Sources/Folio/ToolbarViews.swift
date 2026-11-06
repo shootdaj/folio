@@ -38,7 +38,7 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
     }
     var onClearToken: ((ColumnID) -> Void)?
     private var dropCrumb: Int? { didSet { if dropCrumb != oldValue { needsDisplay = true } } }
-    /// A search is shown: "Search Results in <folder>" replaces the crumbs (D1 step 3).
+    /// A search is shown: "Search Results in <folder>" replaces the crumbs (D4's search step).
     var searchTitle: String? {
         didSet {
             guard searchTitle != oldValue else { return }
@@ -327,7 +327,7 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
         let hit = part(at: point)?.0
         let next: Part? = hit == .empty ? nil : hit
         if next != hovered { hovered = next; needsDisplay = true }
-        // D1's empty address area takes a text cursor; crumbs and arrows keep the arrow.
+        // D4's empty address area takes a text cursor; crumbs and arrows keep the arrow.
         (hit == .empty && !isEditing ? NSCursor.iBeam : NSCursor.arrow).set()
     }
 

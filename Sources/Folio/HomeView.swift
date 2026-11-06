@@ -9,7 +9,7 @@ struct HomeContent {
     var recentLocations: [URL] = []
 }
 
-/// Home in the list's place: the s1 pane with its brackets, scrolling D1 panels for Quick access (the
+/// Home in the list's place: on the pane colour, scrolling D4 spotlight cards for Quick access (the
 /// pins as tiles, in the sidebar's order), Favorites, Recent files and Recent locations. Each section
 /// folds from its header and stays folded. Clicking a tile or a folder opens it here; a file opens in
 /// its app.

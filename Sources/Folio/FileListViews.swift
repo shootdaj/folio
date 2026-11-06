@@ -272,10 +272,10 @@ final class FolioTableView: NSTableView {
     }
 }
 
-/// The column header (`.lh`): s2 strip, wide Archivo labels, the sorted column in the accent with a
-/// glowing underline and arrow; with several sort keys each sorted column gets a numbered badge.
-/// Hovering a header shows a filter chevron at its right edge; a filtered column shows a tick there
-/// instead. Resizing and reordering stay NSTableHeaderView's own.
+/// The column header (D4's `.colhead`): --head-bg, Geist Mono 600 uppercase labels tracked .08em, hairlines
+/// between heads, the sorted column in the text colour with the accent arrow; with several sort keys each
+/// sorted column gets a numbered badge. Hovering a header shows a filter chevron (right edge, or left for a
+/// right-aligned column); a filtered column shows a tick there. Resizing and reordering stay AppKit's.
 final class FolioHeaderView: NSTableHeaderView {
     var sort = SortSpec.standard { didSet { needsDisplay = true; if sort != oldValue { rebuildAccessibility() } } }
     /// Off for search results in relevance order: no column carries the sort arrow.
@@ -652,7 +652,7 @@ final class NameCellView: NSTableCellView, RowCellView, ThemeAware, NSViewToolTi
     var underline: FolderOptions.Underline? { didSet { if underline != oldValue { needsDisplay = true } } }
     /// Show encrypted or compressed files in colour: a locked or compressed item draws dimmed.
     var isFlagDimmed = false { didSet { if isFlagDimmed != oldValue { needsDisplay = true } } }
-    /// A folder with a custom icon (Customize this folder) shows it instead of D1's folder.
+    /// A folder with a custom icon (Customize this folder) shows it instead of D4's folder.
     var customIcon: NSImage? { didSet { needsDisplay = true } }
     /// Show pop-up description: the hover tip, built when it is about to show.
     var tip: (() -> String?)? { didSet { needsLayout = true } }

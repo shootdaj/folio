@@ -550,7 +550,7 @@ enum PinsChanged {
 }
 
 /// The icon row at the top of the item menu (Windows 11's Cut, Copy, Paste, Rename, Share, Delete),
-/// drawn the D1 way: stroke icons with the hover state layer and brackets, the name of the one under
+/// drawn the D4 way: stroke icons with the hover state layer, the name of the one under
 /// the pointer at the right.
 final class MenuIconRow: NSView {
     private struct Action { let glyph: Glyph; let name: String; let selector: Selector }

@@ -61,7 +61,7 @@ final class ThumbnailCache {
 private struct SendableImage: @unchecked Sendable { let cg: CGImage? }
 
 /// One item of the icon grid: Small, Medium, Large and Extra large icons, List, Tiles, Content and the
-/// Gallery strip, drawn the D1 way (hover wash, accent fill and brackets when selected).
+/// Gallery strip, drawn the D4 way (hover wash, the --sel fill and an accent hairline when selected).
 final class GridCellView: NSView, NSViewToolTipOwner {
     @objc func view(_ view: NSView, stringForToolTip tag: NSView.ToolTipTag, point: NSPoint, userData data: UnsafeMutableRawPointer?) -> String {
         tip?() ?? ""

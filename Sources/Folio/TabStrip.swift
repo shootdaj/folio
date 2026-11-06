@@ -62,6 +62,10 @@ final class TabStripView: NSView, NSDraggingSource {
 
     override var isFlipped: Bool { true }
 
+    /// The strip sits in the window's title bar area: a press there is the strip's (select, reorder, tear
+    /// out), never a window drag; empty space moves the window from mouseDown.
+    override var mouseDownCanMoveWindow: Bool { false }
+
     // MARK: Geometry
 
     private var titleFont: NSFont { Typeface.ui(13, weight: 500) }

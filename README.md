@@ -1,8 +1,9 @@
 # Folio
 
 A native macOS file manager that behaves like Windows Explorer. Swift 6 + AppKit, built with the free
-Command Line Tools, no Xcode, no Apple developer account. The look is the D1 control room
-(docs/design/d1-control-room.html), dark and light, with a green, amber or cyan accent.
+Command Line Tools, no Xcode, no Apple developer account. The look is D4 Obsidian spotlight
+(docs/design/d4-obsidian-spotlight.html), dark and light following the Mac, with an accent of any hue
+picked from the swatch at the right end of the title bar.
 
 Install it on a Mac: [docs/INSTALL.md](docs/INSTALL.md). Every key: [docs/KEYS.md](docs/KEYS.md).
 
