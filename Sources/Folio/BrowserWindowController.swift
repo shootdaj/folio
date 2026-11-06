@@ -10,11 +10,22 @@ final class BrowserWindow: NSWindow {
         if let controller = windowController as? BrowserWindowController {
             // Access keys: an Option tap shows the command bar's letters; the next key uses or hides them.
             if event.type == .flagsChanged { controller.handleFlagsChanged(event) }
-            if event.type == .keyDown, controller.handleAccessKeyDown(event) { return }
+            if event.type == .flagsChanged {
+                KeyLog.write("flags key=\(event.keyCode) mods=\(KeyLog.mods(event)) accessKeys=\(controller.showsAccessKeys)")
+            }
+            if event.type == .keyDown, controller.handleAccessKeyDown(event) {
+                KeyLog.write("keyDown key=\(event.keyCode) mods=\(KeyLog.mods(event)) -> consumed by access keys")
+                return
+            }
             if [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type), controller.showsAccessKeys {
                 controller.setAccessKeys(false)
             }
-            if event.type == .keyDown, controller.handleKeyDown(event) { return }
+            if event.type == .keyDown {
+                let handled = controller.handleKeyDown(event)
+                let responder = firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+                KeyLog.write("keyDown key=\(event.keyCode) chars=\(event.charactersIgnoringModifiers ?? "") mods=\(KeyLog.mods(event)) firstResponder=\(responder) dropdownOpen=\(controller.dropdown.isOpen) handled=\(handled)")
+                if handled { return }
+            }
             // Explorer's Ctrl+wheel (Cmd+scroll here) and a trackpad pinch step through the views.
             if event.type == .scrollWheel, event.modifierFlags.contains(.command), controller.zoomsWithScroll {
                 controller.grid.zoom(with: event)
