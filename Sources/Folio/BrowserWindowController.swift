@@ -1083,6 +1083,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         case (33, .command) where !editingText: goBack(nil)     // Cmd+[
         case (30, .command) where !editingText: goForward(nil)  // Cmd+]
         case (126, .command) where !editingText: goUp(nil)      // Cmd+Up
+        case (123, .command) where !editingText: goBack(nil)    // Cmd+Left: what BTT's global rule sends for Anshul's physical Cmd+Left (Karabiner on)
+        case (124, .command) where !editingText: goForward(nil) // Cmd+Right
         case (34, .command) where !editingText: showProperties(nil) // Cmd+I (the menu shows Option+Return)
         case (13, [.command, .shift]): window?.performClose(nil) // Cmd+Shift+W (the menu shows Option+F4)
         case (6, [.command, .shift]): redoOperation(nil)        // Cmd+Shift+Z (the menu shows Cmd+Y)
