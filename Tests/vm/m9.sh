@@ -840,10 +840,13 @@ fi
 
 # --- 13: Folio --version, and ff's mistakes ----------------------------------------------------------------------
 version=$("$APP/Contents/MacOS/Folio" --version 2>&1)
-if echo "$version" | grep -Eq '^Folio [0-9]+\.[0-9]+\.[0-9]+ \([0-9a-f]{7,}(-dirty)?\)$'; then
+# What make app stamped from the git tags (tools/ci/version.sh): 1.2.3, 1.2.3-4-gabc1234 or 0.0.0-abc1234.
+stamped="Folio $(defaults read "$APP/Contents/Info" FolioVersion 2>/dev/null) ($(defaults read "$APP/Contents/Info" FolioGitCommit 2>/dev/null))"
+if [ "$version" = "$stamped" ] \
+    && echo "$version" | grep -Eq '^Folio [0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)? \([0-9a-f]{7,}\)$'; then
     pass 13 version "Folio --version: $version"
 else
-    fail 13 version "Folio --version said [$version]"
+    fail 13 version "Folio --version said [$version], Info.plist says [$stamped]"
 fi
 missing=$( (cd "$WORK" && "$FF" "$ROOT/not-there") 2>&1 ); rc1=$?
 both=$( (cd "$WORK" && "$FF" -n -t docs) 2>&1 ); rc2=$?
