@@ -116,6 +116,15 @@ import Testing
         #expect(missing.isEmpty, "a folder that cannot be listed is left out")
     }
 
+    @Test func outermostDropsItemsInsideAnotherSelectedFolder() {
+        // An open folder and its own item both selected: Trash, Copy and drag take the folder alone.
+        let urls = ["Alpha", "Alpha/z.txt", "Alpha/Inner/deep.txt", "AlphaBeta/x.txt", "b.txt", "Alpha"]
+            .map { URL(fileURLWithPath: root + "/" + $0) }
+        #expect(ListTree.outermost(urls).map(\.lastPathComponent) == ["Alpha", "x.txt", "b.txt"],
+                "a name that only starts the same (AlphaBeta) is not inside; a repeat goes; the order stays")
+        #expect(ListTree.outermost([]).isEmpty)
+    }
+
     @Test func theLayoutKeepsDepthsAndCountsTheTopLevel() {
         let r = ListTree.flatten(top, children: children, expanded: [key("Alpha")], arrange: sorted)
         let layout = ListLayout(items: r.items, depths: r.depths)

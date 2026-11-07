@@ -55,6 +55,26 @@ public enum ListTree {
         return out
     }
 
+    /// The items with none of the others' folders above them, repeats removed, in order: with folders open
+    /// in place a selection can hold a folder and its own items, and an operation must take the folder alone.
+    public static func outermost(_ urls: [URL]) -> [URL] {
+        let keys = urls.map { FilePaths.itemKey($0) }
+        let all = Set(keys)
+        var seen = Set<String>()
+        var out: [URL] = []
+        for (url, key) in zip(urls, keys) where !seen.contains(key) {
+            seen.insert(key)
+            var parent = FilePaths.parentKey(ofItemKey: key)
+            var nested = false
+            while parent != "/" && !parent.isEmpty {
+                if all.contains(parent) { nested = true; break }
+                parent = FilePaths.parentKey(ofItemKey: parent)
+            }
+            if !nested { out.append(url) }
+        }
+        return out
+    }
+
     /// The row of item `i`'s parent folder: the nearest earlier row one level up; nil at the top level.
     public static func parent(of i: Int, depths: [Int]) -> Int? {
         guard depths.indices.contains(i), depths[i] > 0 else { return nil }

@@ -50,6 +50,12 @@ protocol FileListDelegate: AnyObject {
     func list(_ list: NSView, menuForGroup group: Int) -> NSMenu?
     /// Is this item selected (the model, not the table, decides).
     func listIsSelected(_ row: Int) -> Bool
+    /// Details view: a click on a folder's triangle opens or closes it in place (Option: every level below).
+    func list(_ list: NSView, toggledFolderAt row: Int, recursive: Bool)
+    /// How deep the item sits under folders open in place (0 at the top level).
+    func listDepth(_ row: Int) -> Int
+    /// The item's triangle: open or closed, nil for none.
+    func listDisclosure(_ row: Int) -> Bool?
 }
 
 /// The table, with hover tracking for the 5.5% row wash, Explorer clicks (Cmd+click toggles, Shift+click
@@ -123,7 +129,19 @@ final class FolioTableView: NSTableView {
     func checkboxRect(row: Int) -> NSRect {
         let column = tableColumns.firstIndex { $0.identifier.rawValue == SortKey.name.rawValue } ?? 0
         let cell = frameOfCell(atColumn: column, row: row)
-        return NSRect(x: cell.minX + NameCellView.boxX - 4, y: cell.midY - 11, width: 22, height: 22)
+        let shift = NameCellView.contentShift(depth: itemAtRow(row).map { listDelegate?.listDepth($0) ?? 0 } ?? 0)
+        return NSRect(x: cell.minX + shift + NameCellView.boxX - 4, y: cell.midY - 11, width: 22, height: 22)
+    }
+
+    /// A folder's triangle, in table coordinates (larger than drawn; it stops short of the check box).
+    func disclosureRect(row: Int) -> NSRect {
+        let column = tableColumns.firstIndex { $0.identifier.rawValue == SortKey.name.rawValue } ?? 0
+        let cell = frameOfCell(atColumn: column, row: row)
+        let shift = NameCellView.contentShift(depth: itemAtRow(row).map { listDelegate?.listDepth($0) ?? 0 } ?? 0)
+        let minX = shift + NameCellView.disclosureX - 3
+        // With check boxes it ends where the check box's own target starts (checkboxRect).
+        let maxX = showsCheckboxes ? shift + NameCellView.boxX - 4 : shift + NameCellView.disclosureX + NameCellView.disclosureSize + 2
+        return NSRect(x: cell.minX + minX, y: cell.midY - 10, width: maxX - minX, height: 20)
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -144,6 +162,11 @@ final class FolioTableView: NSTableView {
         }
         guard tableRow >= 0, let row = itemAtRow(tableRow) else {
             rubberBand(from: event, at: point, adding: mods.contains(.command))
+            return
+        }
+        // A folder's triangle opens or closes it without touching the selection (each click toggles).
+        if delegate.listDisclosure(row) != nil, disclosureRect(row: tableRow).contains(point) {
+            delegate.list(self, toggledFolderAt: row, recursive: event.modifierFlags.contains(.option))
             return
         }
         if showsCheckboxes, checkboxRect(row: tableRow).contains(point) {
@@ -676,10 +699,19 @@ final class NameCellView: NSTableCellView, RowCellView, ThemeAware, NSViewToolTi
     private var selected = false
     /// Search results: the parts of the name that matched (UTF-16 ranges of the name shown), lit.
     var highlights: [NSRange] = [] { didSet { if highlights != oldValue { needsDisplay = true } } }
+    /// Details view's folders open in place: how deep this row sits, and its triangle (nil for none).
+    var depth = 0 { didSet { if depth != oldValue { needsDisplay = true } } }
+    var disclosure: Bool? { didSet { if disclosure != oldValue { needsDisplay = true } } }
 
     /// Where the item check box sits in the cell, and how far it pushes the icon and name.
     static let boxX: CGFloat = ListMetrics.rowLead - 1
     static let boxShift: CGFloat = 8
+    /// A folder's triangle, in the gutter left of the icon (and of the check box), so the top level's
+    /// icons and names stay where they were.
+    static let disclosureX: CGFloat = 2
+    static let disclosureSize: CGFloat = 10
+    /// How far a row's content (triangle, check box, icon, name) moves right per level under an open folder.
+    static func contentShift(depth: Int) -> CGFloat { CGFloat(max(0, depth)) * 16 }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -713,11 +745,18 @@ final class NameCellView: NSTableCellView, RowCellView, ThemeAware, NSViewToolTi
         let p = Palette.current
         let mid = bounds.midY
         let hovered = (superview as? FolioRowView)?.isHovered ?? false
+        let shift = Self.contentShift(depth: depth)
+        if let disclosure {
+            // The group header's chevron, smaller: pointing right when closed, down when open.
+            let r = NSRect(x: shift + Self.disclosureX, y: (mid - Self.disclosureSize / 2).rounded(),
+                           width: Self.disclosureSize, height: Self.disclosureSize)
+            Glyph.chevronDown.draw(in: r, color: (selected ? p.text : p.muted).ns, lineWidth: 1.5, rotation: disclosure ? 0 : -.pi / 2)
+        }
         if showsCheckbox && (selected || hovered) {
-            CheckBox.draw(in: NSRect(x: Self.boxX, y: (mid - 7).rounded(), width: 14, height: 14), on: selected, mixed: false, p)
+            CheckBox.draw(in: NSRect(x: shift + Self.boxX, y: (mid - 7).rounded(), width: 14, height: 14), on: selected, mixed: false, p)
         }
         if isCut || entry.isHidden || isFlagDimmed { NSGraphicsContext.current?.cgContext.setAlpha(0.45) }
-        let iconX = ListMetrics.rowLead + (showsCheckbox ? Self.boxShift + 8 : 0)
+        let iconX = shift + ListMetrics.rowLead + (showsCheckbox ? Self.boxShift + 8 : 0)
         let icon = NSRect(x: iconX, y: (mid - 8).rounded(), width: 16, height: 16)
         if let customIcon, entry.isFolder {
             customIcon.draw(in: icon, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)

@@ -92,6 +92,10 @@ enum MainMenu {
             submenu("Group By", groupItems()),
             item("Collapse All Groups", #selector(BrowserWindowController.collapseAllGroups(_:))),
             item("Expand All Groups", #selector(BrowserWindowController.expandAllGroups(_:))),
+            // Details view's folders open in place; Right and Left do it from the list (no key here, so a
+            // text field keeps its arrows).
+            item("Expand Selected Folders", #selector(BrowserWindowController.expandSelectedFolders(_:))),
+            item("Collapse All Folders", #selector(BrowserWindowController.collapseAllFolders(_:))),
             .separator(),
             item("Choose Details...", #selector(BrowserWindowController.chooseDetails(_:))),
             // Explorer's Ctrl+Numpad +, as Cmd+= (Cmd+Numpad + works too, in BrowserWindow).

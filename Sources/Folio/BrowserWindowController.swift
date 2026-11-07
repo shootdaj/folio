@@ -99,6 +99,16 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     var filters = FilterSet()
     /// Group by groups folded shut (bucket ids), until the folder changes.
     var collapsedGroups: Set<String> = []
+    /// Details view's folders open in place (ListTree), by item key. The watcher follows them too.
+    var expandedFolders: Set<String> = [] {
+        didSet { if expandedFolders != oldValue { updateWatches() } }
+    }
+    /// Each open folder's items as listed (before filters and sort), by the folder's item key.
+    var childListings: [String: [FileEntry]] = [:]
+    /// The open folders of each folder this window showed, while Folio runs: Back brings them back.
+    var expandedMemory: [String: Set<String>] = [:]
+    /// The folder (folder key) that `expandedFolders` belongs to.
+    var expandedFor: String?
     /// What the list shows: the shown items in order and, when grouped, the header rows between them.
     private(set) var layout = ListLayout(items: [])
     /// The inputs `layout` was arranged from, to tell when it must be arranged again.
@@ -159,7 +169,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         set { tabs.active.group = newValue }
     }
     var isLoading = false
-    private var isResorting = false
+    private(set) var isResorting = false
     var loadError: String?
     /// The share button, for anchoring the share picker.
     var shareButton: ChromeButton?
@@ -573,10 +583,6 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             filters.clearAll()
             collapsedGroups = []
         }
-        let key = arrangeKey
-        let hidden = ListOptions.showHidden
-        let protected = ListOptions.folder.hideProtectedOSFiles
-        listedWith = (hidden, protected)
         let home = FileManager.default.homeDirectoryForCurrentUser
         let trash = RecycleBin.isTrash(folder, home: home)
         let cloud = CloudFolders.isCloud(folder, home: home)
@@ -584,6 +590,20 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         let zip = ZipPath.split(folder) != nil
         isInZip = zip
         isTrashView = trash
+        // Folders open in place belong to their folder: kept for it while Folio runs, back with it.
+        let here = FilePaths.folderKey(folder)
+        if expandedFor != here {
+            if let old = expandedFor { expandedMemory[old] = expandedFolders.isEmpty ? nil : expandedFolders }
+            expandedFolders = expandedMemory[here] ?? []
+            childListings = [:]
+            expandedFor = here
+        }
+        let key = arrangeKey
+        // A refresh lists each open folder again in the same pass, so its items do not blink.
+        let openFolders = zip || trash ? [] : expandedFolders
+        let hidden = ListOptions.showHidden
+        let protected = ListOptions.folder.hideProtectedOSFiles
+        listedWith = (hidden, protected)
         requestID += 1
         let id = requestID
         isLoading = true
@@ -601,7 +621,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         // Tags, flags and custom icons are read again for what the list shows next.
         ItemDecorCache.shared.clear()
         Task.detached(priority: .userInitiated) { [weak self] in
-            let result = Result { () -> ([FileEntry], ListLayout) in
+            let result = Result { () -> ([FileEntry], [String: [FileEntry]], ListLayout) in
                 let rows: [FileEntry]
                 if zip {
                     let all = try ZipFolder.list(folder)
@@ -614,11 +634,12 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
                 } else {
                     rows = try FolderListing.list(folder, includeHidden: hidden, cloud: cloud, hideProtected: protected)
                 }
-                return (rows, Self.arrange(rows, key))
+                let children = Self.listChildren(openFolders, hidden: hidden, protected: protected, home: home)
+                return (rows, children, Self.arrange(rows, key, children: children))
             }
             let volume = VolumeCapacity.read(folder)
             await self?.finishLoad(result, volume: volume, id: id, key: key, folder: folder, started: started,
-                                   keepingState: keepingState)
+                                   keepingState: keepingState, openFolders: openFolders)
         }
     }
 
@@ -656,18 +677,20 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         updateWatches()
     }
 
-    private func finishLoad(_ result: Result<([FileEntry], ListLayout), any Error>, volume: VolumeCapacity?, id: Int,
-                            key: ArrangeKey, folder: URL, started: Date, keepingState: Bool) {
+    private func finishLoad(_ result: Result<([FileEntry], [String: [FileEntry]], ListLayout), any Error>, volume: VolumeCapacity?,
+                            id: Int, key: ArrangeKey, folder: URL, started: Date, keepingState: Bool, openFolders: Set<String>) {
         guard id == requestID else { return }
         isLoading = false
+        isResorting = false // a rearrange this load overtook never finished
         self.volume = volume
         let select = pendingSelect ?? []
         let scroll = scrollToPending
         pendingSelect = nil
         scrollToPending = false
         switch result {
-        case .success(let (rows, arranged)):
+        case .success(let (rows, children, arranged)):
             listing = rows
+            takeChildListings(children, tried: openFolders)
             arrangedWith = key
             show(arranged, selecting: select)
             if !keepingState { addressHistory.record(folder.path) }
@@ -722,20 +745,43 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         var collapsed: Set<String>
         /// Search results in relevance order: the order they are listed in.
         var relevance = false
+        /// Folders open in place (Details view only, ListTree), and the open ones' keys.
+        var tree = false
+        var expanded: Set<String> = []
     }
 
     var arrangeKey: ArrangeKey {
-        ArrangeKey(filters: filters, sort: sortSpec, group: group, collapsed: collapsedGroups, relevance: isRelevanceOrder)
+        let tree = treeAvailable
+        return ArrangeKey(filters: filters, sort: sortSpec, group: group, collapsed: collapsedGroups, relevance: isRelevanceOrder,
+                          tree: tree, expanded: tree ? expandedFolders : [])
+    }
+
+    /// Folders open in place in Details view; not in the other views, search results, groups, a zip or the Recycle Bin.
+    var treeAvailable: Bool {
+        viewMode.usesTable && !isSearching && group == nil && !isInZip && !isTrashView && !history.isHome
     }
 
     /// Filters, then groups (sorted inside) or a plain sort. Columns that need metadata (Dimensions,
     /// Tags...) read it for every item first, through the shared cache.
-    nonisolated static func arrange(_ rows: [FileEntry], _ key: ArrangeKey) -> ListLayout {
+    /// With folders open in place, each open folder's items (`children`) are filtered and sorted the same
+    /// way and follow its row (ListTree).
+    nonisolated static func arrange(_ rows: [FileEntry], _ key: ArrangeKey, children: [String: [FileEntry]] = [:]) -> ListLayout {
         let context = BucketContext()
         let wantsMeta = key.filters.columns.contains { $0.needsMetadata } || key.sort.terms.contains { $0.key.needsMetadata }
             || key.group?.key.needsMetadata == true
-        if wantsMeta { MetadataCache.shared.fill(rows) }
+        let open = key.tree && !key.expanded.isEmpty
+        if wantsMeta {
+            MetadataCache.shared.fill(rows)
+            if open { for k in key.expanded { if let kids = children[k] { MetadataCache.shared.fill(kids) } } }
+        }
         let meta: (FileEntry) -> ItemMetadata? = wantsMeta ? { MetadataCache.shared.cached($0) } : { _ in nil }
+        if open {
+            let level: ([FileEntry]) -> [FileEntry] = {
+                SortEngine.sort(key.filters.apply($0, context: context, metadata: meta), by: key.sort, metadata: meta)
+            }
+            let flat = ListTree.flatten(level(rows), children: children, expanded: key.expanded, arrange: level)
+            return ListLayout(items: flat.items, depths: flat.depths)
+        }
         let shown = key.filters.apply(rows, context: context, metadata: meta)
         if let group = key.group {
             return ListLayout(groups: GroupBuilder.build(shown, by: group, sort: key.sort, context: context, metadata: meta),
@@ -745,35 +791,48 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         return ListLayout(items: SortEngine.sort(shown, by: key.sort, metadata: meta))
     }
 
-    /// The list again from the folder's items, after a sort, filter or Group by change; the selection stays.
-    func rearrange() {
-        guard !isLoading else { return } // the pending load arranges again when it lands
+    /// The list again from the folder's items, after a sort, filter or Group by change; the selection stays
+    /// (or becomes `selecting`). `scroll` false keeps the scroll place (a folder opened or closed in place).
+    func rearrange(selecting: Set<String>? = nil, scroll: Bool = true) {
+        guard !isLoading else {
+            // The pending load arranges again when it lands, and selects these then.
+            if let selecting { pendingSelect = selecting }
+            return
+        }
         let key = arrangeKey
+        let selected = selecting ?? Set(selectedKeys)
         // Folding a group needs no new sort: the groups stay, only their rows change.
         if let old = arrangedWith, layout.isGrouped, old.filters == key.filters, old.sort == key.sort, old.group == key.group {
             arrangedWith = key
-            show(ListLayout(groups: layout.groups, collapsed: key.collapsed), selecting: Set(selectedKeys))
+            show(ListLayout(groups: layout.groups, collapsed: key.collapsed), selecting: selected)
             return
         }
         let rows = listing
-        let selected = Set(selectedKeys)
+        let children = key.tree ? childListings : [:]
         requestID += 1
         let id = requestID
         isResorting = true
         updateStatus()
         Task.detached(priority: .userInitiated) { [weak self] in
-            let arranged = Self.arrange(rows, key)
-            await self?.finishRearrange(arranged, key: key, id: id, selecting: selected)
+            let arranged = Self.arrange(rows, key, children: children)
+            await self?.finishRearrange(arranged, key: key, id: id, selecting: selected, scroll: scroll)
         }
     }
 
-    private func finishRearrange(_ arranged: ListLayout, key: ArrangeKey, id: Int, selecting selected: Set<String>) {
+    /// Drops a rearrange still running (its result would be stale); a load in flight is left alone.
+    func dropPendingRearrange() {
+        guard isResorting, !isLoading else { return }
+        requestID += 1
+        isResorting = false
+    }
+
+    private func finishRearrange(_ arranged: ListLayout, key: ArrangeKey, id: Int, selecting selected: Set<String>, scroll: Bool) {
         guard id == requestID else { return }
         isResorting = false
         arrangedWith = key
         show(arranged, selecting: selected)
-        if let first = selection.rows.first { scrollToItem(first) }
-        if arrangeKey != key { rearrange() }
+        if scroll, let first = selection.rows.first { scrollToItem(first) }
+        if arrangeKey != key { rearrange(scroll: scroll) }
     }
 
     /// The selected items' keys, in list order.
@@ -897,9 +956,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         updateCommandBar()
     }
 
-    /// Items that pass the filters, collapsed groups' items included (the status bar counts these).
+    /// Items that pass the filters, collapsed groups' items included. The status bar counts the top level
+    /// only (`shownCount`): items in a folder open in place are not counted, as in the Finder.
     var shownItems: [FileEntry] { layout.isGrouped ? layout.groups.flatMap(\.items) : entries }
-    var shownCount: Int { layout.isGrouped ? layout.groups.reduce(0) { $0 + $1.items.count } : entries.count }
+    var shownCount: Int { layout.topLevelCount }
 
     @objc private func listScrolled(_ note: Notification) {
         // The scroll place is part of the session (written half a second after the last change).
@@ -924,12 +984,12 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             return
         }
         guard !history.isHome else { return }
-        // A periodic refresh while a job runs only concerns windows on its destination.
+        // A periodic refresh while a job runs only concerns windows on its destination (or a folder open in place).
         let here = FilePaths.folderKey(history.current)
-        if let folders = note.userInfo?["folders"] as? Set<String>, !folders.contains(here) { return }
+        if let folders = note.userInfo?["folders"] as? Set<String>, !folders.contains(here), folders.isDisjoint(with: expandedFolders) { return }
         let mine = ((note.userInfo?["select"] as? [String]) ?? [])
             .map { FilePaths.itemKey(URL(fileURLWithPath: $0)) }
-            .filter { FilePaths.parentKey(ofItemKey: $0) == here }
+            .filter { FilePaths.parentKey(ofItemKey: $0) == here || expandedFolders.contains(FilePaths.parentKey(ofItemKey: $0)) }
         reloadContents(select: mine.isEmpty ? nil : Set(mine))
     }
 
@@ -1083,6 +1143,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         case (49, []) where tableFocused: toggleQuickLook(nil)  // Space: Quick Look
         case (109, .shift) where !editingText, (110, []) where !editingText:
             showContextMenuForSelection(nil)                    // Shift+F10, the Menu key
+        case (124, []) where tableFocused && viewMode.usesTable:               // Right: open the folder in place
+            if !openSelectedFolders() { return false }
+        case (123, []) where tableFocused && viewMode.usesTable:               // Left: close it, or go to its folder
+            if !closeSelectedFolders() { return false }
         case (125, []) where tableFocused, (125, .shift) where tableFocused:   // Down, Shift+Down
             moveSelection(.down, extend: modifiers == .shift)
         case (126, []) where tableFocused, (126, .shift) where tableFocused:   // Up, Shift+Up
@@ -1210,6 +1274,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             cell.showsExtension = ListOptions.showExtensions
             cell.highlights = searchHighlights(entry.displayName(extensions: ListOptions.showExtensions))
             cell.showsCheckbox = self.tableView.showsCheckboxes
+            cell.depth = layout.depth(ofItem: i)
+            cell.disclosure = disclosure(ofItem: i)
             decorate(cell, entry)
             cell.themeDidChange()
             return cell
