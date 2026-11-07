@@ -66,6 +66,12 @@ final class TabStripView: NSView, NSDraggingSource {
     /// out), never a window drag; empty space moves the window from mouseDown.
     override var mouseDownCanMoveWindow: Bool { false }
 
+    /// AppKit's title bar drags the window from any part of its area that no view claims; the strip claims
+    /// all of itself, so a tab drag reorders or tears out instead of moving the window (as Chromium does
+    /// for its tab strip in the same place).
+    @objc(_opaqueRectForWindowMoveWhenInTitlebar)
+    func opaqueRectForWindowMoveWhenInTitlebar() -> NSRect { bounds }
+
     // MARK: Geometry
 
     private var titleFont: NSFont { Typeface.ui(13, weight: 500) }
@@ -256,7 +262,8 @@ final class TabStripView: NSView, NSDraggingSource {
                 beginTabDrag(current, event: next)
                 return
             }
-            let target = self.index(at: NSPoint(x: p.x, y: tabRect(0).midY)) ?? (p.x < tabRect(0).minX ? 0 : items.count - 1)
+            // The tab whose middle is nearest the pointer (tabs differ in width and sit 2 pt apart).
+            let target = items.indices.min { abs(tabRect($0).midX - p.x) < abs(tabRect($1).midX - p.x) } ?? current
             if target != current {
                 onMove?(current, target)
                 current = target
