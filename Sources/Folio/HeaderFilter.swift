@@ -139,7 +139,7 @@ final class FilterPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
-/// D1's `.menu` panel (s3, line-2 border, accent brackets): a title strip, the calendar for dates,
+/// D4's `.menu` panel (--pop, line-2 border, radius 12): a title strip, the calendar for dates,
 /// then one check box per bucket with its count.
 final class FilterView: NSView {
     weak var controller: FilterPanelController?
@@ -147,9 +147,9 @@ final class FilterView: NSView {
     private var rows: [(bucket: Bucket, count: Int)] = []
     private var filter = ColumnFilter()
     private var message = ""
-    private var checks: [D1Check] = []
+    private var checks: [OSCheck] = []
     private let calendar = MonthCalendarView()
-    private let clearButton = D1Button("Clear", style: .ghost)
+    private let clearButton = OSButton("Clear", style: .ghost)
     static let width: CGFloat = 282
     static let headH: CGFloat = 38
     static let rowH: CGFloat = 28
@@ -188,7 +188,7 @@ final class FilterView: NSView {
         if checks.count != rows.count || zip(checks, rows).contains(where: { $0.0.title != $0.1.bucket.label }) {
             checks.forEach { $0.removeFromSuperview() }
             checks = zip(ids, rows).map { id, row in
-                let check = D1Check(row.bucket.label) { [weak self] _ in self?.controller?.toggle(id) }
+                let check = OSCheck(row.bucket.label) { [weak self] _ in self?.controller?.toggle(id) }
                 addSubview(check)
                 return check
             }
@@ -210,23 +210,22 @@ final class FilterView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         let p = Palette.current
-        fillRounded(bounds, radius: 4, p.s3)
-        strokeRounded(bounds, radius: 4, p.line2)
-        drawBrackets(bounds, color: p.accent.ns, length: 10)
+        fillRounded(bounds, radius: 12, p.pop.over(p.bg))
+        strokeRounded(bounds, radius: 12, p.line2)
         let head = "FILTER  " + column.title.uppercased()
-        drawLine(head, font: Typeface.ui(12, weight: 650, width: 116), color: p.txt2, x: 14, midY: Self.headH / 2, kern: 0.6)
+        drawLine(head, font: Typeface.mono(12, weight: 600), color: p.muted, x: 14, midY: Self.headH / 2, kern: Typeface.labelKern(12))
         fillRect(NSRect(x: 1, y: Self.headH - 1, width: bounds.width - 2, height: 1), p.line)
         let top = Self.headH + calendarH
         if column.isDate { fillRect(NSRect(x: 10, y: top - 4, width: bounds.width - 20, height: 1), p.line) }
         if !message.isEmpty {
-            drawLine(message, font: Typeface.ui(13), color: p.txt2, x: 16, midY: top + 20)
+            drawLine(message, font: Typeface.ui(13), color: p.text2, x: 16, midY: top + 20)
             return
         }
         for (i, row) in rows.enumerated() {
             let y = top + CGFloat(i) * Self.rowH
             let r = NSRect(x: 4, y: y, width: bounds.width - 8, height: Self.rowH)
             if filter.buckets.contains(row.bucket.id) { fillRounded(r.insetBy(dx: 2, dy: 1), radius: 3, p.selectionFill) }
-            drawLine(ByteText.grouped(row.count), font: Typeface.mono(12), color: p.txt3, x: bounds.width - 16, midY: y + Self.rowH / 2,
+            drawLine(ByteText.grouped(row.count), font: Typeface.mono(12), color: p.muted, x: bounds.width - 16, midY: y + Self.rowH / 2,
                      alignRight: true)
         }
     }
@@ -319,15 +318,15 @@ final class MonthCalendarView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         let p = Palette.current
         let title = month.formatted(.dateTime.month(.wide).year())
-        let tf = Typeface.ui(13, weight: 650, width: 116)
-        drawLine(title, font: tf, color: p.txt, x: bounds.midX - textWidth(title, font: tf) / 2, midY: headH / 2 + 1)
-        Glyph.back.draw(in: NSRect(x: prevRect.midX - 7, y: prevRect.midY - 7, width: 14, height: 14), color: p.txt2.ns)
-        Glyph.forward.draw(in: NSRect(x: nextRect.midX - 7, y: nextRect.midY - 7, width: 14, height: 14), color: p.txt2.ns)
+        let tf = Typeface.ui(13, weight: 650)
+        drawLine(title, font: tf, color: p.text, x: bounds.midX - textWidth(title, font: tf) / 2, midY: headH / 2 + 1)
+        Glyph.back.draw(in: NSRect(x: prevRect.midX - 7, y: prevRect.midY - 7, width: 14, height: 14), color: p.text2.ns)
+        Glyph.forward.draw(in: NSRect(x: nextRect.midX - 7, y: nextRect.midY - 7, width: 14, height: 14), color: p.text2.ns)
         let symbols = cal.veryShortStandaloneWeekdaySymbols
         let wf = Typeface.mono(11, weight: 600)
         for c in 0..<7 {
             let s = symbols[(cal.firstWeekday - 1 + c) % 7]
-            drawLine(s, font: wf, color: p.txt3, x: CGFloat(c) * cellW + cellW / 2 - textWidth(s, font: wf) / 2, midY: headH + weekH / 2)
+            drawLine(s, font: wf, color: p.muted, x: CGFloat(c) * cellW + cellW / 2 - textWidth(s, font: wf) / 2, midY: headH + weekH / 2)
         }
         let today = cal.startOfDay(for: Date())
         let df = Typeface.mono(12)
@@ -342,7 +341,7 @@ final class MonthCalendarView: NSView {
                 strokeRounded(r, radius: 3, p.accent)
             }
             let n = "\(cal.component(.day, from: d))"
-            let tone: RGBA = picked ? p.onAccent : (inMonth ? p.txt : p.txt3)
+            let tone: RGBA = picked ? p.onAccent : (inMonth ? p.text : p.muted)
             drawLine(n, font: df, color: tone, x: r.midX - textWidth(n, font: df) / 2, midY: r.midY - 1)
             if daysWithItems.contains(cal.startOfDay(for: d)) {
                 (picked ? p.onAccent : p.accent).ns.setFill()

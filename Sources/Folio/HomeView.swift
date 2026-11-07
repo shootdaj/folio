@@ -9,7 +9,7 @@ struct HomeContent {
     var recentLocations: [URL] = []
 }
 
-/// Home in the list's place: the s1 pane with its brackets, scrolling D1 panels for Quick access (the
+/// Home in the list's place: on the pane colour, scrolling D4 spotlight cards for Quick access (the
 /// pins as tiles, in the sidebar's order), Favorites, Recent files and Recent locations. Each section
 /// folds from its header and stays folded. Clicking a tile or a folder opens it here; a file opens in
 /// its app.
@@ -35,15 +35,13 @@ final class HomePaneView: NSView {
 
     override func layout() {
         super.layout()
-        scrollView.frame = bounds.insetBy(dx: 1, dy: 1)
+        scrollView.frame = bounds
         home.frame = NSRect(x: 0, y: 0, width: scrollView.contentSize.width, height: max(home.fittingHeight(width: scrollView.contentSize.width), scrollView.contentSize.height))
     }
 
     override func draw(_ dirtyRect: NSRect) {
         let p = Palette.current
-        fillRounded(bounds, radius: 4, p.s1)
-        strokeRounded(bounds, radius: 4, p.line)
-        drawBrackets(bounds, color: p.bracket.ns, length: 12)
+        fillRect(bounds, p.pane)
     }
 }
 
@@ -178,23 +176,23 @@ final class HomeView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         let p = Palette.current
-        // Title strip: HOME and what it holds, like the HUD's readouts.
-        let titleW = drawLine("Home", font: Typeface.ui(18, weight: 750, width: 124), color: p.txt, x: Self.pad, midY: 28, kern: 0.2)
+        // Title strip: Home and what it holds, in mono labels.
+        let titleW = drawLine("Home", font: Typeface.ui(18, weight: 700), color: p.text, x: Self.pad, midY: 28)
         let summary = "\(content.pins.count) PINNED  \(content.favorites.count) FAVORITES  \(content.recentFiles.count) RECENT"
         let summaryFont = Typeface.mono(11, weight: 500)
         // The readout only where it fits beside the title.
         if textWidth(summary, font: summaryFont, kern: 0.6) + titleW + 24 < bounds.width - 2 * Self.pad {
-            drawLine(summary, font: summaryFont, color: p.txt3, x: bounds.width - Self.pad, midY: 29, alignRight: true, kern: 0.6)
+            drawLine(summary, font: summaryFont, color: p.muted, x: bounds.width - Self.pad, midY: 29, alignRight: true, kern: 0.6)
         }
         for (s, r) in panels {
-            fillRounded(r, radius: 4, p.s2)
-            strokeRounded(r, radius: 4, p.line)
-            drawBrackets(r.insetBy(dx: -1, dy: -1), color: p.accent.withAlpha(0.55).ns, length: 8)
+            // A spotlight card: s1, a hairline, radius 12, a mono uppercase label and its count.
+            fillRounded(r, radius: 12, p.s1)
+            strokeRounded(r, radius: 12, p.line)
             let mid = r.minY + 1 + Self.headerH / 2
-            s.glyph.draw(in: NSRect(x: r.minX + 11, y: mid - 8, width: 16, height: 16), color: p.txt2.ns)
-            let tw = drawLine(s.title, font: Typeface.ui(12, weight: 700, width: 124), color: p.txt, x: r.minX + 35, midY: mid, kern: 0.48)
-            drawLine("\(items(s).count)", font: Typeface.mono(12), color: p.txt3, x: r.minX + 35 + tw + 8, midY: mid)
-            Glyph.chevronDown.draw(in: NSRect(x: r.maxX - 11 - 16, y: mid - 8, width: 16, height: 16), color: p.txt2.ns,
+            let tw = drawLine(s.title.uppercased(), font: Typeface.mono(12, weight: 600), color: p.muted, x: r.minX + 14, midY: mid,
+                              kern: Typeface.labelKern(12))
+            drawLine("\(items(s).count)", font: Typeface.mono(12, weight: 500), color: p.muted, x: r.minX + 14 + tw + 6, midY: mid)
+            Glyph.chevronDown.draw(in: NSRect(x: r.maxX - 10 - 16, y: mid - 8, width: 16, height: 16), color: p.muted.ns,
                                    rotation: collapsed.contains(s.rawValue) ? -.pi / 2 : 0)
             if !collapsed.contains(s.rawValue), items(s).isEmpty {
                 let empty = switch s {
@@ -203,16 +201,15 @@ final class HomeView: NSView {
                 case .recentFiles: "Files you open from Folio show here"
                 case .recentLocations: "Folders you visit show here"
                 }
-                drawLine(empty, font: Typeface.mono(12), color: p.txt3, x: r.minX + 16, midY: r.minY + 1 + Self.headerH + 15,
+                drawLine(empty, font: Typeface.mono(12), color: p.muted, x: r.minX + 16, midY: r.minY + 1 + Self.headerH + 15,
                          maxWidth: r.width - 32)
             }
         }
         for (i, hit) in hits.enumerated() {
             let hot = hovered == i
             switch hit.target {
-            case .header(let s):
-                if hot { fillRounded(hit.rect.insetBy(dx: 1, dy: 0), radius: 4, p.txt2.withAlpha(0.08)) }
-                _ = s
+            case .header:
+                break
             case .item(let url, let isFolder, let label):
                 if hit.rect.height == Self.tileH {
                     drawTile(url, label: label, in: hit.rect, hot: hot, p)
@@ -224,37 +221,32 @@ final class HomeView: NSView {
     }
 
     private func drawTile(_ url: URL, label: String, in r: NSRect, hot: Bool, _ p: Palette) {
-        fillRounded(r, radius: 4, hot ? p.s3 : p.s1)
-        strokeRounded(r, radius: 4, hot ? p.line3 : p.line)
-        if hot { drawBrackets(r, color: p.accent.ns, length: 8) }
-        ItemIcon.drawFolder(in: NSRect(x: r.minX + 14, y: r.midY - 11, width: 26, height: 22), palette: p, lit: hot)
-        drawLine(label, font: Typeface.ui(13, weight: 600), color: hot ? p.accent : p.txt, x: r.minX + 52, midY: r.minY + 22,
+        fillRounded(r, radius: 12, p.s2)
+        strokeRounded(r, radius: 12, hot ? p.accent.mixed(0.45, with: p.line) : p.line)
+        if hot { drawCursorGlow(in: r.insetBy(dx: 1, dy: 1), center: NSPoint(x: r.minX + r.width * 0.3, y: r.midY), radius: 200,
+                                color: p.accent, alpha: p.glowAlpha) }
+        ItemIcon.drawFolder(in: NSRect(x: r.minX + 14, y: r.midY - 12, width: 24, height: 24), palette: p, lit: hot)
+        drawLine(label, font: Typeface.ui(13, weight: 600), color: p.text, x: r.minX + 52, midY: r.minY + 22,
                  maxWidth: r.width - 62)
         let parent = (url.path as NSString).deletingLastPathComponent.replacingOccurrences(
             of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~")
-        drawLine(parent, font: Typeface.mono(11), color: p.txt3, x: r.minX + 52, midY: r.minY + 41, maxWidth: r.width - 62)
+        drawLine(parent, font: Typeface.mono(11), color: p.muted, x: r.minX + 52, midY: r.minY + 41, maxWidth: r.width - 62)
     }
 
     private func drawRow(_ url: URL, isFolder: Bool, label: String, in r: NSRect, hot: Bool, _ p: Palette) {
-        if hot {
-            fillRounded(r, radius: 3, p.txt.withAlpha(0.08))
-            drawBrackets(r, color: p.bracket.ns, length: 6)
-        }
+        if hot { fillRounded(r, radius: 8, p.text.withAlpha(0.07)) }
         let mid = r.midY
-        if isFolder {
-            ItemIcon.drawFolder(in: NSRect(x: r.minX + 10, y: mid - 7.5, width: 18, height: 15), palette: p, lit: false)
-        } else {
-            ItemIcon.drawFile(named: url.lastPathComponent, in: NSRect(x: r.minX + 11, y: mid - 7.5, width: 15, height: 15), palette: p)
-        }
+        ItemIcon.draw(name: url.lastPathComponent, isFolder: isFolder, in: NSRect(x: r.minX + 10, y: mid - 8, width: 16, height: 16),
+                      palette: p, glow: hot)
         let dateW: CGFloat = 130
-        let nameW = drawLine(label, font: Typeface.ui(13), color: hot ? p.accent : p.txt, x: r.minX + 38, midY: mid,
+        let nameW = drawLine(label, font: Typeface.ui(13, weight: 500), color: p.text, x: r.minX + 38, midY: mid,
                              maxWidth: (r.width - 38) * 0.45)
         let folder = (isFolder ? url.path : (url.path as NSString).deletingLastPathComponent)
             .replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~")
-        drawLine(folder, font: Typeface.mono(12), color: p.txt3, x: r.minX + 38 + nameW + 14, midY: mid,
+        drawLine(folder, font: Typeface.mono(12), color: p.muted, x: r.minX + 38 + nameW + 14, midY: mid,
                  maxWidth: r.maxX - dateW - (r.minX + 38 + nameW + 14) - 8)
         if !isFolder, let date = (try? url.resourceValues(forKeys: [.contentAccessDateKey]))?.contentAccessDate {
-            drawLine(Self.dateFormatter.string(from: date), font: Typeface.mono(12), color: p.txt2, x: r.maxX - 10, midY: mid, alignRight: true)
+            drawLine(Self.dateFormatter.string(from: date), font: Typeface.mono(12), color: p.text2, x: r.maxX - 10, midY: mid, alignRight: true)
         }
     }
 

@@ -161,18 +161,3 @@ import Testing
         #expect(!ColumnID.folder.needsMetadata)
     }
 }
-
-@Suite struct SearchHudTests {
-    @Test func theHudReadsQueryScopeResultsAndRelevance() {
-        let none = SelectionSummary([])
-        let running = Hud.searchSegments(query: "bert", scope: "work", results: 0, searching: true, sort: nil, selection: none)
-        #expect(running.map(\.key) == ["Query", "Scope", "Results", "Sort", "Selected"])
-        #expect(running[0].pulses)
-        #expect(running[2].value == "Scanning")
-        #expect(running[3].value == "Relevance")
-        let done = Hud.searchSegments(query: "bert", scope: "work", results: 1234, searching: false, sort: .standard, selection: none)
-        #expect(!done[0].pulses)
-        #expect(done[2].value == "1,234")
-        #expect(done[3].value != "Relevance")
-    }
-}

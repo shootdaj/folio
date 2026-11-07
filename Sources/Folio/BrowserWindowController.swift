@@ -46,7 +46,7 @@ final class BrowserWindow: NSWindow {
         allowsOffscreen ? frameRect : super.constrainFrameRect(frameRect, to: screen)
     }
 
-    /// Centres the window's own close, minimise and zoom buttons in D1's 44 pt title bar,
+    /// Centres the window's own close, minimise and zoom buttons in D4's 44 pt title bar,
     /// 14 pt from the left edge and 20 pt apart.
     func placeTrafficLights() {
         guard !styleMask.contains(.fullScreen),
@@ -61,14 +61,14 @@ final class BrowserWindow: NSWindow {
             guard let button = standardWindowButton(kind), let holder = button.superview else { continue }
             // Centred on the bar whichever way the holder is flipped.
             let midY = holder.convert(NSPoint(x: 0, y: frame.height / 2), from: container).y
-            let origin = NSPoint(x: 14 - (button.frame.width - 12) / 2 + CGFloat(i) * 20,
+            let origin = NSPoint(x: 16 - (button.frame.width - 12) / 2 + CGFloat(i) * 20,
                                  y: (midY - button.frame.height / 2).rounded())
             if button.frame.origin != origin { button.setFrameOrigin(origin) }
         }
     }
 }
 
-/// One window in the D1 control-room chassis: tabs, each showing a folder in a Details view (or Home),
+/// One window in D4's Obsidian spotlight chassis: tabs, each showing a folder in a Details view (or Home),
 /// with the navigation pane's tree beside them.
 @MainActor
 final class BrowserWindowController: NSWindowController, NSWindowDelegate,
@@ -181,6 +181,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     private var isFittingColumns = false
     /// The one dropdown this window shows at a time (typeahead, history, crumb folders, Back list).
     let dropdown = Dropdown()
+    /// The accent picker under the title bar's swatch.
+    lazy var accentPicker = AccentPicker()
     private let addressHistory: AddressHistory
     /// "No such folder" after Enter on a bad address, until the next edit or navigation.
     var statusMessage: String?
@@ -190,8 +192,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     let dropTip = DropTipView()
     var springTarget: URL?
     var springTimer: Timer?
-    /// The folder row lit under a drag (-1 for none); the list draws D1's feedback, not AppKit's.
-    /// The folder item lit under a drag (-1 for none); the list draws D1's feedback, not AppKit's.
+    /// The folder row lit under a drag (-1 for none); the list draws D4's feedback, not AppKit's.
+    /// The folder item lit under a drag (-1 for none); the list draws D4's feedback, not AppKit's.
     var dropTargetRow = -1 {
         didSet {
             guard dropTargetRow != oldValue else { return }
@@ -270,7 +272,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         window.titlebarSeparatorStyle = .none
         // Small enough for two windows side by side on a 1024 pt screen (Window > Tile).
         window.minSize = NSSize(width: 500, height: 480)
-        window.backgroundColor = Palette.current.bg.ns
+        window.backgroundColor = Palette.current.pane.ns
         window.allowsOffscreen = options.uitest
         window.collectionBehavior.insert(.fullScreenPrimary)
         if options.uitest { window.isRestorable = false }
@@ -308,8 +310,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     // MARK: Layout
 
     private func buildContent(in window: NSWindow, options: Options) {
-        let titleBar = TitleBarView(target: self, accentAction: #selector(chooseAccent(_:)),
-                                    themeAction: #selector(toggleTheme(_:)))
+        let titleBar = TitleBarView(target: self, accentAction: #selector(chooseAccent(_:)))
         let toolbar = ToolbarView(target: self, back: #selector(goBack(_:)), forward: #selector(goForward(_:)),
                                   up: #selector(goUp(_:)), refresh: #selector(refresh(_:)))
         chassis = ChassisView(titleBar: titleBar, toolbar: toolbar)
@@ -344,7 +345,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         address.onMiddleClick = { [weak self] url in self?.openInNewTab(url, activate: false) }
         address.onServer = { [weak self] target in self?.connect(to: target) ?? false }
         address.onCommand = { [weak self] command in self?.runAddressCommand(command) ?? false }
-        chassis.rail.onJump = { [weak self] fraction in self?.jump(to: fraction) }
+        chassis.status.onToggleView = { [weak self] in
+            guard let self else { return }
+            self.chooseView(self.viewMode == .details ? .largeIcons : .details)
+        }
 
         // The shown columns keep their widths; Name takes the rest of the list (fitColumns), so the
         // standard four always fit with no horizontal scroller.
@@ -513,14 +517,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         }
     }
 
+    /// The title bar's accent swatch: the picker opens under it (pressed again, it closes).
     @objc func chooseAccent(_ sender: Any?) {
-        guard let swatch = sender as? AccentSwatch else { return }
-        ThemeController.shared.accent = swatch.accent
-    }
-
-    /// The title bar's sun or moon: switches to the other of dark and light.
-    @objc func toggleTheme(_ sender: Any?) {
-        ThemeController.shared.theme = Palette.current.appearance == .dark ? .light : .dark
+        accentPicker.toggle(from: titleBar.accentButton)
     }
 
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
@@ -797,7 +796,6 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         updateFilterTokens()
         updateFocusRow()
         updateStatus()
-        updateVisibleRange()
         selectionDidChange()
     }
 
@@ -844,8 +842,6 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         // Folder Options > Display the full path in the title bar.
         let title = ListOptions.folder.fullPathInTitleBar && !history.isHome ? folder.path : name
         window?.title = title
-        titleBar.folderName = title
-        titleBar.folderPath = history.isHome ? "Quick access, Favorites, Recent" : folder.path
         toolbar.back.isEnabled = history.canGoBack
         toolbar.forward.isEnabled = history.canGoForward
         toolbar.up.isEnabled = history.canGoUp
@@ -885,23 +881,14 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             chassis.status.countText = StatusText.count(items: shownCount, selection: selection,
                                                         total: filters.isEmpty ? nil : listing.count)
         }
-        var ticker = Ticker.items(volume: volume, selection: selection, sort: sortSpec, path: path)
-        if isRelevanceOrder {
-            ticker = ticker.map { $0.plain == SortLabel.sentence(sortSpec) ? TickerItem([TickerSegment("Sorted by relevance")]) : $0 }
-        }
-        chassis.status.ticker.items = ticker
+        // The HUD's readouts, in the status bar: count, selection, sort, free space, view.
+        let listed = statusMessage == nil && loadError == nil && (searchError == nil || !isSearching)
+            && !history.isHome && (isSearching || !isLoading)
+        chassis.status.readout = !listed ? nil : StatusReadout.make(
+            items: shownCount, total: filters.isEmpty ? nil : listing.count, selection: selection,
+            sort: isRelevanceOrder ? nil : sortSpec, volume: volume, view: viewMode.title,
+            searchingIn: isSearching && !searchFinished && searchError == nil ? searchScopeName : nil)
         if searchUIShown { updateSearchEmpty() }
-        let address = toolbar.address
-        if address.isEditing {
-            chassis.hud.segments = Hud.editingSegments(shown: address.matchCount.shown, total: address.matchCount.total, path: path, selection: selection)
-        } else if let s = history.search {
-            chassis.hud.segments = Hud.searchSegments(query: s.text, scope: searchScopeName, results: shownCount, searching: !searchFinished,
-                                                      sort: isRelevanceOrder ? nil : sortSpec, selection: selection)
-        } else {
-            chassis.hud.segments = Hud.segments(path: path, entries: shownItems, sort: sortSpec, selection: selection, view: viewMode.title)
-        }
-        chassis.rail.rowCount = entries.count
-        chassis.rail.selected = self.selection.rows
         header.sort = sortSpec
         header.showsSort = !isRelevanceOrder
         let n = self.selection.rows.count
@@ -915,7 +902,6 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     var shownCount: Int { layout.isGrouped ? layout.groups.reduce(0) { $0 + $1.items.count } : entries.count }
 
     @objc private func listScrolled(_ note: Notification) {
-        updateVisibleRange()
         // The scroll place is part of the session (written half a second after the last change).
         if !isLoading { sessionChanged() }
     }
@@ -988,7 +974,6 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
 
     @objc private func listResized(_ note: Notification) {
         fitColumns()
-        updateVisibleRange()
     }
 
     /// Name gets the list width the fixed columns leave, whatever the scroller style.
@@ -998,28 +983,16 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         let clip = chassis.pane.scrollView.contentView.bounds.width
         guard clip > 0 else { return }
         let others = tableView.tableColumns.filter { $0 !== name }.map { Double($0.width) }
-        let width = CGFloat(ColumnFit.nameWidth(clipWidth: Double(clip), otherWidths: others,
-                                                gap: Double(ListMetrics.columnGap), minimum: Double(Self.nameMinWidth)))
+        let width = CGFloat(ColumnFit.nameWidth(clipWidth: Double(clip), otherWidths: others, gap: Double(ListMetrics.columnGap),
+                                                trailing: Double(ListMetrics.gutterRight), minimum: Double(Self.nameMinWidth)))
         guard abs(name.width - width) >= 0.5 else { return }
         isFittingColumns = true
         name.width = width
         isFittingColumns = false
     }
 
-    private func updateVisibleRange() {
-        let clip = chassis.pane.scrollView.contentView
-        let total = max(1, tableView.frame.height)
-        chassis.rail.visibleRange = (Double(clip.bounds.minY / total), Double(clip.bounds.height / total))
-    }
-
-    private func jump(to fraction: Double) {
-        guard !entries.isEmpty else { return }
-        let row = min(entries.count - 1, Int(fraction * Double(entries.count)))
-        scrollToItem(row)
-    }
-
     @objc private func themeChanged(_ note: Notification) {
-        window?.backgroundColor = Palette.current.bg.ns
+        window?.backgroundColor = Palette.current.pane.ns
         if let content = window?.contentView { refreshTheme(in: content) }
         tableView.enumerateAvailableRowViews { rowView, _ in refreshTheme(in: rowView) }
         header.needsDisplay = true
@@ -1209,6 +1182,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         let view = tableView.makeView(withIdentifier: id, owner: self) as? FolioRowView
             ?? { let v = FolioRowView(); v.identifier = id; return v }()
         let item = layout.item(atRow: row)
+        view.item = item.flatMap { entries.indices.contains($0) ? FolioRowView.Item(name: entries[$0].name, isFolder: entries[$0].isFolder) : nil }
         view.isFocusRow = item != nil && item == selection.focus
         view.isDropTarget = item != nil && item == dropTargetRow
         return view
@@ -1354,7 +1328,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         if let windowWidth, let name = tableView.tableColumn(withIdentifier: NSUserInterfaceItemIdentifier(ColumnID.name.rawValue)) {
             let others = shown.filter { $0 != .name }.map { set.width(of: $0) }
             name.width = CGFloat(ColumnFit.nameWidth(clipWidth: Double(ChassisView.listWidth(windowWidth: windowWidth)), otherWidths: others,
-                                                     gap: Double(ListMetrics.columnGap), minimum: Double(Self.nameMinWidth)))
+                                                     gap: Double(ListMetrics.columnGap), trailing: Double(ListMetrics.gutterRight),
+                                                     minimum: Double(Self.nameMinWidth)))
         }
         fitColumns()
         header.needsDisplay = true

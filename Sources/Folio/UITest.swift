@@ -1,7 +1,7 @@
 import AppKit
 import FolioCore
 
-/// `Folio --uitest <folder|new> --shot <file> [--theme dark|light|system] [--accent green|amber|cyan]`
+/// `Folio --uitest <folder|new> --shot <file> [--theme dark|light|system] [--accent <hue 0-359>]`
 ///
 /// Runs inside the test VM only (docs/plan/RULES.md, rule 0). Opens one window off-screen on a test
 /// folder, waits for it to render, then from inside the app:
@@ -15,12 +15,13 @@ struct UITestConfig {
     var folder: URL
     var madeFixture: Bool
     var shotBase: String
-    var theme: ThemeChoice
-    var accent: AccentChoice
+    /// Forced for this run only (the app itself follows the Mac); nil is the system's.
+    var appearance: Appearance?
+    var hue: Int
     var defaults: UserDefaults
 
     static let usage = "usage: Folio --uitest <folder under /private/tmp/folio-tests/ | new> --shot <file.png> "
-        + "[--theme dark|light|system] [--accent green|amber|cyan]"
+        + "[--theme dark|light|system] [--accent <hue 0-359>]"
 
     /// nil when `--uitest` is absent. Exits with code 2 on bad arguments.
     static func parse(_ args: [String]) -> UITestConfig? {
@@ -35,15 +36,18 @@ struct UITestConfig {
         }
         guard args.indices.contains(flag + 1) else { fail("missing folder") }
         guard let shot = value("--shot") else { fail("missing --shot") }
-        var theme = ThemeChoice.dark
+        var appearance: Appearance? = .dark
         if let raw = value("--theme") {
-            guard let choice = ThemeChoice(rawValue: raw) else { fail("bad --theme \(raw)") }
-            theme = choice
+            switch raw {
+            case "system": appearance = nil
+            case "dark", "light": appearance = Appearance(rawValue: raw)
+            default: fail("bad --theme \(raw)")
+            }
         }
-        var accent = AccentChoice.green
+        var hue = Accent.defaultHue
         if let raw = value("--accent") {
-            guard let choice = AccentChoice(rawValue: raw) else { fail("bad --accent \(raw)") }
-            accent = choice
+            guard let n = Double(raw) else { fail("bad --accent \(raw)") }
+            hue = Accent.normalized(n)
         }
 
         var folder: URL
@@ -66,7 +70,7 @@ struct UITestConfig {
             fail("could not make a temp preferences store")
         }
         let base = shot.hasSuffix(".png") ? String(shot.dropLast(4)) : shot
-        return UITestConfig(folder: folder, madeFixture: made, shotBase: base, theme: theme, accent: accent, defaults: defaults)
+        return UITestConfig(folder: folder, madeFixture: made, shotBase: base, appearance: appearance, hue: hue, defaults: defaults)
     }
 }
 
@@ -87,8 +91,8 @@ enum UITestRunner {
         window.setFrameOrigin(NSPoint(x: -20000, y: -20000))
         window.orderFrontRegardless()
 
-        let fontsOK = Typeface.ui(13).familyName == "Archivo" && Typeface.mono(12).familyName == "Chivo Mono"
-        report("fonts: Archivo and Chivo Mono " + (fontsOK ? "registered" : "MISSING, system fallback in use"))
+        let fontsOK = Typeface.ui(13).familyName == "Geist" && Typeface.mono(12).familyName == "Geist Mono"
+        report("fonts: Geist and Geist Mono " + (fontsOK ? "registered" : "MISSING, system fallback in use"))
         if !fontsOK { problems.append("fonts") }
 
         guard await wait(timeout: 10, { c.isIdle }) else {
@@ -97,7 +101,7 @@ enum UITestRunner {
         }
         await settle(0.8)
         report("folder: \(config.folder.path), \(c.entries.count) rows, "
-               + "\(c.entries.filter(\.isFolder).count) folders, theme \(config.theme.rawValue), accent \(config.accent.rawValue)")
+               + "\(c.entries.filter(\.isFolder).count) folders, theme \(config.appearance?.rawValue ?? "system"), accent hue \(config.hue)")
         shot(window, config, "1-open", c, &problems)
 
         let before = c.sortSpec

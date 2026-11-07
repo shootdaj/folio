@@ -105,7 +105,7 @@ extension BrowserWindowController {
     }
 }
 
-/// Explorer's Extract Compressed (Zipped) Folders dialog as a D1 sheet: the destination with Browse...,
+/// Explorer's Extract Compressed (Zipped) Folders dialog as a D4 sheet: the destination with Browse...,
 /// Show extracted files when complete, Extract and Cancel.
 @MainActor
 final class ExtractSheetController: NSObject, NSTextFieldDelegate {
@@ -113,7 +113,7 @@ final class ExtractSheetController: NSObject, NSTextFieldDelegate {
     var onExtract: ((URL, Bool) -> Void)?
     private let sheet: ExtractSheet
     private let field: TagField
-    private let showCheck = D1Check("Show extracted files when complete")
+    private let showCheck = OSCheck("Show extracted files when complete")
     private weak var parent: NSWindow?
 
     init(archive: URL, destination: URL) {
@@ -125,9 +125,9 @@ final class ExtractSheetController: NSObject, NSTextFieldDelegate {
         sheet.backgroundColor = Palette.current.s2.ns
         let content = PropertiesContentView()
         sheet.contentView = content
-        let heading = LabelView("Select a Destination and Extract Files", font: Typeface.ui(16, weight: 750, width: 124), color: { $0.txt })
-        let sub = LabelView(archive.lastPathComponent, font: Typeface.mono(12), color: { $0.txt3 })
-        let label = LabelView("Files will be extracted to this folder:", font: Typeface.ui(13), color: { $0.txt2 })
+        let heading = LabelView("Select a Destination and Extract Files", font: Typeface.ui(16, weight: 750), color: { $0.text })
+        let sub = LabelView(archive.lastPathComponent, font: Typeface.mono(12), color: { $0.muted })
+        let label = LabelView("Files will be extracted to this folder:", font: Typeface.ui(13), color: { $0.text2 })
         heading.frame = NSRect(x: 28, y: 26, width: 520, height: 24)
         sub.frame = NSRect(x: 28, y: 52, width: 520, height: 18)
         label.frame = NSRect(x: 28, y: 92, width: 520, height: 20)
@@ -135,12 +135,12 @@ final class ExtractSheetController: NSObject, NSTextFieldDelegate {
         field.setAccessibilityLabel("Destination folder")
         field.target = self
         field.action = #selector(extractPressed(_:))
-        let browse = D1Button("Browse...", glyph: .newFolder) { [weak self] in self?.browse() }
+        let browse = OSButton("Browse...", glyph: .newFolder) { [weak self] in self?.browse() }
         browse.frame = NSRect(x: 440, y: 114, width: 112, height: 40)
         showCheck.isChecked = true
         showCheck.frame = NSRect(x: 28, y: 172, width: showCheck.fit(), height: 20)
-        let extract = D1Button("Extract", glyph: .check, style: .primary) { [weak self] in self?.extractPressed(nil) }
-        let cancel = D1Button("Cancel", glyph: .close) { [weak self] in self?.close() }
+        let extract = OSButton("Extract", glyph: .check, style: .primary) { [weak self] in self?.extractPressed(nil) }
+        let cancel = OSButton("Cancel", glyph: .close) { [weak self] in self?.close() }
         extract.frame = NSRect(x: 580 - 28 - 120, y: 300 - 24 - 40, width: 120, height: 40)
         cancel.frame = NSRect(x: extract.frame.minX - 8 - 112, y: extract.frame.minY, width: 112, height: 40)
         for v in [heading, sub, label, field, browse, showCheck, extract, cancel] as [NSView] { content.addSubview(v) }

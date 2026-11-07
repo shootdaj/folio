@@ -45,6 +45,7 @@ final class SearchBoxView: NSView, NSTextFieldDelegate, ThemeAware {
         field.drawsBackground = false
         field.focusRingType = .none
         field.font = Typeface.ui(13)
+        field.textColor = Palette.current.text.ns
         field.lineBreakMode = .byTruncatingTail
         field.cell?.isScrollable = true
         field.cell?.wraps = false
@@ -55,8 +56,7 @@ final class SearchBoxView: NSView, NSTextFieldDelegate, ThemeAware {
         }
         addSubview(field)
         clear.iconSize = 14
-        clear.hoverBrackets = false
-        clear.tone = { $0.txt2 }
+        clear.tone = { $0.muted }
         clear.target = self
         clear.action = #selector(clearPressed(_:))
         clear.isHidden = true
@@ -109,8 +109,8 @@ final class SearchBoxView: NSView, NSTextFieldDelegate, ThemeAware {
     private func placeholder() {
         let p = Palette.current
         field.placeholderAttributedString = NSAttributedString(string: "Search " + folderName,
-                                                               attributes: [.font: Typeface.ui(13), .foregroundColor: p.txt3.ns])
-        field.textColor = p.txt.ns
+                                                               attributes: [.font: Typeface.ui(13), .foregroundColor: p.muted.ns])
+        field.textColor = p.text.ns
     }
 
     func themeDidChange() {
@@ -122,7 +122,7 @@ final class SearchBoxView: NSView, NSTextFieldDelegate, ThemeAware {
         super.layout()
         let h = ceil((field.font?.ascender ?? 12) - (field.font?.descender ?? -4)) + 4
         let clearW: CGFloat = clear.isHidden ? 0 : 30
-        field.frame = NSRect(x: 38, y: (bounds.height - h) / 2, width: max(0, bounds.width - 38 - 8 - clearW), height: h)
+        field.frame = NSRect(x: 36, y: (bounds.height - h) / 2, width: max(0, bounds.width - 36 - 8 - clearW), height: h)
         clear.frame = NSRect(x: bounds.width - 6 - 28, y: (bounds.height - 28) / 2, width: 28, height: 28)
     }
 
@@ -138,11 +138,19 @@ final class SearchBoxView: NSView, NSTextFieldDelegate, ThemeAware {
     /// A click anywhere in the box focuses the field.
     override func mouseDown(with event: NSEvent) { focusAtEnd() }
 
+    /// D4's `.search`: the field box 3 pt in from top and bottom, --field with a line-2 hairline (outline on
+    /// hover) at radius 12; focused, an accent border with the 3 pt accent-soft halo. The magnifier is muted,
+    /// the accent once there is text.
     override func draw(_ dirtyRect: NSRect) {
         let p = Palette.current
-        fillRounded(bounds, radius: 5, p.s2)
-        strokeRounded(bounds, radius: 5, isEditing ? p.accent : (hovered ? p.line3 : p.line2))
-        Glyph.search.draw(in: NSRect(x: 12, y: bounds.midY - 9, width: 18, height: 18), color: (isEditing ? p.accent : p.txt2).ns)
+        let box = bounds.insetBy(dx: 0, dy: 3)
+        if isEditing {
+            withGlow(p.accent.withAlpha(0.18), blur: 24) { fillRounded(box.insetBy(dx: -3, dy: -3), radius: 15, p.accentSoft) }
+        }
+        fillRounded(box, radius: 12, p.field)
+        strokeRounded(box, radius: 12, isEditing ? p.accent : (hovered ? p.outline : p.line2))
+        let has = !field.stringValue.isEmpty
+        Glyph.search.draw(in: NSRect(x: 12, y: bounds.midY - 8, width: 16, height: 16), color: (has ? p.accent : p.muted).ns)
     }
 
     @objc private func clearPressed(_ sender: Any?) {
@@ -241,12 +249,14 @@ final class OptionChip: NSButton {
 
     override var isFlipped: Bool { true }
 
-    private var labelFont: NSFont { Typeface.ui(13) }
-    private var valueFont: NSFont { Typeface.mono(12) }
+    private var labelFont: NSFont { Typeface.ui(13, weight: 500) }
 
-    var fitWidth: CGFloat {
-        12 + 15 + 7 + textWidth(title, font: labelFont) + (value.map { 7 + textWidth($0, font: valueFont) } ?? 0) + 7 + 10 + 12
-    }
+    /// The chip's dot colour (D4: Date violet, Kind the accent, Size amber).
+    var hue: (Palette) -> RGBA = { $0.muted }
+
+    private var text: String { value.map { title + ": " + $0 } ?? title }
+
+    var fitWidth: CGFloat { 10 + 9 + 7 + textWidth(text, font: labelFont) + 11 }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -257,31 +267,27 @@ final class OptionChip: NSButton {
     override func mouseEntered(with event: NSEvent) { hovered = true; needsDisplay = true }
     override func mouseExited(with event: NSEvent) { hovered = false; needsDisplay = true }
 
+    /// D4's `.os-chip.chip`: s1 with a line-2 border at radius 10, a glowing 9 pt dot in the chip's hue and
+    /// the label in text-2; on (`aria-pressed`), the hue's border over a 14% tint, the label in text and
+    /// "Date modified: This week". Pressing shrinks it a little.
     override func draw(_ dirtyRect: NSRect) {
         let p = Palette.current
-        let r = bounds.insetBy(dx: 0.5, dy: 0.5)
+        let hue = self.hue(p)
         let on = value != nil
-        if on {
-            fillRounded(r, radius: 5, p.selectionFill)
-            strokeRounded(bounds, radius: 5, p.accent.withAlpha(0.6))
-        } else {
-            strokeRounded(bounds, radius: 5, p.line2)
+        let r = isHighlighted ? bounds.insetBy(dx: bounds.width * 0.02, dy: bounds.height * 0.02) : bounds
+        fillRounded(r, radius: 10, on ? hue.withAlpha(0.14).over(p.s1) : p.s1)
+        strokeRounded(r, radius: 10, on || (hovered && isEnabled) ? hue : p.line2)
+        let d: CGFloat = on ? 11 : 9
+        withGlow(hue.withAlpha(on ? 1 : 0.7), blur: on ? 14 : 10) {
+            fillRounded(NSRect(x: 10 + 4.5 - d / 2, y: bounds.midY - d / 2, width: d, height: d), radius: d / 2, hue)
         }
-        if isEnabled && (hovered || isHighlighted) { fillRounded(r, radius: 5, p.txt.withAlpha(isHighlighted ? 0.14 : 0.08)) }
-        var x: CGFloat = 12
-        let icon = NSRect(x: x, y: bounds.midY - 7.5, width: 15, height: 15)
-        if on { Glyph.check.draw(in: icon, color: p.accent.ns, lineWidth: 2) } else { glyph.draw(in: icon, color: p.txt2.ns) }
-        x += 15 + 7
-        x += drawLine(title, font: labelFont, color: isEnabled ? p.txt : p.txt3, x: x, midY: bounds.midY)
-        if let value {
-            x += 7
-            x += drawLine(value, font: valueFont, color: p.accent, x: x, midY: bounds.midY)
-        }
-        Glyph.chevronDown.draw(in: NSRect(x: bounds.width - 12 - 10, y: bounds.midY - 5, width: 10, height: 10), color: p.txt3.ns)
+        drawLine(text, font: labelFont, color: on || hovered ? p.text : (isEnabled ? p.text2 : p.muted), x: 10 + 9 + 7,
+                 midY: bounds.midY, maxWidth: bounds.width - 26 - 11)
     }
 }
 
-/// All subfolders / Current folder (`.seg2`): a pair of radio buttons sharing one border.
+/// All subfolders / Current folder (D4's `.seg`): a pair of radio buttons on one track; the chosen one sits
+/// on the thumb.
 final class ScopeButton: NSButton {
     var isOn = false { didSet { needsDisplay = true; setAccessibilityValue(isOn ? 1 : 0) } }
 
@@ -298,15 +304,19 @@ final class ScopeButton: NSButton {
 
     override var isFlipped: Bool { true }
 
-    var fitWidth: CGFloat { 12 + textWidth(title, font: Typeface.ui(13, weight: 600)) + 12 }
+    var fitWidth: CGFloat { 12 + textWidth(title, font: Typeface.ui(13, weight: 500)) + 12 }
 
     override func draw(_ dirtyRect: NSRect) {
         let p = Palette.current
-        if isOn { fillRect(bounds, p.selectionFill) }
-        if isHighlighted { fillRect(bounds, p.txt.withAlpha(0.1)) }
-        let font = Typeface.ui(13, weight: isOn ? 600 : 400)
+        if isOn {
+            // `.seg-t`: --thumb, an inset ring of the accent mixed into line-2, a soft accent glow.
+            withGlow(p.accent.withAlpha(0.22), blur: 16) { fillRounded(bounds, radius: 8, p.thumb) }
+            strokeRounded(bounds, radius: 8, p.accent.mixed(0.5, with: p.line2))
+        }
+        if isHighlighted { fillRounded(bounds, radius: 8, p.text.withAlpha(0.08)) }
+        let font = Typeface.ui(13, weight: 500)
         let w = textWidth(title, font: font)
-        drawLine(title, font: font, color: isOn ? p.accent : p.txt2, x: (bounds.width - w) / 2, midY: bounds.midY)
+        drawLine(title, font: font, color: isOn ? p.text : p.muted, x: (bounds.width - w) / 2, midY: bounds.midY)
     }
 }
 
@@ -332,10 +342,15 @@ final class SearchOptionsBar: NSView {
     var onChip: ((OptionChip) -> Void)?
     var onScope: ((Bool) -> Void)?
 
-    static let height: CGFloat = 50
+    static let height: CGFloat = 52
 
     override init(frame: NSRect) {
         super.init(frame: frame)
+        date.hue = { $0.hue(.violet) }
+        kind.hue = { $0.accent }
+        size.hue = { $0.hue(.amber) }
+        other.hue = { $0.hue(.teal) }
+        advanced.hue = { $0.muted }
         for chip in [date, kind, size, other, advanced] {
             chip.target = self
             chip.action = #selector(chipPressed(_:))
@@ -359,24 +374,25 @@ final class SearchOptionsBar: NSView {
     @objc private func chipPressed(_ sender: OptionChip) { onChip?(sender) }
     @objc private func scopePressed(_ sender: ScopeButton) { onScope?(sender === all) }
 
-    private var labelFont: NSFont { Typeface.ui(12, weight: 700, width: 116) }
-    private var labelW: CGFloat { textWidth("Search options", font: labelFont, kern: 0.36) }
+    private var labelFont: NSFont { Typeface.mono(12, weight: 600) }
+    private var labelW: CGFloat { textWidth("SEARCH OPTIONS", font: labelFont, kern: Typeface.labelKern(12)) }
 
-    /// D1's `.opts` wraps: chips flow left to right and onto a new 44 pt line when the row is full.
+    /// D4's `.opts` wraps: chips flow left to right (8 pt apart) and onto a new 44 pt line when the row is full.
     private func arrange(width: CGFloat) -> (frames: [NSRect], height: CGFloat) {
-        let first: CGFloat = 8 + 4 + labelW + 6 + 8
+        let first: CGFloat = 24 + labelW + 6 + 8
         var x = first, line = 0
         var frames: [NSRect] = []
-        let widths = [date, kind, size, other, advanced].map(\.fitWidth) + [all.fitWidth + 1 + current.fitWidth]
+        let widths = [date, kind, size, other, advanced].map(\.fitWidth) + [3 + all.fitWidth + current.fitWidth + 3]
         for (i, w) in widths.enumerated() {
             let gap: CGFloat = i == widths.count - 1 ? 4 : 0
-            if x + gap + w > width - 8, x > first || line > 0, x > 12 {
+            if x + gap + w > width - 24, x > first || line > 0, x > 24 {
                 line += 1
-                x = 12
+                x = 24
             } else {
                 x += gap
             }
-            frames.append(NSRect(x: x, y: 7 + CGFloat(line) * 44, width: w, height: 36))
+            let h: CGFloat = i == widths.count - 1 ? 40 : 34
+            frames.append(NSRect(x: x, y: (52 - h) / 2 + CGFloat(line) * 44, width: w, height: h))
             x += w + 8
         }
         return (frames, Self.height + CGFloat(line) * 44)
@@ -391,25 +407,26 @@ final class SearchOptionsBar: NSView {
         let frames = arrange(width: bounds.width).frames
         for (chip, f) in zip([date, kind, size, other, advanced], frames) { chip.frame = f }
         let seg = frames[5]
-        all.frame = NSRect(x: seg.minX, y: seg.minY + 1, width: all.fitWidth, height: 34)
-        current.frame = NSRect(x: all.frame.maxX + 1, y: seg.minY + 1, width: current.fitWidth, height: 34)
+        all.frame = NSRect(x: seg.minX + 3, y: seg.minY + 4, width: all.fitWidth, height: 32)
+        current.frame = NSRect(x: all.frame.maxX, y: seg.minY + 4, width: current.fitWidth, height: 32)
     }
 
     override func draw(_ dirtyRect: NSRect) {
         let p = Palette.current
-        fillRounded(bounds, radius: 4, p.s1)
-        strokeRounded(bounds, radius: 4, p.line)
-        drawLine("Search options", font: labelFont, color: p.txt2, x: 8 + 4, midY: 25, kern: 0.36)
-        let seg = all.frame.union(current.frame).insetBy(dx: -1, dy: -1)
-        strokeRounded(seg, radius: 5, p.line2)
-        fillRect(NSRect(x: all.frame.maxX, y: all.frame.minY, width: 1, height: all.frame.height), p.line2)
+        fillRect(bounds, p.headBg)
+        fillRect(NSRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1), p.line)
+        drawLine("SEARCH OPTIONS", font: labelFont, color: p.muted, x: 24, midY: 26, kern: Typeface.labelKern(12))
+        // `.seg`: the track, 3 pt around the two buttons, line-2 at radius 12.
+        let seg = all.frame.union(current.frame).insetBy(dx: -3, dy: -3)
+        fillRounded(seg, radius: 12, p.segBg)
+        strokeRounded(seg, radius: 12, p.line2)
     }
 }
 
 /// Under the results: "Search again in:" This PC and Home, Windows 7's links for a wider search.
 final class SearchFooterView: NSView {
-    let thisPC = D1Button("This PC", glyph: .pc, style: .ghost)
-    let home = D1Button("Home", glyph: .home, style: .ghost)
+    let thisPC = OSButton("This PC", glyph: .pc, style: .ghost)
+    let home = OSButton("Home", glyph: .home, style: .ghost)
     static let height: CGFloat = 40
 
     override init(frame: NSRect) {
@@ -438,7 +455,7 @@ final class SearchFooterView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         let p = Palette.current
         fillRect(NSRect(x: 0, y: 0, width: bounds.width, height: 1), p.line)
-        drawLine("Search again in:", font: font, color: p.txt2, x: 14, midY: bounds.midY)
+        drawLine("Search again in:", font: font, color: p.text2, x: 14, midY: bounds.midY)
     }
 }
 
@@ -468,6 +485,6 @@ final class SearchEmptyView: NSView {
         let p = Palette.current
         let font = Typeface.ui(14, weight: 500)
         let w = textWidth(text, font: font)
-        drawLine(text, font: font, color: p.txt2, x: (bounds.width - w) / 2, midY: bounds.midY)
+        drawLine(text, font: font, color: p.text2, x: (bounds.width - w) / 2, midY: bounds.midY)
     }
 }

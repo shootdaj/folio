@@ -98,13 +98,6 @@ enum MainMenu {
             item("Size All Columns to Fit", #selector(BrowserWindowController.sizeAllColumnsToFit(_:)), "="),
             item("Clear Filters", #selector(BrowserWindowController.clearAllFilters(_:))),
             .separator(),
-            submenu("Theme", ThemeChoice.allCases.map {
-                choice($0.title, #selector(AppDelegate.selectTheme(_:)), $0.rawValue)
-            }),
-            submenu("Accent", AccentChoice.allCases.map {
-                choice($0.title, #selector(AppDelegate.selectAccent(_:)), $0.rawValue)
-            }),
-            .separator(),
             submenu("Navigation Pane", [
                 item("Navigation Pane", #selector(BrowserWindowController.toggleNavigationPane(_:))),
                 item("Expand to Current Folder", #selector(BrowserWindowController.expandToCurrentFolder(_:)), "e", [.control, .shift]),

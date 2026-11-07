@@ -1,9 +1,9 @@
 import AppKit
 import FolioCore
 
-/// The one progress window for every copy and move (Explorer's consolidated dialog), drawn as D1's
-/// copy window (`.cw`, step 4): s2 panel, line-2 border, 14 pt accent corner brackets. Jobs stack in
-/// it, each a `JobPanelView`. Title "Progress", so scripts and VoiceOver can find it.
+/// The one progress window for every copy and move (Explorer's consolidated dialog), drawn as D4's copy
+/// tray: frosted cards (a conflict card above the copy card) on a clear window. Jobs stack in it, each a
+/// `JobPanelView`. Title "Progress", so scripts and VoiceOver can find it.
 @MainActor
 final class ProgressWindowController {
     private var window: ProgressPanel?
@@ -103,9 +103,9 @@ final class ProgressWindowController {
         for panel in panels {
             let h = panel.preferredHeight
             panel.frame = NSRect(x: 0, y: y, width: Self.width, height: h)
-            y += h
+            y += h + 10
         }
-        let height = max(1, y)
+        let height = max(1, y - 10)
         content.panelCount = panels.count
         guard let window else { return }
         let visible = (window.screen ?? NSScreen.main)?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
@@ -123,17 +123,12 @@ final class ProgressPanel: NSPanel {
     override var canBecomeKey: Bool { true }
 }
 
-/// The window's frame: s2 with a line-2 border, radius 4, and D1's corner brackets on top.
+/// The window's content: clear, the cards draw themselves.
 final class ProgressContentView: NSView {
     var panelCount = 0
-    private let overlay = Overlay()
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        wantsLayer = true
-        layer?.cornerRadius = 4
-        layer?.masksToBounds = true
-        addSubview(overlay)
         setAccessibilityRole(.group)
         setAccessibilityLabel("File operations")
     }
@@ -142,30 +137,14 @@ final class ProgressContentView: NSView {
 
     override var isFlipped: Bool { true }
 
-    override func layout() {
-        super.layout()
-        overlay.frame = bounds
-        addSubview(overlay, positioned: .above, relativeTo: nil)
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        fillRect(bounds, Palette.current.s2)
-    }
-
-    private final class Overlay: NSView {
-        override var isFlipped: Bool { true }
-        override func hitTest(_ point: NSPoint) -> NSView? { nil }
-        override func draw(_ dirtyRect: NSRect) {
-            let p = Palette.current
-            strokeRounded(bounds, radius: 4, p.line2)
-            drawBrackets(bounds, color: p.accent.ns, length: 14, width: 2)
-        }
-    }
+    override func draw(_ dirtyRect: NSRect) {}
 }
 
-/// One job, D1 step 4: header (light, "Copying N items", Hide), the ring, From and To, Speed, Time left
-/// and Items, the speed graph and bar, Pause and Cancel; under it the conflict card (existing and
-/// incoming with dates and sizes, Replace, Skip, Keep both, Compare) or a problem card.
+/// One job as D4's copy cards: on top, while one waits, the conflict card (`.cf`: an amber edge, "name is
+/// already in folder", the two copies side by side, Replace, Skip, Keep both, Compare) or a problem card;
+/// below, the copy card (`.cc`): badge, "Copying N items", the route, the state, Hide; From and To in a
+/// well; the glowing bar; done of total and the percentage; Speed with its sparkline, Time left, Items;
+/// the file in flight, Pause and Cancel.
 final class JobPanelView: NSView {
     let job: any ProgressJob
     var onHide: (() -> Void)?
@@ -185,27 +164,28 @@ final class JobPanelView: NSView {
 
     private let headLight = LedView(diameter: 9)
     private let cardLight = LedView(diameter: 7)
-    private let hideButton = D1Button("Hide", glyph: .minus, style: .ghost)
-    private let pauseButton = D1Button("Pause", glyph: .pause)
-    private let cancelButton = D1Button("Cancel", glyph: .close)
-    private let replaceButton = D1Button("Replace", glyph: .replace, style: .primary)
-    private let skipButton = D1Button("Skip", glyph: .skip)
-    private let keepButton = D1Button("Keep both", glyph: .both)
-    private let compareButton = D1Button("Compare", glyph: .compare)
-    private let applyAllCheck = D1Check("Do this for the next conflicts")
-    private let identicalCheck = D1Check("Skip files with the same date and size")
-    private let retryButton = D1Button("Try again", glyph: .refresh, style: .primary)
-    private let skipProblemButton = D1Button("Skip", glyph: .skip)
-    private let stopButton = D1Button("Cancel", glyph: .close)
+    private let hideButton = OSButton("Hide", glyph: .minus, style: .ghost)
+    private let pauseButton = OSButton("Pause", glyph: .pause)
+    private let cancelButton = OSButton("Cancel", glyph: .close)
+    private let replaceButton = OSButton("Replace", style: .primary)
+    private let skipButton = OSButton("Skip")
+    private let keepButton = OSButton("Keep both")
+    private let compareButton = OSButton("Compare", glyph: .compare)
+    private let applyAllCheck = OSCheck("Do this for the next conflicts")
+    private let identicalCheck = OSCheck("Skip files with the same date and size")
+    private let retryButton = OSButton("Try again", glyph: .refresh, style: .primary)
+    private let skipProblemButton = OSButton("Skip")
+    private let stopButton = OSButton("Cancel", glyph: .close)
     private let fromLink = LinkArea()
     private let toLink = LinkArea()
 
-    static let bodyH: CGFloat = 440
+    /// The copy card's height.
+    static let bodyH: CGFloat = 320
 
     init(job: any ProgressJob) {
         self.job = job
         super.init(frame: NSRect(x: 0, y: 0, width: ProgressWindowController.width, height: Self.bodyH))
-        for v in [headLight, cardLight] as [NSView] { addSubview(v) }
+        for v in [headLight, cardLight] as [NSView] { addSubview(v); v.isHidden = true }
         cardLight.tone = { $0.part }
         cardLight.blinking = true
         for b in [hideButton, pauseButton, cancelButton, replaceButton, skipButton, keepButton, compareButton,
@@ -254,14 +234,20 @@ final class JobPanelView: NSView {
     private var showsConflict: Bool { snap?.conflict != nil }
     private var showsProblem: Bool { snap?.problem != nil && snap?.conflict == nil }
     private var showsResolution: Bool { !showsConflict && !showsProblem && resolution != nil }
-    private var cardH: CGFloat { compare ? 81 : 55 }
+    /// A side of the conflict: label, file, facts; Compare adds its tags.
+    private var cardH: CGFloat { compare ? 96 : 72 }
 
-    var preferredHeight: CGFloat {
-        if showsConflict { return Self.bodyH + 14 + 18 + 12 + cardH + 12 + 40 + 12 + 20 + 18 }
-        if showsProblem { return Self.bodyH + 14 + 18 + 12 + 40 + 18 }
-        if showsResolution { return Self.bodyH + 14 + 18 + 18 }
-        return Self.bodyH
+    /// The card above the copy card (conflict, problem or what was decided), 0 when there is none.
+    private var topH: CGFloat {
+        if showsConflict { return 66 + cardH + 12 + 44 + 10 + 20 + 14 }
+        if showsProblem { return 66 + 44 + 14 }
+        if showsResolution { return 14 + 30 + 14 }
+        return 0
     }
+    /// Where the copy card starts.
+    private var bodyTop: CGFloat { topH > 0 ? topH + 10 : 0 }
+
+    var preferredHeight: CGFloat { bodyTop + Self.bodyH }
 
     /// Takes a new snapshot; true when the panel's height changed.
     func update(_ s: JobSnapshot, dt: Double) -> Bool {
@@ -371,39 +357,35 @@ final class JobPanelView: NSView {
     override func layout() {
         super.layout()
         let w = bounds.width
+        let y0 = bodyTop
         let hideW = hideButton.fit()
-        hideButton.frame = NSRect(x: w - 8 - hideW, y: 8, width: hideW, height: 36)
-        headLight.place(dotAt: NSPoint(x: 18, y: 26 - 4.5))
-        cancelButton.frame = NSRect(x: w - 18 - cancelButton.fit(minimum: 112), y: 384, width: cancelButton.fit(minimum: 112), height: 40)
-        pauseButton.frame = NSRect(x: cancelButton.frame.minX - 8 - 112, y: 384, width: 112, height: 40)
-        let colX: CGFloat = 208, colW = w - 208 - 18
-        let routeColW = (colW - 44) / 2
-        let top = routeTop
-        fromLink.frame = NSRect(x: colX, y: top, width: routeColW, height: 51)
-        toLink.frame = NSRect(x: colX + routeColW + 44, y: top, width: routeColW, height: 51)
+        hideButton.frame = NSRect(x: w - 12 - hideW, y: y0 + 14, width: hideW, height: 40)
+        let cancelW = cancelButton.fit(minimum: 104), pauseW = pauseButton.fit(minimum: 104)
+        cancelButton.frame = NSRect(x: w - 18 - cancelW, y: y0 + 262, width: cancelW, height: 44)
+        pauseButton.frame = NSRect(x: cancelButton.frame.minX - 8 - pauseW, y: y0 + 262, width: pauseW, height: 44)
+        let valueX: CGFloat = 18 + 12 + 54
+        fromLink.frame = NSRect(x: valueX, y: y0 + 66 + 8, width: w - 18 - 12 - valueX, height: 20)
+        toLink.frame = NSRect(x: valueX, y: y0 + 66 + 32, width: w - 18 - 12 - valueX, height: 20)
 
-        let cy = Self.bodyH + 14
-        cardLight.place(dotAt: NSPoint(x: 18, y: cy + 9 - 3.5))
-        var x: CGFloat = 18
-        let by = cy + 18 + 12 + cardH + 12
-        for b in [replaceButton, skipButton, keepButton, compareButton] {
+        var x: CGFloat = 20
+        let by = 66 + cardH + 12
+        for b in [replaceButton, skipButton, keepButton] {
             let bw = b.fit()
-            b.frame = NSRect(x: x, y: by, width: bw, height: 40)
+            b.frame = NSRect(x: x, y: by, width: bw, height: 44)
             x += bw + 8
         }
-        applyAllCheck.frame = NSRect(x: 18, y: by + 52, width: applyAllCheck.fit(), height: 20)
-        let ix = applyAllCheck.isHidden ? 18 : applyAllCheck.frame.maxX + 24
-        identicalCheck.frame = NSRect(x: ix, y: by + 52, width: identicalCheck.fit(), height: 20)
-        x = 18
-        let py = cy + 18 + 12
+        let cw = compareButton.fit()
+        compareButton.frame = NSRect(x: w - 18 - cw, y: by, width: cw, height: 44)
+        applyAllCheck.frame = NSRect(x: 20, y: by + 54, width: applyAllCheck.fit(), height: 20)
+        let ix = applyAllCheck.isHidden ? 20 : applyAllCheck.frame.maxX + 24
+        identicalCheck.frame = NSRect(x: ix, y: by + 54, width: identicalCheck.fit(), height: 20)
+        x = 20
         for b in [retryButton, skipProblemButton, stopButton] {
-            let bw = b.fit(minimum: 112)
-            b.frame = NSRect(x: x, y: py, width: bw, height: 40)
+            let bw = b.fit(minimum: 104)
+            b.frame = NSRect(x: x, y: 66, width: bw, height: 44)
             x += bw + 8
         }
     }
-
-    private var routeTop: CGFloat { 70 + ((168 - 113) / 2).rounded(.down) }
 
     // MARK: Drawing
 
@@ -422,188 +404,182 @@ final class JobPanelView: NSView {
         }
     }
 
+    /// `.cc-state`: COPYING in the accent, PAUSED amber, STOPPED coral, DONE green.
+    private func stateLabel(_ s: JobSnapshot) -> (String, RGBA) {
+        let p = Palette.current
+        switch s.state {
+        case .preparing, .running: return (JobWords.doing(s.kind).uppercased(), p.accent)
+        case .paused: return ("PAUSED", p.part)
+        case .waitingOnConflict, .waitingOnProblem: return ("WAITING", p.part)
+        case .done: return ("DONE", p.ok)
+        case .cancelled: return ("STOPPED", p.miss)
+        }
+    }
+
+    /// A frosted card: --tray over the bg, a line-2 hairline, radius 16.
+    private func card(_ r: NSRect, _ p: Palette) {
+        fillRounded(r, radius: 16, p.tray.over(p.bg))
+        strokeRounded(r, radius: 16, p.line2)
+    }
+
+    private func label(_ text: String, x: CGFloat, midY: CGFloat, color: RGBA? = nil, alignRight: Bool = false, _ p: Palette) {
+        drawLine(text.uppercased(), font: Typeface.mono(12, weight: 600), color: color ?? p.muted, x: x, midY: midY,
+                 alignRight: alignRight, kern: Typeface.labelKern(12))
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         guard let s = snap else { return }
         let p = Palette.current
-        let w = bounds.width
-        fillRect(NSRect(x: 0, y: 0, width: w, height: Self.bodyH), p.s2)
-        // Header.
-        fillRect(NSRect(x: 0, y: 0, width: w, height: 52), p.s1)
-        fillRect(NSRect(x: 0, y: 51, width: w, height: 1), p.line)
-        drawLine(title(s), font: Typeface.ui(16, weight: 750, width: 124), color: p.txt, x: 39, midY: 26,
-                 maxWidth: hideButton.frame.minX - 12 - 39)
-        drawRing(s, p)
-        drawRoute(s, p)
-        drawReads(s, p)
-        drawGraph(s, p)
-        // Left of Pause and Cancel: the file in flight and what is left.
-        var now = ""
-        if let name = s.currentName, !s.state.isFinished { now = name + ", " }
-        let itemsLeft = max(0, s.itemsTotal - s.itemsDone)
-        now += ByteText.grouped(itemsLeft) + (itemsLeft == 1 ? " item" : " items") + " left"
-        if s.skipped > 0 { now += ", \(s.skipped) skipped" }
-        drawLine(now, font: Typeface.mono(12), color: p.txt3, x: 18, midY: 404, maxWidth: pauseButton.frame.minX - 18 - 12)
         if showsConflict, let c = s.conflict { drawConflict(c, p) }
         if showsProblem, let problem = s.problem { drawProblem(problem, p) }
         if showsResolution, let resolution { drawResolution(resolution, p) }
+        drawCopyCard(s, p)
     }
 
     private var stateTone: (Palette) -> RGBA {
         switch snap?.state {
         case .cancelled: { $0.miss }
-        case .paused, .waitingOnConflict, .waitingOnProblem: { $0.part }
+        case .paused, .waitingOnConflict, .waitingOnProblem: { $0.muted }
+        case .done: { $0.ok }
         default: { $0.accent }
         }
     }
 
-    /// D1's ring: 60 ticks at r 75, the track at r 62, the progress arc with a head dot, cut into 40
-    /// segments by s2 dashes, and the percentage in the middle.
-    private func drawRing(_ s: JobSnapshot, _ p: Palette) {
-        let k: CGFloat = 168 / 160
-        let c = NSPoint(x: 18 + 84, y: 70 + 84)
-        let tone = stateTone(p)
-        func circle(_ r: CGFloat, from a0: CGFloat = -.pi / 2, sweep: CGFloat = 2 * .pi) -> NSBezierPath {
-            let path = NSBezierPath()
-            let steps = max(2, Int(abs(sweep) / (2 * .pi) * 180))
-            for i in 0...steps {
-                let a = a0 + sweep * CGFloat(i) / CGFloat(steps)
-                let pt = NSPoint(x: c.x + r * cos(a), y: c.y + r * sin(a))
-                if i == 0 { path.move(to: pt) } else { path.line(to: pt) }
-            }
-            return path
-        }
-        let ticks = circle(75 * k)
-        ticks.lineWidth = 5 * k
-        ticks.setLineDash([1.2 * k, 6.654 * k], count: 2, phase: 0)
-        p.line3.ns.setStroke()
-        ticks.stroke()
-        let track = circle(62 * k)
-        track.lineWidth = 10 * k
-        p.line2.ns.setStroke()
-        track.stroke()
-        let d = CGFloat(shown)
-        if d > 0 {
-            let arc = circle(62 * k, sweep: 2 * .pi * d)
-            arc.lineWidth = 10 * k
-            tone.ns.setStroke()
-            arc.stroke()
-        }
-        let cut = circle(62 * k)
-        cut.lineWidth = 12 * k
-        cut.setLineDash([1.6 * k, 8.139 * k], count: 2, phase: 0)
-        p.s2.ns.setStroke()
-        cut.stroke()
-        let a = -CGFloat.pi / 2 + 2 * .pi * d
-        let head = NSPoint(x: c.x + 62 * k * cos(a), y: c.y + 62 * k * sin(a))
-        let r: CGFloat = 4.5 * k
-        tone.ns.setFill()
-        NSBezierPath(ovalIn: NSRect(x: head.x - r, y: head.y - r, width: 2 * r, height: 2 * r)).fill()
-        let pct = s.state == .done ? 100 : Int((shown * 100).rounded(.down))
-        let pctFont = Typeface.ui(36, weight: 750, width: 125)
-        let pw = textWidth("\(pct)%", font: pctFont)
-        drawLine("\(pct)%", font: pctFont, color: p.txt, x: c.x - pw / 2, midY: c.y - 10)
-        let sub = JobWords.ring(s.kind)
-        let sw = textWidth(sub, font: Typeface.mono(12))
-        drawLine(sub, font: Typeface.mono(12), color: p.txt2, x: c.x - sw / 2, midY: c.y + 20)
-    }
-
-    private func drawRoute(_ s: JobSnapshot, _ p: Palette) {
-        let colX: CGFloat = 208, colW = bounds.width - 208 - 18
-        let top = routeTop
-        let cw = (colW - 44) / 2
-        // Both spelled as the title bar spells paths (/tmp, not /private/tmp).
+    private func drawCopyCard(_ s: JobSnapshot, _ p: Palette) {
+        let w = bounds.width
+        let y0 = bodyTop
+        card(NSRect(x: 0, y: y0, width: w, height: Self.bodyH), p)
+        // `.cc-h`: the badge, the title and route, the state, Hide.
+        let badge = NSRect(x: 18, y: y0 + 16, width: 36, height: 36)
+        withGlow(p.accent.withAlpha(0.25), blur: 18) { fillRounded(badge, radius: 8, p.accent.withAlpha(0.16)) }
+        strokeRounded(badge, radius: 8, p.accent.withAlpha(0.40))
+        let badgeGlyph: Glyph = s.kind == .move ? .arrow : .copy
+        badgeGlyph.draw(in: NSRect(x: badge.midX - 9, y: badge.midY - 9, width: 18, height: 18), color: p.accent.ns)
+        let (state, stateColor) = stateLabel(s)
+        let stateW = textWidth(state, font: Typeface.mono(12, weight: 600), kern: Typeface.labelKern(12))
+        let stateRight = hideButton.frame.minX - 12
+        label(state, x: stateRight, midY: y0 + 34, color: stateColor, alignRight: true, p)
+        let textX = badge.maxX + 12, room = stateRight - stateW - 16 - textX
+        drawLine(title(s), font: Typeface.ui(15, weight: 700), color: p.text, x: textX, midY: y0 + 25, maxWidth: room)
         let from = (s.sources.first?.deletingLastPathComponent() ?? s.destination).standardizedFileURL
-        for (i, (key, url)) in [("From", from), ("To", s.destination.standardizedFileURL)].enumerated() {
-            let x = colX + CGFloat(i) * (cw + 44)
-            drawLine(key, font: Typeface.ui(12, weight: 650, width: 116), color: p.txt2, x: x, midY: top + 6)
-            let name = url.path == "/" ? "/" : url.lastPathComponent
-            drawLine(name, font: Typeface.ui(14, weight: 700), color: p.txt, x: x, midY: top + 24, maxWidth: cw)
-            drawLine(url.path, font: Typeface.mono(12), color: p.txt3, x: x, midY: top + 43, maxWidth: cw)
+        let to = s.destination.standardizedFileURL
+        func short(_ u: URL) -> String { u.path == "/" ? "/" : u.pathComponents.suffix(2).joined(separator: "/") }
+        let small = Typeface.ui(12)
+        let fw = drawLine(from.lastPathComponent, font: small, color: p.muted, x: textX, midY: y0 + 43, maxWidth: room / 2)
+        Glyph.arrow.draw(in: NSRect(x: textX + fw + 6, y: y0 + 43 - 6.5, width: 13, height: 13), color: p.muted.ns)
+        drawLine(short(to), font: small, color: p.muted, x: textX + fw + 25, midY: y0 + 43, maxWidth: room - fw - 25)
+        // `.cc-paths`: From and To in a well.
+        let well = NSRect(x: 18, y: y0 + 66, width: w - 36, height: 62)
+        fillRounded(well, radius: 8, p.well.over(p.tray.over(p.bg)))
+        strokeRounded(well, radius: 8, p.line)
+        let valueX = well.minX + 12 + 54
+        label("From", x: well.minX + 12, midY: well.minY + 18, p)
+        drawLine(from.path, font: Typeface.mono(12), color: p.text2, x: valueX, midY: well.minY + 18, maxWidth: well.maxX - 12 - valueX)
+        label("To", x: well.minX + 12, midY: well.minY + 42, p)
+        drawLine(to.path, font: Typeface.mono(12), color: p.text2, x: valueX, midY: well.minY + 42, maxWidth: well.maxX - 12 - valueX)
+        // `.cc-bar`: 8 pt, the fill fading in from the left and glowing, a bright head.
+        let tone = stateTone(p)
+        let d = CGFloat(shown)
+        let bar = NSRect(x: 18, y: y0 + 146, width: w - 36, height: 8)
+        fillRounded(bar, radius: 4, p.s3)
+        if d > 0 {
+            let fill = NSRect(x: bar.minX, y: bar.minY, width: max(8, bar.width * d), height: bar.height)
+            withGlow(tone.withAlpha(0.55), blur: 14) {
+                if let g = NSGradient(starting: tone.withAlpha(0.45).ns, ending: tone.ns) {
+                    g.draw(in: NSBezierPath(roundedRect: fill, xRadius: 4, yRadius: 4), angle: 0)
+                }
+            }
+            if s.state == .running || s.state == .preparing {
+                let hx = fill.maxX, hy = bar.midY
+                withGlow(tone.withAlpha(0.55), blur: 16) {
+                    fillRounded(NSRect(x: hx - 5, y: hy - 5, width: 10, height: 10), radius: 5, tone.withAlpha(0.85))
+                }
+                fillRounded(NSRect(x: hx - 2, y: hy - 2, width: 4, height: 4), radius: 2, p.text)
+            }
         }
-        Glyph.arrow.draw(in: NSRect(x: colX + cw + 12, y: top + 15, width: 20, height: 20), color: p.accent.ns)
-        fillRect(NSRect(x: colX, y: top + 65, width: colW, height: 1), p.line)
+        // `.cc-meta`: done of total; the percentage in the accent.
+        let shownBytes = s.state == .done ? s.bytesTotal : Int64(Double(s.bytesTotal) * shown)
+        drawLine(ProgressText.bytesOf(shownBytes, s.bytesTotal), font: Typeface.mono(12, weight: 500), color: p.text, x: 18, midY: y0 + 170)
+        let pct = s.state == .done ? 100 : Int((shown * 100).rounded(.down))
+        drawLine("\(pct)%", font: Typeface.mono(13, weight: 500), color: tone, x: w - 18, midY: y0 + 170, alignRight: true)
+        drawStats(s, y: y0 + 184, p)
+        // `.cc-f`: the waiting conflict, or the file in flight and what is left; Pause and Cancel.
+        let noteY = y0 + 262 + 22, noteRoom = pauseButton.frame.minX - 18 - 12
+        if showsConflict {
+            withGlow(p.part, blur: 8) { fillRounded(NSRect(x: 18, y: noteY - 3.5, width: 7, height: 7), radius: 3.5, p.part) }
+            let n = s.conflictsLeft
+            drawLine(n == 1 ? "1 conflict is waiting for you" : "\(n) conflicts are waiting for you", font: small, color: p.muted,
+                     x: 31, midY: noteY, maxWidth: noteRoom - 13)
+        } else {
+            var now = ""
+            if let name = s.currentName, !s.state.isFinished { now = name + ", " }
+            let itemsLeft = max(0, s.itemsTotal - s.itemsDone)
+            now += ByteText.grouped(itemsLeft) + (itemsLeft == 1 ? " item" : " items") + " left"
+            if s.skipped > 0 { now += ", \(s.skipped) skipped" }
+            drawLine(now, font: small, color: p.muted, x: 18, midY: noteY, maxWidth: noteRoom)
+        }
     }
 
-    private func drawReads(_ s: JobSnapshot, _ p: Palette) {
-        let colX: CGFloat = 208, colW = bounds.width - 208 - 18
-        let y = routeTop + 80
-        let rw = (colW - 24) / 3
+    /// `.cc-stats`: Speed (with the sparkline), Time left and Items between two hairlines.
+    private func drawStats(_ s: JobSnapshot, y: CGFloat, _ p: Palette) {
+        let w = bounds.width
+        let x0: CGFloat = 18, total = w - 36, h: CGFloat = 66
+        fillRect(NSRect(x: x0, y: y, width: total, height: 1), p.line)
+        fillRect(NSRect(x: x0, y: y + h - 1, width: total, height: 1), p.line)
         let speed: String, left: String
         switch s.state {
         case .preparing: speed = "Counting"; left = "Counting"
         case .running:
             speed = ProgressText.speed(s.speed)
             left = s.secondsLeft.map(ProgressText.timeLeft) ?? "Working out"
-        case .paused: speed = "0 MB/s"; left = "Paused"
+        case .paused: speed = "Paused"; left = "Paused"
         case .waitingOnConflict, .waitingOnProblem: speed = "Idle"; left = "Waiting on you"
         case .done: speed = "Done"; left = "Done"
         case .cancelled: speed = "Stopped"; left = "Stopped"
         }
         let items = ByteText.grouped(s.itemsDone) + " of " + ByteText.grouped(s.itemsTotal)
+        let unit = total / 3.4
+        let widths = [unit * 1.7, unit, unit * 0.7]
+        var x = x0
         for (i, (key, value)) in [("Speed", speed), ("Time left", left), ("Items", items)].enumerated() {
-            let x = colX + CGFloat(i) * (rw + 12)
-            fillRect(NSRect(x: x, y: y, width: 2, height: 33), p.line2)
-            drawLine(key, font: Typeface.ui(12, weight: 650, width: 116), color: p.txt2, x: x + 10, midY: y + 6)
-            drawLine(value, font: Typeface.mono(15, weight: 600), color: p.txt, x: x + 10, midY: y + 26, maxWidth: rw - 10)
+            let pad: CGFloat = i == 0 ? 0 : 14
+            if i > 0 { fillRect(NSRect(x: x, y: y + 1, width: 1, height: h - 2), p.line) }
+            label(key, x: x + pad, midY: y + 22, p)
+            let valueFont = i == 1 ? Typeface.ui(14, weight: 600) : Typeface.mono(14, weight: 600)
+            let valueW = drawLine(value, font: valueFont, color: p.text, x: x + pad, midY: y + 44, maxWidth: widths[i] - pad - 8)
+            if i == 0 {
+                let sx = x + max(96, valueW + 16)
+                drawSparkline(NSRect(x: sx, y: y + 13, width: max(0, widths[0] - (sx - x) - 14), height: 40), s, p)
+            }
+            x += widths[i]
         }
     }
 
-    /// "Speed over the copy": the speed so far as an area and line against progress, a dashed line at
-    /// the current speed, the head at the current point, and the bar under it.
-    private func drawGraph(_ s: JobSnapshot, _ p: Palette) {
-        let box = NSRect(x: 18, y: 254, width: bounds.width - 36, height: 116)
-        fillRounded(box, radius: 3, p.s1)
-        strokeRounded(box, radius: 3, p.line)
-        drawLine(JobWords.graph(s.kind), font: Typeface.ui(12, weight: 650, width: 116),
-                 color: p.txt2, x: 30, midY: 270)
-        let shownBytes = s.state == .done ? s.bytesTotal : Int64(Double(s.bytesTotal) * shown)
-        drawLine(ProgressText.bytesOf(shownBytes, s.bytesTotal), font: Typeface.mono(12), color: p.txt,
-                 x: bounds.width - 30, midY: 270, alignRight: true)
-        let plot = NSRect(x: 30, y: 284, width: bounds.width - 60, height: 64)
-        var gy = plot.minY
-        while gy < plot.maxY { fillRect(NSRect(x: plot.minX, y: gy, width: plot.width, height: 1), p.line); gy += 16 }
-        let tone = stateTone(p)
-        let d = CGFloat(shown)
-        let cur = s.state == .running ? s.speed : 0
-        let mx = max(1, max(samples.map(\.v).max() ?? 0, cur)) * 1.18
-        func y(_ v: Double) -> CGFloat { plot.maxY - CGFloat(v / mx) * plot.height }
-        let pts = samples.filter { $0.f <= Double(d) + 1e-6 }
-        if let last = pts.last {
-            let line = NSBezierPath()
-            line.move(to: NSPoint(x: plot.minX + CGFloat(pts[0].f) * plot.width, y: y(pts[0].v)))
-            for pt in pts.dropFirst() { line.line(to: NSPoint(x: plot.minX + CGFloat(pt.f) * plot.width, y: y(pt.v))) }
-            line.line(to: NSPoint(x: plot.minX + d * plot.width, y: y(last.v)))
-            let area = line.copy() as! NSBezierPath
-            area.line(to: NSPoint(x: plot.minX + d * plot.width, y: plot.maxY))
-            area.line(to: NSPoint(x: plot.minX + CGFloat(pts[0].f) * plot.width, y: plot.maxY))
-            area.close()
-            tone.withAlpha(0.18).ns.setFill()
-            area.fill()
-            line.lineWidth = 1.5
-            tone.ns.setStroke()
-            line.stroke()
-            let hx = plot.minX + d * plot.width
-            fillRect(NSRect(x: hx, y: plot.minY, width: 1, height: plot.height), tone)
-            let hy = y(last.v)
-            if p.glows, let ctx = NSGraphicsContext.current?.cgContext {
-                ctx.saveGState()
-                ctx.setShadow(offset: .zero, blur: 9, color: tone.cg)
-                fillRounded(NSRect(x: hx - 3.5, y: hy - 3.5, width: 7, height: 7), radius: 3.5, tone)
-                ctx.restoreGState()
-            } else {
-                fillRounded(NSRect(x: hx - 3.5, y: hy - 3.5, width: 7, height: 7), radius: 3.5, tone)
-            }
+    /// `.spark`: the speed so far as a line with a fading area under it and a glowing dot at its end.
+    private func drawSparkline(_ r: NSRect, _ s: JobSnapshot, _ p: Palette) {
+        let pts = Array(samples.suffix(56))
+        guard pts.count > 1, r.width > 20 else { return }
+        let tone = s.state == .running ? p.accent : p.muted
+        let mx = max(1, pts.map(\.v).max() ?? 1) * 1.22
+        func point(_ i: Int) -> NSPoint {
+            NSPoint(x: r.minX + 3 + CGFloat(i) / CGFloat(pts.count - 1) * (r.width - 8),
+                    y: r.maxY - 4 - CGFloat(min(1, pts[i].v / mx)) * (r.height - 10))
         }
-        let now = NSBezierPath()
-        now.move(to: NSPoint(x: plot.minX, y: y(cur)))
-        now.line(to: NSPoint(x: plot.maxX, y: y(cur)))
-        now.lineWidth = 1
-        now.setLineDash([3, 4], count: 2, phase: 0)
-        p.txt3.ns.setStroke()
-        now.stroke()
-        let bar = NSRect(x: 30, y: 356, width: bounds.width - 60, height: 4)
-        fillRounded(bar, radius: 2, p.line2)
-        fillRounded(NSRect(x: bar.minX, y: bar.minY, width: bar.width * d, height: 4), radius: 2, tone)
+        let line = NSBezierPath()
+        line.move(to: point(0))
+        for i in 1..<pts.count { line.line(to: point(i)) }
+        let area = line.copy() as! NSBezierPath
+        area.line(to: NSPoint(x: point(pts.count - 1).x, y: r.maxY))
+        area.line(to: NSPoint(x: point(0).x, y: r.maxY))
+        area.close()
+        NSGradient(starting: tone.withAlpha(0.32).ns, ending: tone.withAlpha(0).ns)?.draw(in: area, angle: 90)
+        line.lineWidth = 1.6
+        line.lineJoinStyle = .round
+        line.lineCapStyle = .round
+        tone.ns.setStroke()
+        line.stroke()
+        let end = point(pts.count - 1)
+        withGlow(tone, blur: 4) { fillRounded(NSRect(x: end.x - 3, y: end.y - 3, width: 6, height: 6), radius: 3, tone) }
     }
 
     private static let dateFormatter: DateFormatter = {
@@ -619,27 +595,39 @@ final class JobPanelView: NSView {
         return date + ", " + ByteText.kilobytes(f.size ?? 0)
     }
 
-    /// D1's `.conf`: an amber-tinted strip, "name already exists in folder", two cards, the buttons.
+    /// The card above the copy card, with a glowing 3 pt edge in `edge` along its left side.
+    private func topCard(_ edge: RGBA, _ p: Palette) -> NSRect {
+        let r = NSRect(x: 0, y: 0, width: bounds.width, height: topH)
+        card(r, p)
+        NSGraphicsContext.saveGraphicsState()
+        NSBezierPath(roundedRect: r, xRadius: 16, yRadius: 16).addClip()
+        drawEdgeBar(NSRect(x: 0, y: 0, width: 3, height: r.height), color: edge)
+        NSGraphicsContext.restoreGraphicsState()
+        return r
+    }
+
+    /// `.cf`: "README.md is already in Backup/Code", the two copies side by side (the newer one tagged),
+    /// then Replace, Skip, Keep both and Compare.
     private func drawConflict(_ c: FileConflict, _ p: Palette) {
-        let top = Self.bodyH
-        let w = bounds.width
-        fillRect(NSRect(x: 0, y: top, width: w, height: preferredHeight - top), p.s2)
-        fillRect(NSRect(x: 0, y: top, width: w, height: preferredHeight - top), p.part.withAlpha(0.05))
-        fillRect(NSRect(x: 0, y: top, width: w, height: 1), p.line)
-        let hy = top + 14 + 9
-        let nameFont = Typeface.mono(13, weight: 700)
-        let nw = drawLine(c.incoming.name, font: nameFont, color: p.txt, x: 35, midY: hy, maxWidth: w / 2)
+        let r = topCard(p.part, p)
+        let w = r.width
         let folder = c.destination.deletingLastPathComponent().lastPathComponent
-        drawLine(" already exists in " + folder, font: Typeface.ui(14), color: p.txt, x: 35 + nw, midY: hy,
-                 maxWidth: w - 35 - nw - 18)
-        let cy = top + 14 + 18 + 12
-        let cw = (w - 36 - 10) / 2
+        let from = c.source.deletingLastPathComponent().lastPathComponent
+        withGlow(p.part.withAlpha(0.6), blur: 6) {
+            Glyph.alert.draw(in: NSRect(x: 20, y: 15, width: 20, height: 20), color: p.part.ns)
+        }
+        let left = snap?.conflictsLeft ?? 1
+        let count = left == 1 ? "1 conflict" : "\(left) conflicts"
+        label(count, x: w - 18, midY: 22, color: p.part, alignRight: true, p)
+        let countW = textWidth(count.uppercased(), font: Typeface.mono(12, weight: 600), kern: Typeface.labelKern(12))
+        drawLine(c.incoming.name + " is already in " + folder, font: Typeface.ui(14, weight: 700), color: p.text, x: 52, midY: 23,
+                 maxWidth: w - 52 - countW - 30)
+        drawLine("The copy keeps going while you decide.", font: Typeface.ui(12), color: p.muted, x: 52, midY: 41)
         let newer = c.incomingIsNewer
         let older = c.existing.modified.flatMap { e in c.incoming.modified.map { e.timeIntervalSince($0) > 1 } } ?? false
         let delta = c.sizeDelta
-        let from = c.source.deletingLastPathComponent().lastPathComponent
-        let sides: [(key: String, f: ItemFacts, tags: [String], accent: Bool, wins: Bool)] = [
-            ("In \(folder) now", c.existing,
+        let sides: [(key: String, f: ItemFacts, tags: [String], incoming: Bool, wins: Bool)] = [
+            ("In \(folder)", c.existing,
              [older ? "Newer" : newer ? "Older" : "Same date", delta < 0 ? "Larger" : delta > 0 ? "Smaller" : "Same size"],
              false, older || delta < 0),
             ("From \(from)", c.incoming,
@@ -647,51 +635,54 @@ final class JobPanelView: NSView {
               delta > 0 ? "Larger by " + ByteText.kilobytes(delta) : delta < 0 ? "Smaller" : "Same size"],
              true, newer || delta > 0),
         ]
+        let cw = (w - 38 - 8) / 2
         for (i, side) in sides.enumerated() {
-            let r = NSRect(x: 18 + CGFloat(i) * (cw + 10), y: cy, width: cw, height: cardH)
-            fillRounded(r, radius: 3, p.s1)
-            strokeRounded(r, radius: 3, compare && side.wins ? p.accent : p.line2)
-            let icon = NSRect(x: r.minX + 12, y: r.minY + 10 + 17 - 12, width: 24, height: 24)
-            if side.f.isFolder {
-                ItemIcon.drawFolder(in: icon.insetBy(dx: 0, dy: 2), palette: p, lit: false)
-            } else {
-                ItemIcon.drawFile(named: c.incoming.name, in: icon, palette: p)
+            let box = NSRect(x: 20 + CGFloat(i) * (cw + 8), y: 66, width: cw, height: cardH)
+            fillRounded(box, radius: 8, p.well.over(p.tray.over(p.bg)))
+            let border = side.incoming && newer ? p.ok.mixed(0.40, with: p.line) : (compare && side.wins ? p.accent : p.line)
+            strokeRounded(box, radius: 8, border)
+            label(side.key, x: box.minX + 12, midY: box.minY + 17, p)
+            let icon = NSRect(x: box.minX + 12, y: box.minY + 30, width: 16, height: 16)
+            ItemIcon.draw(name: c.incoming.name, isFolder: side.f.isFolder, in: icon, palette: p)
+            drawLine(c.incoming.name, font: Typeface.ui(13, weight: 600), color: p.text, x: icon.maxX + 8, midY: icon.midY,
+                     maxWidth: box.maxX - 12 - icon.maxX - 8)
+            let fw = drawLine(facts(side.f), font: Typeface.mono(12), color: p.text2, x: box.minX + 12, midY: box.minY + 58,
+                              maxWidth: box.width - 24 - (side.incoming && newer ? 70 : 0))
+            if side.incoming && newer {
+                // `.tag`: a green pill with its own light.
+                let tw = textWidth("Newer", font: Typeface.ui(12, weight: 600)) + 16 + 12
+                let tag = NSRect(x: box.minX + 12 + fw + 8, y: box.minY + 48, width: tw, height: 20)
+                fillRounded(tag, radius: 10, p.ok.withAlpha(0.13))
+                withGlow(p.ok, blur: 8) { fillRounded(NSRect(x: tag.minX + 8, y: tag.midY - 3, width: 6, height: 6), radius: 3, p.ok) }
+                drawLine("Newer", font: Typeface.ui(12, weight: 600), color: p.ok, x: tag.minX + 20, midY: tag.midY)
             }
-            let tx = r.minX + 12 + 24 + 12
-            drawLine(side.key, font: Typeface.ui(12, weight: 650, width: 116), color: p.txt2, x: tx, midY: r.minY + 17,
-                     maxWidth: r.maxX - 12 - tx)
-            drawLine(facts(side.f), font: Typeface.mono(12), color: p.txt, x: tx, midY: r.minY + 36, maxWidth: r.maxX - 12 - tx)
             guard compare else { continue }
-            var x = r.minX + 12
+            var x = box.minX + 12
             for tag in side.tags {
                 let tw = textWidth(tag, font: Typeface.mono(12, weight: 500)) + 16
-                let tr = NSRect(x: x, y: r.minY + 48, width: tw, height: 22)
-                fillRounded(tr, radius: 3, side.accent ? p.selectionFill : p.line)
-                drawLine(tag, font: Typeface.mono(12, weight: 500), color: side.accent ? p.accent : p.txt2,
-                         x: tr.minX + 8, midY: tr.midY)
+                let tr = NSRect(x: x, y: box.minY + 70, width: tw, height: 20)
+                fillRounded(tr, radius: 10, side.wins ? p.accentSoft : p.line)
+                drawLine(tag, font: Typeface.mono(12, weight: 500), color: side.wins ? p.text : p.text2, x: tr.minX + 8, midY: tr.midY)
                 x += tw + 6
             }
         }
     }
 
+    /// A problem: a coral edge, the item and the message, Try again, Skip, Cancel.
     private func drawProblem(_ problem: JobProblem, _ p: Palette) {
-        let top = Self.bodyH
-        let w = bounds.width
-        fillRect(NSRect(x: 0, y: top, width: w, height: preferredHeight - top), p.miss.withAlpha(0.05))
-        fillRect(NSRect(x: 0, y: top, width: w, height: 1), p.line)
-        let hy = top + 14 + 9
-        let nw = drawLine(problem.url.lastPathComponent, font: Typeface.mono(13, weight: 700), color: p.txt, x: 35, midY: hy,
-                          maxWidth: w / 2)
-        drawLine(": " + problem.message, font: Typeface.ui(14), color: p.txt, x: 35 + nw, midY: hy, maxWidth: w - 35 - nw - 18)
+        let r = topCard(p.miss, p)
+        withGlow(p.miss.withAlpha(0.6), blur: 6) {
+            Glyph.alert.draw(in: NSRect(x: 20, y: 15, width: 20, height: 20), color: p.miss.ns)
+        }
+        drawLine(problem.url.lastPathComponent, font: Typeface.ui(14, weight: 700), color: p.text, x: 52, midY: 23, maxWidth: r.width / 2)
+        drawLine(problem.message, font: Typeface.ui(12), color: p.muted, x: 52, midY: 41, maxWidth: r.width - 70)
     }
 
-    /// D1's `.conf.res`: a green light and what was decided.
+    /// `.cf-done`: a green tick and what was decided.
     private func drawResolution(_ text: String, _ p: Palette) {
-        let top = Self.bodyH
-        fillRect(NSRect(x: 0, y: top, width: bounds.width, height: 1), p.line)
-        let hy = top + 14 + 9
-        fillRounded(NSRect(x: 18, y: hy - 3.5, width: 7, height: 7), radius: 3.5, p.ok)
-        drawLine(text, font: Typeface.ui(14), color: p.txt, x: 35, midY: hy, maxWidth: bounds.width - 53)
+        let r = topCard(p.ok, p)
+        Glyph.check.draw(in: NSRect(x: 20, y: r.midY - 9, width: 18, height: 18), color: p.ok.ns)
+        drawLine(text, font: Typeface.ui(13), color: p.text2, x: 48, midY: r.midY, maxWidth: r.width - 66)
     }
 }
 

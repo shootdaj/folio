@@ -69,9 +69,9 @@ extension ColumnID {
     public var defaultWidth: Double {
         switch self {
         case .name: 320
-        case .modified, .created, .accessed, .added, .dateTaken: 150
-        case .kind: 132
-        case .size: 88
+        case .modified, .created, .accessed, .added, .dateTaken: 148
+        case .kind: 128
+        case .size: 76
         case .dimensions: 110
         case .duration, .bitRate, .ext: 84
         case .frameRate: 130

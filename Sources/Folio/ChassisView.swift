@@ -1,24 +1,20 @@
 import AppKit
 import FolioCore
 
-/// D1's window grid: title 44, tabs 36, toolbar 56, HUD 30, body, status 32. The body is the sidebar
-/// (248 pt unless resized from its right edge, hidden from View > Navigation pane), the list pane
-/// (8 pt margin top, left and bottom) or Home in its place, and the 34 pt tick strip.
+/// D4's window grid: the 44 pt title bar with the tabs, the 52 pt frosted toolbar, the body and the
+/// 28 pt status bar. The body is the sidebar of spotlight cards (248 pt unless resized from its right
+/// edge, hidden from View > Navigation pane) and the list edge to edge beside it, or Home in its place.
 final class ChassisView: NSView {
-    static let titleH: CGFloat = 44, tabH: CGFloat = 36, toolH: CGFloat = 56, hudH: CGFloat = 30, statusH: CGFloat = 32
-    static let sideW: CGFloat = 248, railW: CGFloat = 34, paneMargin: CGFloat = 8
+    static let titleH: CGFloat = 44, toolH: CGFloat = 52, statusH: CGFloat = 28
+    static let sideW: CGFloat = 248
     static let sideMin: CGFloat = 180, sideMax: CGFloat = 480
-    /// Space between the list's vertical scroller and the tick strip, so neither sits on the other.
-    static let railGutter: CGFloat = 14
 
     let titleBar: TitleBarView
     let tabStrip = TabStripView(frame: .zero)
     let toolbar: ToolbarView
-    let hud = HudView(frame: .zero)
     let sidebar = SidebarView(frame: .zero)
     let pane = ListPaneView(frame: .zero)
     let home = HomePaneView(frame: .zero)
-    let rail = TickStripView(frame: .zero)
     /// Option+P's Preview pane or Option+Shift+P's Details pane, right of the list.
     let sidePane = SidePaneView(frame: .zero)
     let status = StatusBarView(frame: .zero)
@@ -52,12 +48,11 @@ final class ChassisView: NSView {
             needsLayout = true
         }
     }
-    /// Home instead of the file list (the tick strip goes with the list).
+    /// Home instead of the file list.
     var showsHome = false {
         didSet {
             guard showsHome != oldValue else { return }
             pane.isHidden = showsHome
-            rail.isHidden = showsHome
             home.isHidden = !showsHome
             needsLayout = true
         }
@@ -73,7 +68,7 @@ final class ChassisView: NSView {
         sidePane.isHidden = true
         searchOptions.isHidden = true
         // The sidebar's scroll view comes first and the list's second (the VM scripts find them so).
-        for view in [sidebar, pane, home, rail, hud, toolbar, status, tabStrip, titleBar, handle, sidePane, searchOptions] as [NSView] { addSubview(view) }
+        for view in [sidebar, pane, home, toolbar, status, titleBar, tabStrip, handle, sidePane, searchOptions] as [NSView] { addSubview(view) }
         handle.onDrag = { [weak self] x in
             guard let self else { return }
             self.sideWidth = min(Self.sideMax, max(Self.sideMin, x))
@@ -87,18 +82,18 @@ final class ChassisView: NSView {
 
     /// Width the list's columns can fill for a window of this width.
     static func listWidth(windowWidth: CGFloat) -> CGFloat {
-        windowWidth - sideW - paneMargin - railGutter - railW - 2
+        windowWidth - sideW
     }
 
-    static var bodyTop: CGFloat { titleH + tabH + toolH + hudH }
+    static var bodyTop: CGFloat { titleH + toolH }
 
     override func layout() {
         super.layout()
         let w = bounds.width, h = bounds.height
         titleBar.frame = NSRect(x: 0, y: 0, width: w, height: Self.titleH)
-        tabStrip.frame = NSRect(x: 0, y: Self.titleH, width: w, height: Self.tabH)
-        toolbar.frame = NSRect(x: 0, y: Self.titleH + Self.tabH, width: w, height: Self.toolH)
-        hud.frame = NSRect(x: 0, y: Self.titleH + Self.tabH + Self.toolH, width: w, height: Self.hudH)
+        titleBar.layoutSubtreeIfNeeded()
+        tabStrip.frame = titleBar.tabsFrame
+        toolbar.frame = NSRect(x: 0, y: Self.titleH, width: w, height: Self.toolH)
         let top = Self.bodyTop
         let bodyH = max(0, h - top - statusHeight)
         let side = sidebarShown ? sideWidth : 0
@@ -106,27 +101,22 @@ final class ChassisView: NSView {
         handle.isHidden = !sidebarShown
         sidebar.frame = NSRect(x: 0, y: top, width: side, height: bodyH)
         handle.frame = NSRect(x: side - 3, y: top, width: 6, height: bodyH)
-        rail.frame = NSRect(x: w - Self.railW, y: top, width: Self.railW, height: bodyH)
-        // The right-hand pane sits between the list and the tick strip, never narrower than the list allows.
+        // The right-hand pane takes its width from the list, never more than half of what is left.
         let showsSide = sidePaneKind != .none && !showsHome
         let sideW = showsSide ? min(SidePaneView.width, max(0, (w - side) / 2 - 40)) : 0
         sidePane.isHidden = !showsSide
-        let paneW = max(0, w - side - Self.paneMargin - Self.railGutter - Self.railW - (showsSide ? sideW + Self.paneMargin : 0))
-        // D1's `.opts` row sits over the results: 8 pt in, 50 pt high, the pane 8 pt below it.
-        let optsH = searchOptions.preferredHeight(width: paneW)
-        let opts = showsSearchOptions && !showsHome ? optsH + Self.paneMargin : 0
-        searchOptions.frame = NSRect(x: side + Self.paneMargin, y: top + Self.paneMargin, width: paneW, height: optsH)
-        pane.frame = NSRect(x: side + Self.paneMargin, y: top + Self.paneMargin + opts, width: paneW,
-                            height: max(0, bodyH - 2 * Self.paneMargin - opts))
-        sidePane.frame = NSRect(x: pane.frame.maxX + Self.paneMargin, y: top + Self.paneMargin, width: sideW,
-                                height: max(0, bodyH - 2 * Self.paneMargin))
-        home.frame = NSRect(x: side + Self.paneMargin, y: top + Self.paneMargin,
-                            width: max(0, w - side - 2 * Self.paneMargin), height: max(0, bodyH - 2 * Self.paneMargin))
+        let mainW = max(0, w - side - sideW)
+        // D4's `.opts` row heads the results, the list right under it.
+        let optsH = showsSearchOptions && !showsHome ? searchOptions.preferredHeight(width: mainW) : 0
+        searchOptions.frame = NSRect(x: side, y: top, width: mainW, height: optsH)
+        pane.frame = NSRect(x: side, y: top + optsH, width: mainW, height: max(0, bodyH - optsH))
+        sidePane.frame = NSRect(x: side + mainW, y: top, width: sideW, height: bodyH)
+        home.frame = NSRect(x: side, y: top, width: max(0, w - side), height: bodyH)
         status.frame = NSRect(x: 0, y: h - Self.statusH, width: w, height: Self.statusH)
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        fillRect(bounds, Palette.current.bg)
+        fillRect(bounds, Palette.current.pane)
     }
 
     override func viewDidChangeEffectiveAppearance() {

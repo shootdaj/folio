@@ -232,7 +232,8 @@ sleep 1
 pkill -x Folio 2>/dev/null
 defaults delete com.anshul.folio addressHistory >/dev/null 2>&1
 defaults delete com.anshul.folio itemCheckBoxes >/dev/null 2>&1
-defaults write com.anshul.folio theme dark
+# Folio follows the Mac's light or dark setting (it has no theme of its own): the shots are in dark.
+osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true' >/dev/null 2>&1
 osascript >/dev/null 2>&1 <<'OSA'
 tell application "System Events" to tell process "NotificationCenter"
     repeat 5 times
