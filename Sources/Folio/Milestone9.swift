@@ -61,21 +61,12 @@ enum SystemSettings {
     }
 }
 
-/// The Dock icon follows the Mac's light or dark setting (Folio.icns in the bundle is the dark one).
+/// The Dock icon: the same picture as Folio.icns, set at launch so a build run outside the bundle has it too.
+/// It is one picture for light and dark, as the system's own icons are.
 @MainActor
 enum DockIcon {
-    static var systemIsDark: Bool { UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark" }
-
     static func start() {
-        update()
-        DistributedNotificationCenter.default().addObserver(
-            forName: Notification.Name("AppleInterfaceThemeChangedNotification"), object: nil, queue: .main) { _ in
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { MainActor.assumeIsolated { update() } }
-        }
-    }
-
-    static func update() {
-        guard let image = AppIcon.render(pixels: 512, appearance: systemIsDark ? .dark : .light) else { return }
+        guard let image = AppIcon.render(pixels: 512) else { return }
         NSApp.applicationIconImage = NSImage(cgImage: image, size: NSSize(width: 512, height: 512))
     }
 }
