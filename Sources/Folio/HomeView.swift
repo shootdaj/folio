@@ -208,9 +208,8 @@ final class HomeView: NSView {
         for (i, hit) in hits.enumerated() {
             let hot = hovered == i
             switch hit.target {
-            case .header(let s):
-                _ = s
-                _ = hot
+            case .header:
+                break
             case .item(let url, let isFolder, let label):
                 if hit.rect.height == Self.tileH {
                     drawTile(url, label: label, in: hit.rect, hot: hot, p)

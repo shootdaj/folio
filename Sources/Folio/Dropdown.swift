@@ -375,14 +375,14 @@ final class DropdownRowsView: NSView {
         let dir = String(row.text[..<slash]), leaf = String(row.text[slash...])
         let dirBold = min(row.boldLength, dir.count)
         let leafBold = max(0, min(row.boldLength - dir.count, leaf.count))
+        // `.ta-row`: the directory muted, the typed part of the name bold in the text colour, the rest text-2.
         let strong: [NSAttributedString.Key: Any] = [.font: Typeface.mono(13, weight: 700), .foregroundColor: p.text.ns]
         let plain: [NSAttributedString.Key: Any] = [.font: Typeface.mono(13), .foregroundColor: (hi ? p.text : p.text2).ns]
-        func styled(_ s: String, bold: Int) -> NSAttributedString {
-            let out = NSMutableAttributedString(string: String(s.prefix(bold)), attributes: strong)
-            out.append(NSAttributedString(string: String(s.dropFirst(bold)), attributes: plain))
-            return out
-        }
-        let dirText = styled(dir, bold: dirBold), leafText = styled(leaf, bold: leafBold)
+        let dim: [NSAttributedString.Key: Any] = [.font: Typeface.mono(13), .foregroundColor: p.muted.ns]
+        _ = dirBold
+        let dirText = NSAttributedString(string: dir, attributes: dim)
+        let leafText = NSMutableAttributedString(string: String(leaf.prefix(leafBold)), attributes: strong)
+        leafText.append(NSAttributedString(string: String(leaf.dropFirst(leafBold)), attributes: plain))
         let leafW = min(ceil(leafText.size().width), room)
         let dirW = max(0, min(ceil(dirText.size().width), room - leafW))
         let font = Typeface.mono(13)

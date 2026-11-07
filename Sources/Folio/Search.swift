@@ -297,7 +297,6 @@ extension BrowserWindowController {
         guard let s = history.search else { return }
         let title = searchTitle
         window?.title = title
-        _ = s
         toolbar.address.searchTitle = title
         toolbar.address.searchDone = searchFinished
         toolbar.address.searchProgress = searchDisplayProgress

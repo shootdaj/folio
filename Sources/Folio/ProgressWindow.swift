@@ -167,14 +167,14 @@ final class JobPanelView: NSView {
     private let hideButton = OSButton("Hide", glyph: .minus, style: .ghost)
     private let pauseButton = OSButton("Pause", glyph: .pause)
     private let cancelButton = OSButton("Cancel", glyph: .close)
-    private let replaceButton = OSButton("Replace", glyph: .replace, style: .primary)
-    private let skipButton = OSButton("Skip", glyph: .skip)
-    private let keepButton = OSButton("Keep both", glyph: .both)
+    private let replaceButton = OSButton("Replace", style: .primary)
+    private let skipButton = OSButton("Skip")
+    private let keepButton = OSButton("Keep both")
     private let compareButton = OSButton("Compare", glyph: .compare)
     private let applyAllCheck = OSCheck("Do this for the next conflicts")
     private let identicalCheck = OSCheck("Skip files with the same date and size")
     private let retryButton = OSButton("Try again", glyph: .refresh, style: .primary)
-    private let skipProblemButton = OSButton("Skip", glyph: .skip)
+    private let skipProblemButton = OSButton("Skip")
     private let stopButton = OSButton("Cancel", glyph: .close)
     private let fromLink = LinkArea()
     private let toLink = LinkArea()
@@ -674,9 +674,8 @@ final class JobPanelView: NSView {
         withGlow(p.miss.withAlpha(0.6), blur: 6) {
             Glyph.alert.draw(in: NSRect(x: 20, y: 15, width: 20, height: 20), color: p.miss.ns)
         }
-        let nw = drawLine(problem.url.lastPathComponent, font: Typeface.ui(14, weight: 700), color: p.text, x: 52, midY: 23, maxWidth: r.width / 2)
+        drawLine(problem.url.lastPathComponent, font: Typeface.ui(14, weight: 700), color: p.text, x: 52, midY: 23, maxWidth: r.width / 2)
         drawLine(problem.message, font: Typeface.ui(12), color: p.muted, x: 52, midY: 41, maxWidth: r.width - 70)
-        _ = nw
     }
 
     /// `.cf-done`: a green tick and what was decided.
