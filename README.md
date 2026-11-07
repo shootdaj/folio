@@ -1,10 +1,14 @@
 # Folio
 
+[![CI](https://github.com/shootdaj/folio/actions/workflows/ci.yml/badge.svg)](https://github.com/shootdaj/folio/actions/workflows/ci.yml)
+
 A native macOS file manager that behaves like Windows Explorer. Swift 6 + AppKit, built with the free
 Command Line Tools, no Xcode, no Apple developer account. The look is the D1 control room
 (docs/design/d1-control-room.html), dark and light, with a green, amber or cyan accent.
 
-Install it on a Mac: [docs/INSTALL.md](docs/INSTALL.md). Every key: [docs/KEYS.md](docs/KEYS.md).
+Install it on a Mac: download the zip from [Releases](https://github.com/shootdaj/folio/releases), or see
+[docs/INSTALL.md](docs/INSTALL.md). Every key: [docs/KEYS.md](docs/KEYS.md). What changed:
+[CHANGELOG.md](CHANGELOG.md).
 
 ## The golden rule for development
 
@@ -18,6 +22,35 @@ target. Tests first (swift-testing), then code, then proof in docs/proof/.
 make test     # swift test: FolioCore and FolioLink, temp folders only
 make app      # build/Folio.app (runs nothing but folio-icon, which draws the Dock icon)
 ```
+
+## CI and releases
+
+CI runs on a self-hosted GitHub Actions runner on the Mac Ultra (`macultra-folio`, labels `ultra`,
+`folio-vm`), for every pull request and every push to main:
+
+```
+build:     tools/ci/build.sh   script checks, make test, make app, Signature=adhoc, version read from Info.plist
+              │                 artifact Folio-app (Folio-<version>.zip and ff)
+              ▼
+vm-tests:  tools/ci/vm-tests.sh  stage the build into the VM, run Tests/vm/m2.sh to m9.sh there, all "result: ok"
+                                 artifact vm-shots (the PNGs and each script's log)
+```
+
+Both scripts run by hand on the Ultra too. The version comes from git tags only: `make app` stamps
+`git describe --tags --always --dirty` (1.2.3 on the tag v1.2.3, 1.2.3-4-gabc1234 after it, 0.0.0-abc1234
+with no tag), and `Folio --version` prints `Folio <version> (<commit>)`.
+
+Cutting a release:
+
+1. In CHANGELOG.md, move what is under Unreleased into a new `## [X.Y.Z] - <date>` section (and update the
+   links at the bottom). Merge that.
+2. Tag main and push the tag:
+   ```sh
+   git tag vX.Y.Z && git push --tags
+   ```
+3. The release workflow builds on the Ultra and publishes `Folio-X.Y.Z.zip` on the
+   [Releases](https://github.com/shootdaj/folio/releases) page with that section as the notes (a
+   pre-release while the version is below 1.0.0).
 
 ## What it does, milestone by milestone
 
