@@ -35,7 +35,7 @@ extension BrowserWindowController {
 
     private func styled(_ title: String) -> NSMenu {
         let menu = NSMenu(title: title)
-        menu.font = Typeface.mono(13)
+        menu.font = Typeface.menu()
         menu.autoenablesItems = true
         return menu
     }

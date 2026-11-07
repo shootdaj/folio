@@ -1127,7 +1127,7 @@ final class SideRowView: NSTableRowView {
     private func drawHeader(_ s: SideNode.Section, hovered: Bool, focused: Bool, collapsed: Bool, _ p: ThemeColors) {
         let r = NSRect(x: inner.minX, y: NavigationPane.cardGap, width: inner.width, height: NavigationPane.labelH)
         let mid = r.midY
-        let title = (node?.title ?? "").uppercased()
+        let title = Typeface.caption(node?.title ?? "")
         let font = Typeface.mono(12, weight: 600)
         let tw = drawLine(title, font: font, color: hovered ? p.text2 : p.muted, x: r.minX + 14, midY: mid, kern: Typeface.labelKern(12))
         if let count = pane?.headerCount(s) {
@@ -1294,7 +1294,7 @@ enum DetailsCardDrawing {
         drawLine(card.subtitle, font: Typeface.ui(12), color: p.muted, x: icon.maxX + 12, midY: icon.midY + 9, maxWidth: w - 46)
         var y = icon.maxY + 12
         for f in card.fields {
-            drawLine(f.key.uppercased(), font: keyFont, color: p.muted, x: x, midY: y + 8.5, kern: Typeface.labelKern(12))
+            drawLine(Typeface.caption(f.key), font: keyFont, color: p.muted, x: x, midY: y + 8.5, kern: Typeface.labelKern(12))
             y += 17 + 3
             let h = textHeight(f.value, font: valueFont, width: w)
             draw(f.value, font: valueFont, color: p.text2, in: NSRect(x: x, y: y, width: w, height: h))

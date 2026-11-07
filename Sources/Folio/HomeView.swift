@@ -189,7 +189,7 @@ final class HomeView: NSView {
             fillRounded(r, radius: 12, p.s1)
             strokeRounded(r, radius: 12, p.line)
             let mid = r.minY + 1 + Self.headerH / 2
-            let tw = drawLine(s.title.uppercased(), font: Typeface.mono(12, weight: 600), color: p.muted, x: r.minX + 14, midY: mid,
+            let tw = drawLine(Typeface.caption(s.title), font: Typeface.mono(12, weight: 600), color: p.muted, x: r.minX + 14, midY: mid,
                               kern: Typeface.labelKern(12))
             drawLine("\(items(s).count)", font: Typeface.mono(12, weight: 500), color: p.muted, x: r.minX + 14 + tw + 6, midY: mid)
             Glyph.chevronDown.draw(in: NSRect(x: r.maxX - 10 - 16, y: mid - 8, width: 16, height: 16), color: p.muted.ns,

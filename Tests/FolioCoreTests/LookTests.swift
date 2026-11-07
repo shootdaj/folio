@@ -60,3 +60,33 @@ import Testing
         #expect(!LookTheme.native.showsAccentSwatch)
     }
 }
+
+/// The look's type: D4 writes its labels in uppercase mono with tracking; Native keeps the words as
+/// written in SF Pro, untracked (docs/design/native.md, Type).
+@Suite struct LookTypeTests {
+    @Test func obsidianLabelsAreUppercaseAndTracked() {
+        #expect(LookTheme.obsidian.caption("Date modified") == "DATE MODIFIED")
+        #expect(LookTheme.obsidian.labelKern(12) == 12 * 0.12)
+        #expect(LookTheme.obsidian.headKern(12) == 12 * 0.08)
+    }
+
+    @Test func nativeLabelsKeepTheirCaseUntracked() {
+        #expect(LookTheme.native.caption("Date modified") == "Date modified")
+        #expect(LookTheme.native.labelKern(12) == 0)
+        #expect(LookTheme.native.headKern(12) == 0)
+    }
+
+    @Test func onlyNativeUsesTheSystemFont() {
+        #expect(LookTheme.native.usesSystemFont)
+        #expect(!LookTheme.obsidian.usesSystemFont)
+    }
+
+    @Test func cssWeightsMapToSystemWeights() {
+        #expect(SystemWeight(css: 400) == .regular)
+        #expect(SystemWeight(css: 500) == .regular)
+        #expect(SystemWeight(css: 600) == .semibold)
+        #expect(SystemWeight(css: 650) == .semibold)
+        #expect(SystemWeight(css: 700) == .bold)
+        #expect(SystemWeight(css: 800) == .bold)
+    }
+}

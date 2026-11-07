@@ -210,7 +210,7 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
 
     private func customize(_ info: ItemInfo) -> [PropertySheet.Line] {
         let popup = NSPopUpButton(frame: .zero, pullsDown: false)
-        popup.font = Typeface.mono(13)
+        popup.font = Typeface.menu()
         for preset in ColumnPreset.allCases {
             popup.addItem(withTitle: preset.title)
             popup.lastItem?.representedObject = preset.rawValue
@@ -467,7 +467,7 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
     private func openWith(_ info: ItemInfo) -> [PropertySheet.Line] {
         let apps = OpenWith.apps(for: info.url)
         let popup = NSPopUpButton(frame: .zero, pullsDown: false)
-        popup.font = Typeface.mono(13)
+        popup.font = Typeface.menu()
         for app in apps {
             popup.addItem(withTitle: app.name)
             let icon = NSWorkspace.shared.icon(forFile: app.url.path)
@@ -819,7 +819,7 @@ final class PropertySheet: NSView {
                 continue
             }
             let top = line.wraps ? r.minY + 14 : r.midY
-            drawLine(line.key.uppercased(), font: Typeface.mono(11, weight: 600), color: p.muted, x: Self.keyX, midY: top,
+            drawLine(Typeface.caption(line.key), font: Typeface.mono(11, weight: 600), color: p.muted, x: Self.keyX, midY: top,
                      maxWidth: Self.valueX - Self.keyX - 10, kern: Typeface.labelKern(11))
             guard !line.value.isEmpty else { continue }
             let font = line.mono ? Typeface.mono(12) : Typeface.ui(13)

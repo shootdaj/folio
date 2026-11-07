@@ -236,7 +236,7 @@ final class SidePaneView: NSView, NSTextFieldDelegate {
                  midY: ty + 20, maxWidth: bounds.width - 28)
         if entry != nil {
             for field in [tags, comments] where !field.isHidden {
-                drawLine(field.label.uppercased(), font: Typeface.ui(11, weight: 650), color: p.text2, x: 14,
+                drawLine(Typeface.caption(field.label), font: Typeface.ui(11, weight: 650), color: p.text2, x: 14,
                          midY: field.frame.minY - 9, kern: 0.5)
             }
             fillRect(NSRect(x: 14, y: detailsTop - 8, width: bounds.width - 28, height: 1), p.line)

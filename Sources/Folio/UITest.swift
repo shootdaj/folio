@@ -99,8 +99,19 @@ enum UITestRunner {
         window.setFrameOrigin(NSPoint(x: -20000, y: -20000))
         window.orderFrontRegardless()
 
-        let fontsOK = Typeface.ui(13).familyName == "Geist" && Typeface.mono(12).familyName == "Geist Mono"
-        report("fonts: Geist and Geist Mono " + (fontsOK ? "registered" : "MISSING, system fallback in use"))
+        // Geist ships in the bundle for D4 either way; Native draws in the system font (SF Pro).
+        let geist = NSFontManager.shared.availableMembers(ofFontFamily: "Geist") != nil
+            && NSFontManager.shared.availableMembers(ofFontFamily: "Geist Mono") != nil
+        let fontsOK: Bool
+        switch config.look {
+        case .obsidian:
+            fontsOK = Typeface.ui(13).familyName == "Geist" && Typeface.mono(12).familyName == "Geist Mono"
+            report("fonts: Geist and Geist Mono " + (fontsOK ? "registered" : "MISSING, system fallback in use"))
+        case .native:
+            let system = NSFont.systemFont(ofSize: 13).familyName
+            fontsOK = geist && Typeface.ui(13).familyName == system
+            report("fonts: Native in \(Typeface.ui(13).familyName ?? "?"), Geist " + (geist ? "registered" : "MISSING"))
+        }
         if !fontsOK { problems.append("fonts") }
 
         guard await wait(timeout: 10, { c.isIdle }) else {

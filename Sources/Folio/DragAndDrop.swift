@@ -382,7 +382,7 @@ extension BrowserWindowController: NSDraggingSource, DropHost {
         guard let content = window?.contentView else { return }
         let menu = NSMenu(title: "Drop")
         menu.autoenablesItems = false
-        menu.font = Typeface.mono(13)
+        menu.font = Typeface.menu()
         let choices: [(String, DropAction)] = [("Move here", .move), ("Copy here", .copy), ("Create alias here", .alias)]
         for (title, action) in choices {
             let item = NSMenuItem(title: title, action: #selector(dropMenuChose(_:)), keyEquivalent: "")

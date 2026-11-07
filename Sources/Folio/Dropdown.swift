@@ -263,7 +263,7 @@ final class DropdownView: NSView {
         strokeRounded(bounds, radius: 12, p.line2)
         guard case .field(let header, let count) = content.style else { return }
         let mid = 1 + Self.headerH / 2 + 2
-        drawLine(header.uppercased(), font: Typeface.mono(12, weight: 600), color: p.muted, x: 18, midY: mid,
+        drawLine(Typeface.caption(header), font: Typeface.mono(12, weight: 600), color: p.muted, x: 18, midY: mid,
                  maxWidth: bounds.width - 120, kern: Typeface.labelKern(12))
         drawLine(count, font: Typeface.mono(12, weight: 500), color: p.muted, x: bounds.width - 16, midY: mid, alignRight: true)
         // Footer: "Tab fills, Enter opens, Esc cancels" with key caps.

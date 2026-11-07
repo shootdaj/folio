@@ -395,7 +395,7 @@ final class FolioHeaderView: NSTableHeaderView {
         let primary = rank == 1
         let multi = sort.terms.count > 1
         let color = primary ? p.text : (rank != nil || hovered ? p.text2 : p.muted)
-        let label = title.uppercased()
+        let label = Typeface.caption(title)
         let kern = Typeface.headKern(12)
         if hovered {
             fillRounded(NSRect(x: rect.minX + 2, y: 4, width: rect.width - 4, height: ListMetrics.headerHeight - 8), radius: 5,

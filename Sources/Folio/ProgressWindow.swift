@@ -408,7 +408,7 @@ final class JobPanelView: NSView {
     private func stateLabel(_ s: JobSnapshot) -> (String, NSColor) {
         let p = ThemeColors.current
         switch s.state {
-        case .preparing, .running: return (JobWords.doing(s.kind).uppercased(), p.accent)
+        case .preparing, .running: return (Typeface.caption(JobWords.doing(s.kind)), p.accent)
         case .paused: return ("PAUSED", p.part)
         case .waitingOnConflict, .waitingOnProblem: return ("WAITING", p.part)
         case .done: return ("DONE", p.ok)
@@ -423,7 +423,7 @@ final class JobPanelView: NSView {
     }
 
     private func label(_ text: String, x: CGFloat, midY: CGFloat, color: NSColor? = nil, alignRight: Bool = false, _ p: ThemeColors) {
-        drawLine(text.uppercased(), font: Typeface.mono(12, weight: 600), color: color ?? p.muted, x: x, midY: midY,
+        drawLine(Typeface.caption(text), font: Typeface.mono(12, weight: 600), color: color ?? p.muted, x: x, midY: midY,
                  alignRight: alignRight, kern: Typeface.labelKern(12))
     }
 
@@ -619,7 +619,7 @@ final class JobPanelView: NSView {
         let left = snap?.conflictsLeft ?? 1
         let count = left == 1 ? "1 conflict" : "\(left) conflicts"
         label(count, x: w - 18, midY: 22, color: p.part, alignRight: true, p)
-        let countW = textWidth(count.uppercased(), font: Typeface.mono(12, weight: 600), kern: Typeface.labelKern(12))
+        let countW = textWidth(Typeface.caption(count), font: Typeface.mono(12, weight: 600), kern: Typeface.labelKern(12))
         drawLine(c.incoming.name + " is already in " + folder, font: Typeface.ui(14, weight: 700), color: p.text, x: 52, midY: 23,
                  maxWidth: w - 52 - countW - 30)
         drawLine("The copy keeps going while you decide.", font: Typeface.ui(12), color: p.muted, x: 52, midY: 41)

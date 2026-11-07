@@ -143,3 +143,29 @@ public enum NativeTheme {
         }
     }
 }
+
+// MARK: Type
+
+extension LookTheme {
+    /// SF Pro (the system font) for the interface, its tabular digits for dates, sizes and counts.
+    public var usesSystemFont: Bool { self == .native }
+
+    /// A section or column label: D4 writes it in uppercase, Native as written.
+    public func caption(_ text: String) -> String { self == .obsidian ? text.uppercased() : text }
+
+    /// D4's `.os-label` tracking (.12em) in points; Native labels are not tracked.
+    public func labelKern(_ size: Double) -> Double { self == .obsidian ? size * 0.12 : 0 }
+
+    /// D4's column heads' tracking (.08em) in points; none in Native.
+    public func headKern(_ size: Double) -> Double { self == .obsidian ? size * 0.08 : 0 }
+}
+
+/// A CSS font weight as one of the system font's weights: 400 and 500 regular, 600 and 650 semibold,
+/// 700 and up bold (SF Pro's medium reads heavier than Geist's 500).
+public enum SystemWeight: Sendable, Equatable {
+    case regular, semibold, bold
+
+    public init(css weight: Double) {
+        self = weight >= 700 ? .bold : weight >= 600 ? .semibold : .regular
+    }
+}

@@ -6,7 +6,7 @@ extension BrowserWindowController {
     /// Size column to fit and Size all columns to fit, ticks for the common columns, More...
     func headerMenu(_ column: ColumnID?) -> NSMenu? {
         let menu = NSMenu(title: "Columns")
-        menu.font = Typeface.mono(13)
+        menu.font = Typeface.menu()
         menu.autoenablesItems = true
         func add(_ title: String, _ action: Selector, _ object: Any? = nil, key: String = "") {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: key)

@@ -356,7 +356,7 @@ final class FormGroupView: NSView {
         let p = ThemeColors.current
         fillRounded(bounds, radius: 12, p.s1)
         strokeRounded(bounds, radius: 12, p.line)
-        drawLine(title.uppercased(), font: Typeface.mono(12, weight: 600), color: p.muted, x: 14, midY: Self.headH / 2,
+        drawLine(Typeface.caption(title), font: Typeface.mono(12, weight: 600), color: p.muted, x: 14, midY: Self.headH / 2,
                  kern: Typeface.labelKern(12))
     }
 }

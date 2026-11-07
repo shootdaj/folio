@@ -212,7 +212,7 @@ final class FilterView: NSView {
         let p = ThemeColors.current
         fillRounded(bounds, radius: 12, p.pop.over(p.bg))
         strokeRounded(bounds, radius: 12, p.line2)
-        let head = "FILTER  " + column.title.uppercased()
+        let head = Typeface.caption("Filter  " + column.title)
         drawLine(head, font: Typeface.mono(12, weight: 600), color: p.muted, x: 14, midY: Self.headH / 2, kern: Typeface.labelKern(12))
         fillRect(NSRect(x: 1, y: Self.headH - 1, width: bounds.width - 2, height: 1), p.line)
         let top = Self.headH + calendarH
