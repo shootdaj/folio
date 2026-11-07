@@ -12,11 +12,13 @@ extension SessionFrame {
     }
 }
 
-/// The version `make app` wrote into Info.plist (`Folio --version`).
+/// The version `make app` wrote into Info.plist from the git tags (`Folio --version`): the whole version
+/// (1.2.3, 1.2.3-4-gabc1234, 0.0.0-abc1234) and the short commit.
 enum BuildInfo {
-    static var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown" }
-    static var commit: String { Bundle.main.object(forInfoDictionaryKey: "FolioGitCommit") as? String ?? "unknown" }
+    static var version: String { info("FolioVersion") ?? info("CFBundleShortVersionString") ?? "unknown" }
+    static var commit: String { info("FolioGitCommit") ?? "unknown" }
     static var line: String { "Folio \(version) (\(commit))" }
+    private static func info(_ key: String) -> String? { Bundle.main.object(forInfoDictionaryKey: key) as? String }
 }
 
 /// What Folio asks of macOS itself: the default app for folders and drives (Launch Services), and the

@@ -1,0 +1,64 @@
+# Build and test on the Mac Ultra's self-hosted runner (macultra-folio). The build job runs the unit tests
+# and makes the ad-hoc signed bundle on the host; the app itself runs only inside the tart VM folio-test,
+# in the vm-tests job (docs/plan/RULES.md, rule 0).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: [self-hosted, ultra]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # tags and the full history, for the version and the commit count
+
+      - name: Build and check (tests, bundle, signature, version)
+        id: build
+        run: tools/ci/build.sh
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Folio-app
+          path: |
+            ${{ steps.build.outputs.zip }}
+            build/ff
+          if-no-files-found: error
+
+  vm-tests:
+    needs: build
+    runs-on: [self-hosted, ultra]
+    timeout-minutes: 90
+    # One VM: two runs never use it at the same time.
+    concurrency:
+      group: folio-vm
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: Folio-app
+          path: build/artifact
+
+      - name: Unpack the app
+        run: |
+          ditto -x -k build/artifact/Folio-*.zip build/artifact/
+          codesign -dv build/artifact/Folio.app 2>&1 | grep -x 'Signature=adhoc'
+
+      - name: Run Tests/vm/m2.sh to m9.sh in the VM
+        run: tools/ci/vm-tests.sh build/artifact/Folio.app build/artifact/ff
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: vm-shots
+          path: build/vm-shots
+          if-no-files-found: warn

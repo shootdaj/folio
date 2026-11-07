@@ -656,7 +656,7 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
     private func rebuildAccessibility() {
         var key: [String] = []
         var parts: [AddressPart] = []
-        func add(_ label: String, _ rect: NSRect, _ press: @escaping (AddressBarView) -> Void) {
+        func add(_ label: String, _ rect: NSRect, _ press: @escaping @MainActor (AddressBarView) -> Void) {
             key.append("\(label)|\(rect)")
             let e = AddressPart()
             e.setAccessibilityRole(.button)

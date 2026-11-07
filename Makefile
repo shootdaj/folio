@@ -1,11 +1,21 @@
 APP := build/Folio.app
-VERSION := 0.9.0
-# The commit the build came from (-dirty when files differ from it), for `Folio --version`.
-GIT_SHA := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)$(shell git diff --quiet HEAD -- 2>/dev/null || echo -dirty)
-BUILD_NUMBER := $(shell git rev-list --count HEAD 2>/dev/null || echo 1)
+# The version comes from git tags vX.Y.Z only (tools/ci/version.sh runs git describe --tags --always --dirty):
+# 1.2.3 on the tag, 1.2.3-4-gabc1234 four commits after it, 0.0.0-abc1234 with no tag, -dirty when tracked
+# files differ. Info.plist gets the X.Y.Z part as CFBundleShortVersionString, the commit count as
+# CFBundleVersion, and the whole version and the short commit for `Folio --version`.
+VERSION := $(shell tools/ci/version.sh)
+SHORT_VERSION := $(shell tools/ci/version.sh --short)
+BUILD_NUMBER := $(shell tools/ci/version.sh --build)
+GIT_SHA := $(shell tools/ci/version.sh --sha)
 # `make install-cli` puts ff in $(PREFIX)/bin: /usr/local/bin (sudo may be needed), or PREFIX=$$HOME for ~/bin.
 PREFIX ?= /usr/local
 LSREGISTER := /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+# Swift 6.3's SwiftPM points the compiler at the Command Line Tools' Testing.framework with -I instead of -F,
+# so `import Testing` fails without Xcode, and the test bundle cannot load it or lib_TestingInterop.dylib.
+# These add the framework path and both run paths (harmless where it already works, as on Swift 6.0).
+CLT_DEV := /Library/Developer/CommandLineTools/Library/Developer
+TEST_FLAGS := $(if $(wildcard $(CLT_DEV)/Frameworks/Testing.framework),-Xswiftc -F -Xswiftc $(CLT_DEV)/Frameworks \
+	-Xlinker -rpath -Xlinker $(CLT_DEV)/Frameworks -Xlinker -rpath -Xlinker $(CLT_DEV)/usr/lib)
 
 .PHONY: app run test install install-cli uninstall
 
@@ -15,8 +25,8 @@ app:
 	mkdir -p $(APP)/Contents/MacOS $(APP)/Contents/Resources
 	cp "$$(swift build -c release --show-bin-path)/Folio" $(APP)/Contents/MacOS/Folio
 	cp Resources/Info.plist $(APP)/Contents/Info.plist
-	/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $(VERSION)" -c "Set :CFBundleVersion $(BUILD_NUMBER)" \
-		-c "Set :FolioGitCommit $(GIT_SHA)" $(APP)/Contents/Info.plist
+	/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $(SHORT_VERSION)" -c "Set :CFBundleVersion $(BUILD_NUMBER)" \
+		-c "Set :FolioVersion $(VERSION)" -c "Set :FolioGitCommit $(GIT_SHA)" $(APP)/Contents/Info.plist
 	mkdir -p $(APP)/Contents/Resources/Fonts
 	cp -R Resources/Fonts/ $(APP)/Contents/Resources/Fonts/
 	"$$(swift build -c release --show-bin-path)/folio-icon" build/Folio.iconset
@@ -28,7 +38,7 @@ run: app
 	open $(APP)
 
 test:
-	swift test
+	swift test $(TEST_FLAGS)
 
 # Copies the bundle to /Applications (an older copy goes to the Trash first) and registers it with
 # Launch Services, so `ff`, `open -b com.anshul.folio` and the folio: URL find it.

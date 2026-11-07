@@ -1,39 +1,57 @@
 # Installing Folio on your Mac
 
-Folio is built from source with the free Command Line Tools (no Xcode, no developer account). Every
-step below runs on your Mac once you decide to use Folio there; until then, development runs the app only
-in the test VM (docs/plan/RULES.md, rule 0).
+The normal way is the zip on the [Releases page](https://github.com/shootdaj/folio/releases): every
+`vX.Y.Z` tag publishes one, built and tested by CI on the Mac Ultra. Building from source with the free
+Command Line Tools works too (no Xcode, no developer account). Every step below runs on your Mac once you
+decide to use Folio there; until then, development runs the app only in the test VM (docs/plan/RULES.md,
+rule 0).
 
 ```
-clone ──► make app ──► make install ──► make install-cli ──► BTT preset ──► Open folders in Folio
-           (build)     (/Applications)   (ff in your PATH)    (Win+E key)    (Folder Options)
+Releases zip ──► /Applications ──► make install-cli ──► BTT preset ──► Open folders in Folio
+  (or clone ──► make app ──► make install)   (ff in your PATH)   (Win+E key)    (Folder Options)
 ```
 
-## 1. Build
+## 1. Download a release
+
+1. On the [Releases page](https://github.com/shootdaj/folio/releases), download `Folio-<version>.zip` from
+   the newest release. It is built for Apple Silicon Macs on macOS 14 or later; versions below 1.0.0 are
+   marked pre-release. What changed in each version: [CHANGELOG.md](../CHANGELOG.md).
+2. Quit Folio if an older copy is running (Cmd+Q) and move that copy to the Trash. Unzip the download and
+   move `Folio.app` to /Applications.
+3. Folio is signed ad hoc, not with an Apple developer account, so macOS blocks a downloaded copy until
+   you clear its download flag once:
+   ```sh
+   xattr -dr com.apple.quarantine /Applications/Folio.app
+   ```
+   (Or try to open it, then System Settings > Privacy & Security > **Open Anyway**.)
+4. Open it once from /Applications. That registers it with Launch Services, so `ff`, `open -b
+   com.anshul.folio` and folio: links find it. Its Dock icon is the folder with the green light (a light
+   version on a light Mac).
+
+`/Applications/Folio.app/Contents/MacOS/Folio --version` prints the version and the commit it was built
+from, for example `Folio 1.0.0 (f12cd6f)`.
+
+## 2. Or build it yourself
 
 ```sh
 git clone https://github.com/shootdaj/folio.git && cd folio
 xcode-select --install      # only if the Command Line Tools are missing (iconutil and swift come with them)
 make test                   # the unit tests, on temp folders only
 make app                    # build/Folio.app, with the Dock icon and the version stamped in
+make install                # copies it to /Applications and registers it
 ```
 
 `make app` draws the Dock icon (`folio-icon` writes build/Folio.iconset, `iconutil` turns it into
-Folio.icns) and writes the version and the git commit into the bundle. `build/Folio.app/Contents/MacOS/Folio
---version` prints them, for example `Folio 0.9.0 (f12cd6f)`.
+Folio.icns) and stamps the version from the git tags (`git describe --tags --always --dirty`: 1.0.0 on the
+tag v1.0.0, 1.0.0-3-gabc1234 three commits after it) and the commit into the bundle.
 
-## 2. Install the app
-
-```sh
-make install
-```
-
-Copies build/Folio.app to /Applications (an older copy goes to the Trash first) and registers it with
-Launch Services, so `ff`, `open -b com.anshul.folio` and folio: links find it. Quit Folio before
-installing a new build. Open it once from /Applications; macOS asks nothing (it is signed ad hoc on this
-Mac), and its Dock icon is the folder with the green light (a light version on a light Mac).
+`make install` copies build/Folio.app to /Applications (an older copy goes to the Trash first) and
+registers it with Launch Services. Quit Folio before installing a new build. Open it once from
+/Applications; macOS asks nothing, since a copy built on your own Mac carries no download flag.
 
 ## 3. Install `ff`
+
+`ff` is not in the release zip; it builds from a clone of the repo (step 2's first line):
 
 ```sh
 sudo make install-cli          # /usr/local/bin/ff

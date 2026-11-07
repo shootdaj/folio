@@ -28,6 +28,7 @@ import Testing
 
     @Test func fractionalWidthsRoundDownSoTheyStillFit() {
         let name = fit(1000.6)
-        #expect(name == (1000.6 - 352 - 80 - 44).rounded(.down))
+        let want: Double = (1000.6 - 352 - 80 - 44).rounded(.down)  // typed, or Swift 6.3 times out on it
+        #expect(name == want)
     }
 }
