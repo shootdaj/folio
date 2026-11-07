@@ -40,7 +40,7 @@ final class HomePaneView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         fillRect(bounds, p.pane)
     }
 }
@@ -175,7 +175,7 @@ final class HomeView: NSView {
     }()
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         // Title strip: Home and what it holds, in mono labels.
         let titleW = drawLine("Home", font: Typeface.ui(18, weight: 700), color: p.text, x: Self.pad, midY: 28)
         let summary = "\(content.pins.count) PINNED  \(content.favorites.count) FAVORITES  \(content.recentFiles.count) RECENT"
@@ -220,7 +220,7 @@ final class HomeView: NSView {
         }
     }
 
-    private func drawTile(_ url: URL, label: String, in r: NSRect, hot: Bool, _ p: Palette) {
+    private func drawTile(_ url: URL, label: String, in r: NSRect, hot: Bool, _ p: ThemeColors) {
         fillRounded(r, radius: 12, p.s2)
         strokeRounded(r, radius: 12, hot ? p.accent.mixed(0.45, with: p.line) : p.line)
         if hot { drawCursorGlow(in: r.insetBy(dx: 1, dy: 1), center: NSPoint(x: r.minX + r.width * 0.3, y: r.midY), radius: 200,
@@ -233,7 +233,7 @@ final class HomeView: NSView {
         drawLine(parent, font: Typeface.mono(11), color: p.muted, x: r.minX + 52, midY: r.minY + 41, maxWidth: r.width - 62)
     }
 
-    private func drawRow(_ url: URL, isFolder: Bool, label: String, in r: NSRect, hot: Bool, _ p: Palette) {
+    private func drawRow(_ url: URL, isFolder: Bool, label: String, in r: NSRect, hot: Bool, _ p: ThemeColors) {
         if hot { fillRounded(r, radius: 8, p.text.withAlpha(0.07)) }
         let mid = r.midY
         ItemIcon.draw(name: url.lastPathComponent, isFolder: isFolder, in: NSRect(x: r.minX + 10, y: mid - 8, width: 16, height: 16),

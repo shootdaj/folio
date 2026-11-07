@@ -187,7 +187,7 @@ enum ItemIcon {
     private static let pageLines = path("M6 8.1h4M6 10.6h2.6")
 
     /// The folder: its back at 40% of the hue, the front tinted 20% over the pane and outlined, a short line.
-    static func drawFolder(in rect: NSRect, hue: RGBA, palette p: Palette, glow: Bool = false) {
+    static func drawFolder(in rect: NSRect, hue: NSColor, palette p: ThemeColors, glow: Bool = false) {
         withGlow(glow ? hue : nil) { ctx in
             ctx.applyViewBox(rect, units: 16)
             ctx.addPath(folderBack); ctx.setFillColor(hue.withAlpha(0.40).cg); ctx.fillPath()
@@ -199,12 +199,12 @@ enum ItemIcon {
     }
 
     /// The accent folder (tabs, the address bar, places without a glyph). `lit` adds the glow.
-    static func drawFolder(in rect: NSRect, palette p: Palette, lit: Bool) {
+    static func drawFolder(in rect: NSRect, palette p: ThemeColors, lit: Bool) {
         drawFolder(in: rect, hue: p.accent, palette: p, glow: lit)
     }
 
     /// The page: tinted 9% of the hue, its outline and fold mixed toward muted, two lines in the hue.
-    static func drawFile(in rect: NSRect, hue: RGBA, palette p: Palette, glow: Bool = false) {
+    static func drawFile(in rect: NSRect, hue: NSColor, palette p: ThemeColors, glow: Bool = false) {
         withGlow(glow ? hue : nil) { ctx in
             ctx.applyViewBox(rect, units: 16)
             let edge = hue.mixed(0.62, with: p.muted)
@@ -216,12 +216,12 @@ enum ItemIcon {
     }
 
     /// A file in its type's hue.
-    static func drawFile(named name: String, in rect: NSRect, palette p: Palette, glow: Bool = false) {
+    static func drawFile(named name: String, in rect: NSRect, palette p: ThemeColors, glow: Bool = false) {
         drawFile(in: rect, hue: p.typeHue(name: name, isFolder: false), palette: p, glow: glow)
     }
 
     /// Folder or file for an item, in its hue.
-    static func draw(name: String, isFolder: Bool, in rect: NSRect, palette p: Palette, glow: Bool = false) {
+    static func draw(name: String, isFolder: Bool, in rect: NSRect, palette p: ThemeColors, glow: Bool = false) {
         if isFolder {
             drawFolder(in: rect, hue: p.accent, palette: p, glow: glow)
         } else {
@@ -230,14 +230,14 @@ enum ItemIcon {
     }
 
     /// Explorer's shortcut arrow on an alias or symbolic link: a small boxed arrow at the icon's corner.
-    static func drawLinkBadge(in rect: NSRect, palette p: Palette) {
+    static func drawLinkBadge(in rect: NSRect, palette p: ThemeColors) {
         fillRounded(rect, radius: max(1.5, rect.width / 6), p.s1)
         strokeRounded(rect, radius: max(1.5, rect.width / 6), p.outline, width: max(0.75, rect.width / 12))
         Glyph.arrow.draw(in: rect.insetBy(dx: rect.width * 0.12, dy: rect.height * 0.12), color: p.accent.ns,
                          lineWidth: rect.width >= 20 ? 2.2 : 3, rotation: -.pi / 4)
     }
 
-    private static func stroke(_ ctx: CGContext, _ path: CGPath, _ color: RGBA, _ width: CGFloat) {
+    private static func stroke(_ ctx: CGContext, _ path: CGPath, _ color: NSColor, _ width: CGFloat) {
         ctx.addPath(path)
         ctx.setStrokeColor(color.cg)
         ctx.setLineWidth(width)
@@ -247,7 +247,7 @@ enum ItemIcon {
     }
 
     /// `filter: drop-shadow(0 0 4px <hue> 55%)` around whatever `body` draws.
-    private static func withGlow(_ hue: RGBA?, _ body: (CGContext) -> Void) {
+    private static func withGlow(_ hue: NSColor?, _ body: (CGContext) -> Void) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         ctx.saveGState()
         if let hue {
@@ -264,7 +264,7 @@ enum ItemIcon {
 
 /// Draws `body` with a soft glow of `color` around it (D4's `box-shadow: 0 0 <blur> <colour>`).
 @MainActor
-func withGlow(_ color: RGBA, blur: CGFloat, _ body: () -> Void) {
+func withGlow(_ color: NSColor, blur: CGFloat, _ body: () -> Void) {
     guard let ctx = NSGraphicsContext.current?.cgContext else { return body() }
     ctx.saveGState()
     ctx.setShadow(offset: .zero, blur: blur, color: color.cg)
@@ -277,7 +277,7 @@ func withGlow(_ color: RGBA, blur: CGFloat, _ body: () -> Void) {
 /// D4's cursor glow (`.os-row::before`): a radial gradient of `color` at `alpha` from `center`, fading
 /// out by 72% of `radius`, clipped to `rect`.
 @MainActor
-func drawCursorGlow(in rect: NSRect, center: NSPoint, radius: CGFloat = 380, color: RGBA, alpha: Double) {
+func drawCursorGlow(in rect: NSRect, center: NSPoint, radius: CGFloat = 380, color: NSColor, alpha: Double) {
     guard let ctx = NSGraphicsContext.current?.cgContext,
           let gradient = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB),
                                     colors: [color.withAlpha(alpha).cg, color.withAlpha(0).cg] as CFArray,
@@ -290,7 +290,7 @@ func drawCursorGlow(in rect: NSRect, center: NSPoint, radius: CGFloat = 380, col
 
 /// A left edge bar (`.os-row::after`, `.sitem.on::after`): `width` wide in `color`, glowing.
 @MainActor
-func drawEdgeBar(_ rect: NSRect, color: RGBA, glowAlpha: Double = 0.6, rounded: Bool = false) {
+func drawEdgeBar(_ rect: NSRect, color: NSColor, glowAlpha: Double = 0.6, rounded: Bool = false) {
     withGlow(color.withAlpha(glowAlpha), blur: 14) {
         if rounded {
             let path = NSBezierPath()
@@ -310,21 +310,28 @@ func drawEdgeBar(_ rect: NSRect, color: RGBA, glowAlpha: Double = 0.6, rounded: 
     }
 }
 
+/// RGBA forms of the helpers, for colours that are not theme tokens (the accent picker's swatches).
+@MainActor func withGlow(_ color: RGBA, blur: CGFloat, _ body: () -> Void) { withGlow(color.ns, blur: blur, body) }
+@MainActor func fillRounded(_ rect: NSRect, radius: CGFloat, _ color: RGBA) { fillRounded(rect, radius: radius, color.ns) }
+@MainActor func strokeRounded(_ rect: NSRect, radius: CGFloat, _ color: RGBA, width: CGFloat = 1) {
+    strokeRounded(rect, radius: radius, color.ns, width: width)
+}
+
 /// Fills a rect with alpha blending (NSRect.fill() alone copies and punches through).
 @MainActor
-func fillRect(_ rect: NSRect, _ color: RGBA) {
+func fillRect(_ rect: NSRect, _ color: NSColor) {
     color.ns.setFill()
     rect.fill(using: .sourceOver)
 }
 
 @MainActor
-func fillRounded(_ rect: NSRect, radius: CGFloat, _ color: RGBA) {
+func fillRounded(_ rect: NSRect, radius: CGFloat, _ color: NSColor) {
     color.ns.setFill()
     NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).fill()
 }
 
 @MainActor
-func strokeRounded(_ rect: NSRect, radius: CGFloat, _ color: RGBA, width: CGFloat = 1) {
+func strokeRounded(_ rect: NSRect, radius: CGFloat, _ color: NSColor, width: CGFloat = 1) {
     color.ns.setStroke()
     let path = NSBezierPath(roundedRect: rect.insetBy(dx: width / 2, dy: width / 2), xRadius: radius, yRadius: radius)
     path.lineWidth = width
@@ -335,7 +342,7 @@ func strokeRounded(_ rect: NSRect, radius: CGFloat, _ color: RGBA, width: CGFloa
 /// truncated with an ellipsis past `maxWidth`. Returns the drawn width.
 @MainActor
 @discardableResult
-func drawLine(_ text: String, font: NSFont, color: RGBA, x: CGFloat, midY: CGFloat, maxWidth: CGFloat = .greatestFiniteMagnitude,
+func drawLine(_ text: String, font: NSFont, color: NSColor, x: CGFloat, midY: CGFloat, maxWidth: CGFloat = .greatestFiniteMagnitude,
               alignRight: Bool = false, kern: CGFloat = 0) -> CGFloat {
     var attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color.ns]
     if kern != 0 { attrs[.kern] = kern }

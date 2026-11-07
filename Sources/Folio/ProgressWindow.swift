@@ -405,8 +405,8 @@ final class JobPanelView: NSView {
     }
 
     /// `.cc-state`: COPYING in the accent, PAUSED amber, STOPPED coral, DONE green.
-    private func stateLabel(_ s: JobSnapshot) -> (String, RGBA) {
-        let p = Palette.current
+    private func stateLabel(_ s: JobSnapshot) -> (String, NSColor) {
+        let p = ThemeColors.current
         switch s.state {
         case .preparing, .running: return (JobWords.doing(s.kind).uppercased(), p.accent)
         case .paused: return ("PAUSED", p.part)
@@ -417,26 +417,26 @@ final class JobPanelView: NSView {
     }
 
     /// A frosted card: --tray over the bg, a line-2 hairline, radius 16.
-    private func card(_ r: NSRect, _ p: Palette) {
+    private func card(_ r: NSRect, _ p: ThemeColors) {
         fillRounded(r, radius: 16, p.tray.over(p.bg))
         strokeRounded(r, radius: 16, p.line2)
     }
 
-    private func label(_ text: String, x: CGFloat, midY: CGFloat, color: RGBA? = nil, alignRight: Bool = false, _ p: Palette) {
+    private func label(_ text: String, x: CGFloat, midY: CGFloat, color: NSColor? = nil, alignRight: Bool = false, _ p: ThemeColors) {
         drawLine(text.uppercased(), font: Typeface.mono(12, weight: 600), color: color ?? p.muted, x: x, midY: midY,
                  alignRight: alignRight, kern: Typeface.labelKern(12))
     }
 
     override func draw(_ dirtyRect: NSRect) {
         guard let s = snap else { return }
-        let p = Palette.current
+        let p = ThemeColors.current
         if showsConflict, let c = s.conflict { drawConflict(c, p) }
         if showsProblem, let problem = s.problem { drawProblem(problem, p) }
         if showsResolution, let resolution { drawResolution(resolution, p) }
         drawCopyCard(s, p)
     }
 
-    private var stateTone: (Palette) -> RGBA {
+    private var stateTone: (ThemeColors) -> NSColor {
         switch snap?.state {
         case .cancelled: { $0.miss }
         case .paused, .waitingOnConflict, .waitingOnProblem: { $0.muted }
@@ -445,7 +445,7 @@ final class JobPanelView: NSView {
         }
     }
 
-    private func drawCopyCard(_ s: JobSnapshot, _ p: Palette) {
+    private func drawCopyCard(_ s: JobSnapshot, _ p: ThemeColors) {
         let w = bounds.width
         let y0 = bodyTop
         card(NSRect(x: 0, y: y0, width: w, height: Self.bodyH), p)
@@ -521,7 +521,7 @@ final class JobPanelView: NSView {
     }
 
     /// `.cc-stats`: Speed (with the sparkline), Time left and Items between two hairlines.
-    private func drawStats(_ s: JobSnapshot, y: CGFloat, _ p: Palette) {
+    private func drawStats(_ s: JobSnapshot, y: CGFloat, _ p: ThemeColors) {
         let w = bounds.width
         let x0: CGFloat = 18, total = w - 36, h: CGFloat = 66
         fillRect(NSRect(x: x0, y: y, width: total, height: 1), p.line)
@@ -556,7 +556,7 @@ final class JobPanelView: NSView {
     }
 
     /// `.spark`: the speed so far as a line with a fading area under it and a glowing dot at its end.
-    private func drawSparkline(_ r: NSRect, _ s: JobSnapshot, _ p: Palette) {
+    private func drawSparkline(_ r: NSRect, _ s: JobSnapshot, _ p: ThemeColors) {
         let pts = Array(samples.suffix(56))
         guard pts.count > 1, r.width > 20 else { return }
         let tone = s.state == .running ? p.accent : p.muted
@@ -596,7 +596,7 @@ final class JobPanelView: NSView {
     }
 
     /// The card above the copy card, with a glowing 3 pt edge in `edge` along its left side.
-    private func topCard(_ edge: RGBA, _ p: Palette) -> NSRect {
+    private func topCard(_ edge: NSColor, _ p: ThemeColors) -> NSRect {
         let r = NSRect(x: 0, y: 0, width: bounds.width, height: topH)
         card(r, p)
         NSGraphicsContext.saveGraphicsState()
@@ -608,7 +608,7 @@ final class JobPanelView: NSView {
 
     /// `.cf`: "README.md is already in Backup/Code", the two copies side by side (the newer one tagged),
     /// then Replace, Skip, Keep both and Compare.
-    private func drawConflict(_ c: FileConflict, _ p: Palette) {
+    private func drawConflict(_ c: FileConflict, _ p: ThemeColors) {
         let r = topCard(p.part, p)
         let w = r.width
         let folder = c.destination.deletingLastPathComponent().lastPathComponent
@@ -669,7 +669,7 @@ final class JobPanelView: NSView {
     }
 
     /// A problem: a coral edge, the item and the message, Try again, Skip, Cancel.
-    private func drawProblem(_ problem: JobProblem, _ p: Palette) {
+    private func drawProblem(_ problem: JobProblem, _ p: ThemeColors) {
         let r = topCard(p.miss, p)
         withGlow(p.miss.withAlpha(0.6), blur: 6) {
             Glyph.alert.draw(in: NSRect(x: 20, y: 15, width: 20, height: 20), color: p.miss.ns)
@@ -679,7 +679,7 @@ final class JobPanelView: NSView {
     }
 
     /// `.cf-done`: a green tick and what was decided.
-    private func drawResolution(_ text: String, _ p: Palette) {
+    private func drawResolution(_ text: String, _ p: ThemeColors) {
         let r = topCard(p.ok, p)
         Glyph.check.draw(in: NSRect(x: 20, y: r.midY - 9, width: 18, height: 18), color: p.ok.ns)
         drawLine(text, font: Typeface.ui(13), color: p.text2, x: 48, midY: r.midY, maxWidth: r.width - 66)

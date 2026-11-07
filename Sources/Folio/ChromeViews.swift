@@ -6,7 +6,7 @@ import FolioCore
 final class LedView: NSView, ThemeAware {
     static let padding: CGFloat = 5
     let diameter: CGFloat
-    var tone: (Palette) -> RGBA = { $0.accent } { didSet { themeDidChange() } }
+    var tone: (ThemeColors) -> NSColor = { $0.accent } { didSet { themeDidChange() } }
     var breathing = false { didSet { updateAnimation() } }
     /// Two quick flashes every 1.6 s.
     var pulsing = false { didSet { if pulsing != oldValue { updateAnimation() } } }
@@ -43,7 +43,7 @@ final class LedView: NSView, ThemeAware {
     }
 
     func themeDidChange() {
-        let p = Palette.current
+        let p = ThemeColors.current
         let c = tone(p)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -98,8 +98,8 @@ final class LedView: NSView, ThemeAware {
 /// 5 pt on hover, 14% and a slight shrink while pressed, faint when disabled.
 final class ChromeButton: NSButton {
     var glyph: Glyph { didSet { needsDisplay = true } }
-    var tone: (Palette) -> RGBA = { $0.text2 }
-    var hoverTone: ((Palette) -> RGBA)? = { $0.text }
+    var tone: (ThemeColors) -> NSColor = { $0.text2 }
+    var hoverTone: ((ThemeColors) -> NSColor)? = { $0.text }
     var iconSize: CGFloat = 18
     fileprivate(set) var isHovered = false
     /// Access keys (Option tapped): the letter that presses this button, shown as a key cap.
@@ -169,7 +169,7 @@ final class ChromeButton: NSButton {
 final class ChromeButtonCell: NSButtonCell {
     override func draw(withFrame cellFrame: NSRect, in controlView: NSView) {
         guard let button = controlView as? ChromeButton else { return }
-        let p = Palette.current
+        let p = ThemeColors.current
         let hot = isEnabled && button.isHovered
         var tone = isEnabled ? button.tone(p) : p.faint
         if hot, let hover = button.hoverTone { tone = hover(p) }
@@ -225,13 +225,13 @@ final class AccentButton: NSButton {
     override func mouseExited(with event: NSEvent) { hovered = false; needsDisplay = true }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         if hovered || isHighlighted {
             fillRounded(bounds.insetBy(dx: 5, dy: 5), radius: 8, p.text.withAlpha(isHighlighted ? 0.14 : 0.08))
         }
         let r: CGFloat = 9 * (hovered || isOpen ? 1.14 : 1)
         let c = NSPoint(x: bounds.midX, y: bounds.midY)
-        func dot(_ radius: CGFloat, _ color: RGBA) {
+        func dot(_ radius: CGFloat, _ color: NSColor) {
             color.ns.setFill()
             NSBezierPath(ovalIn: NSRect(x: c.x - radius, y: c.y - radius, width: 2 * radius, height: 2 * radius)).fill()
         }
@@ -273,7 +273,7 @@ final class TitleBarView: NSView, ThemeAware {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         fillRect(bounds, p.chrome)
         fillRect(NSRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1), p.line)
     }

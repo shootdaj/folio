@@ -122,7 +122,7 @@ final class ExtractSheetController: NSObject, NSTextFieldDelegate {
         field = TagField(string: destination.path)
         super.init()
         sheet.title = "Extract Compressed (Zipped) Folders"
-        sheet.backgroundColor = Palette.current.s2.ns
+        sheet.backgroundColor = ThemeColors.current.s2.ns
         let content = PropertiesContentView()
         sheet.contentView = content
         let heading = LabelView("Select a Destination and Extract Files", font: Typeface.ui(16, weight: 750), color: { $0.text })

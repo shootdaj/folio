@@ -258,7 +258,7 @@ final class DropdownView: NSView {
     // MARK: Drawing
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         fillRounded(bounds, radius: 12, p.pop.over(p.bg))
         strokeRounded(bounds, radius: 12, p.line2)
         guard case .field(let header, let count) = content.style else { return }
@@ -282,7 +282,7 @@ final class DropdownView: NSView {
     }
 
     /// D4's `kbd`: s2 cap, line-2 border with a 2 pt bottom, Geist Mono 500 12 in text-2.
-    private func drawKey(_ key: String, x: CGFloat, midY: CGFloat, height: CGFloat, _ p: Palette) -> CGFloat {
+    private func drawKey(_ key: String, x: CGFloat, midY: CGFloat, height: CGFloat, _ p: ThemeColors) -> CGFloat {
         let font = Typeface.mono(12, weight: 500)
         let w = textWidth(key, font: font) + 12 + 2
         let r = NSRect(x: x, y: (midY - height / 2).rounded(), width: w, height: height)
@@ -339,7 +339,7 @@ final class DropdownRowsView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         guard let owner else { return }
-        let p = Palette.current
+        let p = ThemeColors.current
         let content = owner.content
         if content.rows.isEmpty {
             drawLine(content.empty, font: Typeface.ui(13), color: p.text2, x: DropdownView.pad + 12,
@@ -358,7 +358,7 @@ final class DropdownRowsView: NSView {
     }
 
     /// `.ta-row`: light, folder, then the directory (ellipsized) and the leaf name, typed part bold.
-    private func drawFieldRow(_ row: DropdownRow, in r: NSRect, hi: Bool, _ p: Palette) {
+    private func drawFieldRow(_ row: DropdownRow, in r: NSRect, hi: Bool, _ p: ThemeColors) {
         // `.ta-row.hi`: the --sel fill and a glowing 3 pt accent edge, 7 pt short of top and bottom.
         if hi {
             fillRounded(r, radius: 8, p.selectionFill)
@@ -392,7 +392,7 @@ final class DropdownRowsView: NSView {
 
     /// `.mi`: folder and name in Geist 500; the folder on the path (`.mi.cur`) in the text colour with
     /// the accent tick at the right.
-    private func drawMenuRow(_ row: DropdownRow, in r: NSRect, hi: Bool, keyboard: Bool, _ p: Palette) {
+    private func drawMenuRow(_ row: DropdownRow, in r: NSRect, hi: Bool, keyboard: Bool, _ p: ThemeColors) {
         let tone = row.isCurrent || hi ? p.text : p.text2
         if hi {
             fillRounded(r, radius: 8, p.text.withAlpha(0.07))

@@ -45,7 +45,7 @@ final class SearchBoxView: NSView, NSTextFieldDelegate, ThemeAware {
         field.drawsBackground = false
         field.focusRingType = .none
         field.font = Typeface.ui(13)
-        field.textColor = Palette.current.text.ns
+        field.textColor = ThemeColors.current.text.ns
         field.lineBreakMode = .byTruncatingTail
         field.cell?.isScrollable = true
         field.cell?.wraps = false
@@ -100,14 +100,14 @@ final class SearchBoxView: NSView, NSTextFieldDelegate, ThemeAware {
 
     private func styleEditor() {
         guard let editor = field.currentEditor() as? NSTextView else { return }
-        let p = Palette.current
+        let p = ThemeColors.current
         editor.insertionPointColor = p.accent.ns
         editor.selectedTextAttributes = [.backgroundColor: p.markFill.ns]
         needsDisplay = true
     }
 
     private func placeholder() {
-        let p = Palette.current
+        let p = ThemeColors.current
         field.placeholderAttributedString = NSAttributedString(string: "Search " + folderName,
                                                                attributes: [.font: Typeface.ui(13), .foregroundColor: p.muted.ns])
         field.textColor = p.text.ns
@@ -142,7 +142,7 @@ final class SearchBoxView: NSView, NSTextFieldDelegate, ThemeAware {
     /// hover) at radius 12; focused, an accent border with the 3 pt accent-soft halo. The magnifier is muted,
     /// the accent once there is text.
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         let box = bounds.insetBy(dx: 0, dy: 3)
         if isEditing {
             withGlow(p.accent.withAlpha(0.18), blur: 24) { fillRounded(box.insetBy(dx: -3, dy: -3), radius: 15, p.accentSoft) }
@@ -252,7 +252,7 @@ final class OptionChip: NSButton {
     private var labelFont: NSFont { Typeface.ui(13, weight: 500) }
 
     /// The chip's dot colour (D4: Date violet, Kind the accent, Size amber).
-    var hue: (Palette) -> RGBA = { $0.muted }
+    var hue: (ThemeColors) -> NSColor = { $0.muted }
 
     private var text: String { value.map { title + ": " + $0 } ?? title }
 
@@ -271,7 +271,7 @@ final class OptionChip: NSButton {
     /// the label in text-2; on (`aria-pressed`), the hue's border over a 14% tint, the label in text and
     /// "Date modified: This week". Pressing shrinks it a little.
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         let hue = self.hue(p)
         let on = value != nil
         let r = isHighlighted ? bounds.insetBy(dx: bounds.width * 0.02, dy: bounds.height * 0.02) : bounds
@@ -307,7 +307,7 @@ final class ScopeButton: NSButton {
     var fitWidth: CGFloat { 12 + textWidth(title, font: Typeface.ui(13, weight: 500)) + 12 }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         if isOn {
             // `.seg-t`: --thumb, an inset ring of the accent mixed into line-2, a soft accent glow.
             withGlow(p.accent.withAlpha(0.22), blur: 16) { fillRounded(bounds, radius: 8, p.thumb) }
@@ -412,7 +412,7 @@ final class SearchOptionsBar: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         fillRect(bounds, p.headBg)
         fillRect(NSRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1), p.line)
         drawLine("SEARCH OPTIONS", font: labelFont, color: p.muted, x: 24, midY: 26, kern: Typeface.labelKern(12))
@@ -453,7 +453,7 @@ final class SearchFooterView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         fillRect(NSRect(x: 0, y: 0, width: bounds.width, height: 1), p.line)
         drawLine("Search again in:", font: font, color: p.text2, x: 14, midY: bounds.midY)
     }
@@ -482,7 +482,7 @@ final class SearchEmptyView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         let font = Typeface.ui(14, weight: 500)
         let w = textWidth(text, font: font)
         drawLine(text, font: font, color: p.text2, x: (bounds.width - w) / 2, midY: bounds.midY)

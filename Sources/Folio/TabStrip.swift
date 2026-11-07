@@ -122,7 +122,7 @@ final class TabStripView: NSView, NSDraggingSource {
     // MARK: Drawing
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         for (i, item) in items.enumerated() {
             let r = tabRect(i)
             let on = i == activeIndex
@@ -165,7 +165,7 @@ final class TabStripView: NSView, NSDraggingSource {
             let showClose = items.count > 1
             let textX = iconX + 15 + 8
             let room = r.maxX - textX - (showClose ? 34 : 12)
-            let tone: RGBA = on ? p.text : (hovered == i ? p.text2 : p.muted)
+            let tone: NSColor = on ? p.text : (hovered == i ? p.text2 : p.muted)
             drawLine(item.title, font: titleFont, color: tone, x: textX, midY: mid, maxWidth: room)
             if showClose {
                 let c = closeRect(i)

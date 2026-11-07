@@ -93,7 +93,7 @@ final class DropTipView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         // D4's `.tip`: --tip-bg (s4), a line-2 hairline, radius 8.
         fillRounded(bounds, radius: 8, p.s4)
         strokeRounded(bounds, radius: 8, p.line2)

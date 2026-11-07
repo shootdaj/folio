@@ -274,7 +274,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         window.titlebarSeparatorStyle = .none
         // Small enough for two windows side by side on a 1024 pt screen (Window > Tile).
         window.minSize = NSSize(width: 500, height: 480)
-        window.backgroundColor = Palette.current.pane.ns
+        window.backgroundColor = ThemeColors.current.pane.ns
         window.allowsOffscreen = options.uitest
         window.collectionBehavior.insert(.fullScreenPrimary)
         if options.uitest { window.isRestorable = false }
@@ -994,7 +994,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     }
 
     @objc private func themeChanged(_ note: Notification) {
-        window?.backgroundColor = Palette.current.pane.ns
+        window?.backgroundColor = ThemeColors.current.pane.ns
         if let content = window?.contentView { refreshTheme(in: content) }
         tableView.enumerateAvailableRowViews { rowView, _ in refreshTheme(in: rowView) }
         header.needsDisplay = true

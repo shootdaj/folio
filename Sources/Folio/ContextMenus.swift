@@ -617,7 +617,7 @@ final class MenuIconRow: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         for i in actions.indices {
             let r = rect(i)
             let on = enabled(i)

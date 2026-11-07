@@ -109,11 +109,11 @@ final class ColumnChooserPanel: NSObject, NSTableViewDataSource, NSTableViewDele
         panel.title = "Choose Details"
         let root = ChooserBackground(frame: panel.contentRect(forFrameRect: panel.frame))
         panel.contentView = root
-        let title = label("CHOOSE DETAILS", font: Typeface.ui(13, weight: 700), color: Palette.current.accent)
+        let title = label("CHOOSE DETAILS", font: Typeface.ui(13, weight: 700), color: ThemeColors.current.accent)
         title.frame = NSRect(x: 20, y: 14, width: 300, height: 20)
-        let intro = label("Select the details you want to display for the items in every folder.", font: Typeface.ui(13), color: Palette.current.text2)
+        let intro = label("Select the details you want to display for the items in every folder.", font: Typeface.ui(13), color: ThemeColors.current.text2)
         intro.frame = NSRect(x: 20, y: 36, width: 430, height: 20)
-        let head = label("Details:", font: Typeface.ui(12, weight: 650), color: Palette.current.text2)
+        let head = label("Details:", font: Typeface.ui(12, weight: 650), color: ThemeColors.current.text2)
         head.frame = NSRect(x: 20, y: 54, width: 200, height: 16)
         let scroll = NSScrollView(frame: NSRect(x: 20, y: 72, width: 300, height: 360))
         scroll.hasVerticalScroller = true
@@ -141,7 +141,7 @@ final class ColumnChooserPanel: NSObject, NSTableViewDataSource, NSTableViewDele
         down.frame = NSRect(x: 336, y: 114, width: 114, height: 34)
         up.onPress = { [weak self] in self?.move(up: true) }
         down.onPress = { [weak self] in self?.move(up: false) }
-        let wl = label("Width of selected column (in pixels):", font: Typeface.ui(13), color: Palette.current.text)
+        let wl = label("Width of selected column (in pixels):", font: Typeface.ui(13), color: ThemeColors.current.text)
         wl.frame = NSRect(x: 20, y: 446, width: 250, height: 20)
         width.frame = NSRect(x: 272, y: 444, width: 60, height: 24)
         width.font = Typeface.mono(12)
@@ -164,7 +164,7 @@ final class ColumnChooserPanel: NSObject, NSTableViewDataSource, NSTableViewDele
     /// The list takes the keys: type a column's name, Space ticks it, Return is OK.
     func focusList() { window?.makeFirstResponder(table) }
 
-    private func label(_ text: String, font: NSFont, color: RGBA) -> NSTextField {
+    private func label(_ text: String, font: NSFont, color: NSColor) -> NSTextField {
         let l = NSTextField(labelWithString: text)
         l.font = font
         l.textColor = color.ns
@@ -239,7 +239,7 @@ final class ColumnChooserPanel: NSObject, NSTableViewDataSource, NSTableViewDele
     private final class ChooserBackground: NSView {
         override var isFlipped: Bool { true }
         override func draw(_ dirtyRect: NSRect) {
-            let p = Palette.current
+            let p = ThemeColors.current
             fillRect(bounds, p.s1)
         }
     }
@@ -247,7 +247,7 @@ final class ColumnChooserPanel: NSObject, NSTableViewDataSource, NSTableViewDele
     private final class WellView: NSView {
         override var isFlipped: Bool { true }
         override func draw(_ dirtyRect: NSRect) {
-            let p = Palette.current
+            let p = ThemeColors.current
             fillRounded(bounds, radius: 4, p.s2)
             strokeRounded(bounds, radius: 4, p.line2)
         }

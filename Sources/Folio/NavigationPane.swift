@@ -35,7 +35,7 @@ final class SidebarView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         fillRect(bounds, p.side)
         fillRect(NSRect(x: bounds.width - 1, y: 0, width: 1, height: bounds.height), p.line)
     }
@@ -256,7 +256,7 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
     }
 
     /// The hue a card's rows take on hover (D4's `--hue` per card).
-    func hue(of s: SideNode.Section, _ p: Palette) -> RGBA {
+    func hue(of s: SideNode.Section, _ p: ThemeColors) -> NSColor {
         switch s {
         case .quickAccess, .allFolders: p.accent
         case .thisPC: p.hue(.green)
@@ -849,7 +849,7 @@ final class SidebarOutlineView: NSOutlineView {
 
     /// `.scard.os-card`: s1, a hairline, radius 12; no hover effect on the card itself.
     override func drawBackground(inClipRect clipRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         for r in pane?.panelRects() ?? [] {
             fillRounded(r, radius: 12, p.s1)
             strokeRounded(r, radius: 12, p.line)
@@ -1055,7 +1055,7 @@ final class SidebarOutlineView: NSOutlineView {
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func draw(_ dirtyRect: NSRect) {
             guard let y else { return }
-            let p = Palette.current
+            let p = ThemeColors.current
             let line = NSRect(x: 24, y: y - 1, width: bounds.width - 48, height: 2)
             fillRect(line, p.accent)
             fillRounded(NSRect(x: line.minX - 3, y: y - 3, width: 6, height: 6), radius: 3, p.accent)
@@ -1094,7 +1094,7 @@ final class SideRowView: NSTableRowView {
 
     override func draw(_ dirtyRect: NSRect) {
         guard let node, let pane, let outline else { return }
-        let p = Palette.current
+        let p = ThemeColors.current
         let row = myRow
         let hovered = row >= 0 && outline.hoveredRow == row
         let focused = isSelected && outline.window?.firstResponder === outline
@@ -1124,7 +1124,7 @@ final class SideRowView: NSTableRowView {
     }
 
     /// `.scard-h`: the mono uppercase label (text-2 on hover), the count, and the chevron at the right.
-    private func drawHeader(_ s: SideNode.Section, hovered: Bool, focused: Bool, collapsed: Bool, _ p: Palette) {
+    private func drawHeader(_ s: SideNode.Section, hovered: Bool, focused: Bool, collapsed: Bool, _ p: ThemeColors) {
         let r = NSRect(x: inner.minX, y: NavigationPane.cardGap, width: inner.width, height: NavigationPane.labelH)
         let mid = r.midY
         let title = (node?.title ?? "").uppercased()
@@ -1139,10 +1139,10 @@ final class SideRowView: NSTableRowView {
     }
 
     /// A place's glyph: muted, the card's hue under the pointer, the accent when it is the current place.
-    private func glyphTone(on: Bool, hovered: Bool, hue: RGBA, _ p: Palette) -> RGBA { on ? p.accent : hovered ? hue : p.muted }
-    private func labelTone(on: Bool, hovered: Bool, _ p: Palette) -> RGBA { on || hovered ? p.text : p.text2 }
+    private func glyphTone(on: Bool, hovered: Bool, hue: NSColor, _ p: ThemeColors) -> NSColor { on ? p.accent : hovered ? hue : p.muted }
+    private func labelTone(on: Bool, hovered: Bool, _ p: ThemeColors) -> NSColor { on || hovered ? p.text : p.text2 }
 
-    private func drawContent(_ node: SideNode, on: Bool, hovered: Bool, hue: RGBA, _ p: Palette) {
+    private func drawContent(_ node: SideNode, on: Bool, hovered: Bool, hue: NSColor, _ p: ThemeColors) {
         let r = line
         let mid = r.midY
         let font = Typeface.ui(13, weight: 500)
@@ -1177,7 +1177,7 @@ final class SideRowView: NSTableRowView {
             let x0 = r.minX + 8 + depth * 14
             chevron(at: x0 + 3)
             ItemIcon.drawFolder(in: NSRect(x: x0 + 18, y: mid - 8, width: 16, height: 16), hue: p.accent, palette: p, glow: on || hovered)
-            let tone: RGBA = on ? p.text : (f.isHidden ? p.muted : label)
+            let tone: NSColor = on ? p.text : (f.isHidden ? p.muted : label)
             drawLine(f.name, font: Typeface.ui(13, weight: on ? 600 : 500), color: tone, x: x0 + 42, midY: mid, maxWidth: r.maxX - x0 - 48)
         case .browse:
             Glyph.globe.draw(in: icon, color: glyph)
@@ -1200,7 +1200,7 @@ final class SideRowView: NSTableRowView {
 
     /// A pin: D4's place glyphs (download, monitor, doc, image, film), else the accent folder; the
     /// parent path dim before the name ("Anshul/" Code).
-    private func drawPlace(_ place: QuickAccessPlace, icon: NSRect, textX: CGFloat, room: CGFloat, glyph: NSColor, label: RGBA, _ p: Palette) {
+    private func drawPlace(_ place: QuickAccessPlace, icon: NSRect, textX: CGFloat, room: CGFloat, glyph: NSColor, label: NSColor, _ p: ThemeColors) {
         let g: Glyph? = switch place.title {
         case "Downloads": .download
         case "Desktop": .desktop
@@ -1222,10 +1222,10 @@ final class SideRowView: NSTableRowView {
 
     /// A drive (`.sitem` + `.cap` + `.cap-l`): the row with its used share in the card's hue, a 6 pt
     /// capacity bar glowing in the hue (coral from 90% full), and "81.0 GB free of 926 GB" in mono.
-    private func drawVolume(_ v: VolumeCapacity, glyph: Glyph, on: Bool, hovered: Bool, hue: RGBA, node: SideNode, _ p: Palette) {
+    private func drawVolume(_ v: VolumeCapacity, glyph: Glyph, on: Bool, hovered: Bool, hue: NSColor, node: SideNode, _ p: ThemeColors) {
         let r = line
         let mid = r.midY
-        let tone: RGBA = v.isNearlyFull ? p.miss : hue
+        let tone: NSColor = v.isNearlyFull ? p.miss : hue
         if let outline, outline.isExpandable(node) {
             Glyph.chevron.draw(in: NSRect(x: r.minX + 3, y: mid - 5, width: 10, height: 10), color: p.muted.ns, lineWidth: 2.2,
                                rotation: outline.isItemExpanded(node) ? .pi / 2 : 0)
@@ -1278,7 +1278,7 @@ enum DetailsCardDrawing {
         return h - (card.fields.isEmpty ? 12 : 7) + 10
     }
 
-    static func draw(_ card: DetailsCard, in r: NSRect, _ p: Palette) {
+    static func draw(_ card: DetailsCard, in r: NSRect, _ p: ThemeColors) {
         let x = r.minX + pad, w = r.width - 2 * pad
         if card.isEmpty {
             draw(card.title, font: Typeface.ui(12), color: p.muted, in: NSRect(x: x, y: r.minY, width: w, height: r.height))
@@ -1302,7 +1302,7 @@ enum DetailsCardDrawing {
         }
     }
 
-    private static func draw(_ text: String, font: NSFont, color: RGBA, in rect: NSRect) {
+    private static func draw(_ text: String, font: NSFont, color: NSColor, in rect: NSRect) {
         let style = NSMutableParagraphStyle()
         style.lineBreakMode = .byCharWrapping
         style.lineHeightMultiple = 1.1

@@ -326,7 +326,7 @@ final class DriveChartView: NSView {
     override var isFlipped: Bool { true }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         let tone = volume.isNearlyFull ? p.miss : p.accent
         let center = NSPoint(x: 50, y: 50), radius: CGFloat = 38
         let ring = NSBezierPath()
