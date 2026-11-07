@@ -55,7 +55,7 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.isReleasedWhenClosed = false
-        window.backgroundColor = Palette.current.s2.ns
+        window.backgroundColor = ThemeColors.current.s2.ns
         super.init(window: window)
         window.delegate = self
         let content = PropertiesContentView()
@@ -301,7 +301,7 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
     }
 
     @objc private func themeChanged(_ note: Notification) {
-        window?.backgroundColor = Palette.current.s2.ns
+        window?.backgroundColor = ThemeColors.current.s2.ns
         if let content = window?.contentView { refreshTheme(in: content) }
     }
 
@@ -331,7 +331,7 @@ final class OptionsHeader: NSView {
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         fillRect(bounds, p.s1)
         fillRect(NSRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1), p.line)
         drawLine("Folder Options", font: Typeface.ui(14, weight: 700), color: p.text, x: 82, midY: 22)
@@ -353,10 +353,10 @@ final class FormGroupView: NSView {
     override var isFlipped: Bool { true }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         fillRounded(bounds, radius: 12, p.s1)
         strokeRounded(bounds, radius: 12, p.line)
-        drawLine(title.uppercased(), font: Typeface.mono(12, weight: 600), color: p.muted, x: 14, midY: Self.headH / 2,
+        drawLine(Typeface.caption(title), font: Typeface.mono(12, weight: 600), color: p.muted, x: 14, midY: Self.headH / 2,
                  kern: Typeface.labelKern(12))
     }
 }
@@ -413,7 +413,7 @@ final class OSRadio: NSButton {
     func fit() -> CGFloat { 14 + 8 + textWidth(title, font: labelFont) + 2 }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         if !isEnabled { NSGraphicsContext.current?.cgContext.setAlpha(0.5) }
         let box = NSRect(x: 0, y: (bounds.height - 14) / 2, width: 14, height: 14)
         if isSelected {

@@ -188,7 +188,7 @@ extension BrowserWindowController: GridHost {
     func list(_ list: NSView, menuForGroup group: Int) -> NSMenu? {
         guard layout.groups.indices.contains(group) else { return nil }
         let menu = NSMenu(title: "Group")
-        menu.font = Typeface.mono(13)
+        menu.font = Typeface.menu()
         let one = NSMenuItem(title: layout.isCollapsed(group) ? "Expand group" : "Collapse group",
                              action: #selector(toggleGroupItem(_:)), keyEquivalent: "")
         one.representedObject = group

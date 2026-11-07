@@ -67,7 +67,7 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.isReleasedWhenClosed = false
-        window.backgroundColor = Palette.current.s2.ns
+        window.backgroundColor = ThemeColors.current.s2.ns
         super.init(window: window)
         window.delegate = self
         let content = PropertiesContentView()
@@ -106,7 +106,7 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
         header.infos = infos
         nameField.stringValue = urls.count == 1 ? (infos.first?.name ?? "") : "\(urls.count) items selected"
         nameField.isEditable = urls.count == 1
-        nameField.textColor = Palette.current.text.ns
+        nameField.textColor = ThemeColors.current.text.ns
         if !tabs.contains(tab) { tab = .general }
         layout()
         build()
@@ -210,7 +210,7 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
 
     private func customize(_ info: ItemInfo) -> [PropertySheet.Line] {
         let popup = NSPopUpButton(frame: .zero, pullsDown: false)
-        popup.font = Typeface.mono(13)
+        popup.font = Typeface.menu()
         for preset in ColumnPreset.allCases {
             popup.addItem(withTitle: preset.title)
             popup.lastItem?.representedObject = preset.rawValue
@@ -467,7 +467,7 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
     private func openWith(_ info: ItemInfo) -> [PropertySheet.Line] {
         let apps = OpenWith.apps(for: info.url)
         let popup = NSPopUpButton(frame: .zero, pullsDown: false)
-        popup.font = Typeface.mono(13)
+        popup.font = Typeface.menu()
         for app in apps {
             popup.addItem(withTitle: app.name)
             let icon = NSWorkspace.shared.icon(forFile: app.url.path)
@@ -598,8 +598,8 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
     }
 
     @objc private func themeChanged(_ note: Notification) {
-        window?.backgroundColor = Palette.current.s2.ns
-        nameField.textColor = Palette.current.text.ns
+        window?.backgroundColor = ThemeColors.current.s2.ns
+        nameField.textColor = ThemeColors.current.text.ns
         if let content = window?.contentView { refreshTheme(in: content) }
     }
 
@@ -643,7 +643,7 @@ final class PropertiesContentView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         fillRect(bounds, p.pop.over(p.bg))
     }
 
@@ -651,7 +651,7 @@ final class PropertiesContentView: NSView {
         override var isFlipped: Bool { true }
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func draw(_ dirtyRect: NSRect) {
-            strokeRounded(bounds, radius: 12, Palette.current.line2)
+            strokeRounded(bounds, radius: 12, ThemeColors.current.line2)
         }
     }
 }
@@ -665,7 +665,7 @@ final class PropertiesHeader: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         fillRect(NSRect(x: 0, y: 0, width: bounds.width, height: 44), p.chrome)
         fillRect(NSRect(x: 0, y: 43, width: bounds.width, height: 1), p.line)
         drawLine(title, font: Typeface.ui(14, weight: 700), color: p.text, x: 82, midY: 22,
@@ -714,7 +714,7 @@ final class SegmentButton: NSButton {
     func fit() -> CGFloat { textWidth(title, font: Typeface.ui(13, weight: 600)) + 24 }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         let r = bounds.insetBy(dx: 0.5, dy: 0.5)
         if isOn { fillRect(r, p.thumb) }
         if isHighlighted { fillRect(r, p.text.withAlpha(0.08)) }
@@ -812,14 +812,14 @@ final class PropertySheet: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         for (line, r) in zip(lines, frames()) {
             if line.isSeparator {
                 fillRect(NSRect(x: Self.keyX, y: r.midY, width: bounds.width - 2 * Self.keyX, height: 1), p.line)
                 continue
             }
             let top = line.wraps ? r.minY + 14 : r.midY
-            drawLine(line.key.uppercased(), font: Typeface.mono(11, weight: 600), color: p.muted, x: Self.keyX, midY: top,
+            drawLine(Typeface.caption(line.key), font: Typeface.mono(11, weight: 600), color: p.muted, x: Self.keyX, midY: top,
                      maxWidth: Self.valueX - Self.keyX - 10, kern: Typeface.labelKern(11))
             guard !line.value.isEmpty else { continue }
             let font = line.mono ? Typeface.mono(12) : Typeface.ui(13)
@@ -880,9 +880,9 @@ final class FlowView: NSView {
 final class LabelView: NSView {
     private let text: String
     private let font: NSFont
-    private let color: (Palette) -> RGBA
+    private let color: (ThemeColors) -> NSColor
 
-    init(_ text: String, font: NSFont, color: @escaping (Palette) -> RGBA) {
+    init(_ text: String, font: NSFont, color: @escaping (ThemeColors) -> NSColor) {
         self.text = text
         self.font = font
         self.color = color
@@ -893,7 +893,7 @@ final class LabelView: NSView {
     override var isFlipped: Bool { true }
 
     override func draw(_ dirtyRect: NSRect) {
-        drawLine(text, font: font, color: color(Palette.current), x: 0, midY: bounds.midY, maxWidth: bounds.width)
+        drawLine(text, font: font, color: color(ThemeColors.current), x: 0, midY: bounds.midY, maxWidth: bounds.width)
     }
 }
 
@@ -908,7 +908,7 @@ final class TagField: NSTextField, NSTextFieldDelegate {
         drawsBackground = false
         focusRingType = .none
         font = Typeface.mono(12)
-        textColor = Palette.current.text.ns
+        textColor = ThemeColors.current.text.ns
         delegate = self
         setAccessibilityLabel("Tags")
     }
@@ -916,7 +916,7 @@ final class TagField: NSTextField, NSTextFieldDelegate {
     required init?(coder: NSCoder) { fatalError("not used") }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         fillRounded(bounds, radius: 8, p.field)
         strokeRounded(bounds.insetBy(dx: 0.5, dy: 0.5), radius: 8, p.line2)
         super.draw(dirtyRect)

@@ -35,7 +35,7 @@ extension BrowserWindowController {
 
     private func styled(_ title: String) -> NSMenu {
         let menu = NSMenu(title: title)
-        menu.font = Typeface.mono(13)
+        menu.font = Typeface.menu()
         menu.autoenablesItems = true
         return menu
     }
@@ -617,7 +617,7 @@ final class MenuIconRow: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         for i in actions.indices {
             let r = rect(i)
             let on = enabled(i)

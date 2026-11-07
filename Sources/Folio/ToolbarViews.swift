@@ -215,14 +215,14 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
     /// for a bad path) at radius 12; the root crumb is the drive glyph in the accent, crumbs in Geist 500
     /// text-2 with the current one 600 in the text colour, chevrons muted (accent and turned when open).
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         fillRounded(box, radius: 12, p.field)
         if let title = searchTitle, !isEditing {
             drawSearchMode(title, p)
             drawArrow(historyRect, open: dropdown?.isOpen("history") == true, down: true, hot: hovered == .history, p)
             return
         }
-        let border: RGBA = isInvalid ? p.miss : isEditing ? p.accent : (isHovered ? p.outline : p.line2)
+        let border: NSColor = isInvalid ? p.miss : isEditing ? p.accent : (isHovered ? p.outline : p.line2)
         strokeRounded(box, radius: 12, border)
         drawArrow(historyRect, open: dropdown?.isOpen("history") == true, down: true, hot: hovered == .history, p)
         if isEditing {
@@ -276,7 +276,7 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
 
     /// D4's search address (`.addr.is-search`): the magnifier in the accent and "Search Results in work";
     /// while results gather a 2 pt accent line grows along the field's bottom edge, dimming when done.
-    private func drawSearchMode(_ title: String, _ p: Palette) {
+    private func drawSearchMode(_ title: String, _ p: ThemeColors) {
         let progress = CGFloat(max(0, min(1, searchProgress)))
         strokeRounded(box, radius: 12, isHovered ? p.outline : p.line2)
         NSGraphicsContext.saveGraphicsState()
@@ -299,7 +299,7 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
     }
 
     /// `.cchev`: a 14 pt chevron, muted; open, it turns to point down in the accent.
-    private func drawArrow(_ r: NSRect, open: Bool, down: Bool, hot: Bool, _ p: Palette) {
+    private func drawArrow(_ r: NSRect, open: Bool, down: Bool, hot: Bool, _ p: ThemeColors) {
         if hot || open { fillRounded(NSRect(x: r.minX, y: 9, width: r.width, height: bounds.height - 18), radius: 5, p.text.withAlpha(0.09)) }
         let s: CGFloat = 14
         let icon = NSRect(x: r.midX - s / 2, y: bounds.midY - s / 2, width: s, height: s)
@@ -456,7 +456,7 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
         isEditing = true
         isInvalid = false
         hovered = nil
-        let p = Palette.current
+        let p = ThemeColors.current
         field.font = Typeface.mono(13, weight: 500)
         field.textColor = p.text.ns
         field.stringValue = isHome ? "" : folder.path
@@ -817,7 +817,7 @@ final class ToolbarView: NSView {
     /// `--bar` (s1 at 78% over the bg; white in light) with a hairline under it. While the address is
     /// edited its box carries the accent's 3 pt halo and a soft glow (`.addr.edit::before`).
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         fillRect(bounds, p.bar)
         fillRect(NSRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1), p.line)
         if address.isEditing {

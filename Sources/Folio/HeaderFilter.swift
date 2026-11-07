@@ -209,10 +209,10 @@ final class FilterView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         fillRounded(bounds, radius: 12, p.pop.over(p.bg))
         strokeRounded(bounds, radius: 12, p.line2)
-        let head = "FILTER  " + column.title.uppercased()
+        let head = Typeface.caption("Filter  " + column.title)
         drawLine(head, font: Typeface.mono(12, weight: 600), color: p.muted, x: 14, midY: Self.headH / 2, kern: Typeface.labelKern(12))
         fillRect(NSRect(x: 1, y: Self.headH - 1, width: bounds.width - 2, height: 1), p.line)
         let top = Self.headH + calendarH
@@ -316,7 +316,7 @@ final class MonthCalendarView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         let title = month.formatted(.dateTime.month(.wide).year())
         let tf = Typeface.ui(13, weight: 650)
         drawLine(title, font: tf, color: p.text, x: bounds.midX - textWidth(title, font: tf) / 2, midY: headH / 2 + 1)
@@ -341,7 +341,7 @@ final class MonthCalendarView: NSView {
                 strokeRounded(r, radius: 3, p.accent)
             }
             let n = "\(cal.component(.day, from: d))"
-            let tone: RGBA = picked ? p.onAccent : (inMonth ? p.text : p.muted)
+            let tone: NSColor = picked ? p.onAccent : (inMonth ? p.text : p.muted)
             drawLine(n, font: df, color: tone, x: r.midX - textWidth(n, font: df) / 2, midY: r.midY - 1)
             if daysWithItems.contains(cal.startOfDay(for: d)) {
                 (picked ? p.onAccent : p.accent).ns.setFill()

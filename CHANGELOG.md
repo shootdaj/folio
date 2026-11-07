@@ -7,6 +7,15 @@ pushed; the release workflow publishes the section below with that number as the
 
 ## [Unreleased]
 
+### Added
+
+- **View > Theme: Native and D4 Obsidian.** Native is the new default and follows macOS: SF Pro, the
+  system colours (light, dark and Increase Contrast follow the Mac), and the accent and highlight
+  colours from System Settings > Appearance, so the title bar's accent swatch is hidden. Labels keep
+  their case and menus use the system menu font. D4 Obsidian is unchanged, pixel for pixel. Native's
+  reference is docs/design/native.md; icons, the list, the sidebar and the window chrome follow in
+  the next releases.
+
 ## [1.0.0] - 2026-11-07
 
 The first release: all nine milestones of docs/plan/MILESTONES.md and the D4 Obsidian spotlight look,

@@ -116,7 +116,7 @@ final class ChassisView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        fillRect(bounds, Palette.current.pane)
+        fillRect(bounds, ThemeColors.current.pane)
     }
 
     override func viewDidChangeEffectiveAppearance() {

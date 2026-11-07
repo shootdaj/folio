@@ -205,7 +205,7 @@ extension BrowserWindowController {
     /// folder, Tags... for a new one, Remove all tags.
     func tagsMenu() -> NSMenu {
         let menu = NSMenu(title: "Tags")
-        menu.font = Typeface.mono(13)
+        menu.font = Typeface.menu()
         let urls = selectedURLs
         func state(_ tag: FileTag) -> NSControl.StateValue {
             switch FileTags.state(of: tag, on: urls) { case .on: .on; case .mixed: .mixed; case .off: .off }

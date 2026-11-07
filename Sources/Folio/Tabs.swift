@@ -151,7 +151,7 @@ extension BrowserWindowController {
 
     func tabMenu(_ i: Int) -> NSMenu {
         let menu = NSMenu(title: "Tab")
-        menu.font = Typeface.mono(13)
+        menu.font = Typeface.menu()
         func add(_ title: String, _ action: Selector, enabled: Bool = true) {
             let item = NSMenuItem(title: title, action: enabled ? action : nil, keyEquivalent: "")
             item.target = self
@@ -426,7 +426,7 @@ extension BrowserWindowController {
 
     func nodeMenu(_ node: SideNode) -> NSMenu? {
         let menu = NSMenu(title: "Navigation")
-        menu.font = Typeface.mono(13)
+        menu.font = Typeface.menu()
         func add(_ title: String, _ action: Selector, _ object: Any? = nil, enabled: Bool = true) {
             let item = NSMenuItem(title: title, action: enabled ? action : nil, keyEquivalent: "")
             item.target = self
@@ -613,7 +613,7 @@ extension BrowserWindowController {
 
     func homeMenu(_ url: URL) -> NSMenu {
         let menu = NSMenu(title: "Home")
-        menu.font = Typeface.mono(13)
+        menu.font = Typeface.menu()
         func add(_ title: String, _ action: Selector) {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
             item.target = self

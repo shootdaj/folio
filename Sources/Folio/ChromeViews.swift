@@ -6,7 +6,7 @@ import FolioCore
 final class LedView: NSView, ThemeAware {
     static let padding: CGFloat = 5
     let diameter: CGFloat
-    var tone: (Palette) -> RGBA = { $0.accent } { didSet { themeDidChange() } }
+    var tone: (ThemeColors) -> NSColor = { $0.accent } { didSet { themeDidChange() } }
     var breathing = false { didSet { updateAnimation() } }
     /// Two quick flashes every 1.6 s.
     var pulsing = false { didSet { if pulsing != oldValue { updateAnimation() } } }
@@ -43,15 +43,23 @@ final class LedView: NSView, ThemeAware {
     }
 
     func themeDidChange() {
-        let p = Palette.current
+        let p = ThemeColors.current
         let c = tone(p)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        core.backgroundColor = c.cg
+        // A layer holds a CGColor: a dynamic (Native) colour is resolved for this view's appearance.
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            core.backgroundColor = c.cg
+            core.shadowColor = c.cg
+        }
         ring.backgroundColor = NSColor.clear.cgColor
-        core.shadowColor = c.cg
-        core.shadowOpacity = 0.8
+        core.shadowOpacity = p.glows ? 0.8 : 0
         CATransaction.commit()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        themeDidChange()
     }
 
     override func viewDidMoveToWindow() {
@@ -98,8 +106,8 @@ final class LedView: NSView, ThemeAware {
 /// 5 pt on hover, 14% and a slight shrink while pressed, faint when disabled.
 final class ChromeButton: NSButton {
     var glyph: Glyph { didSet { needsDisplay = true } }
-    var tone: (Palette) -> RGBA = { $0.text2 }
-    var hoverTone: ((Palette) -> RGBA)? = { $0.text }
+    var tone: (ThemeColors) -> NSColor = { $0.text2 }
+    var hoverTone: ((ThemeColors) -> NSColor)? = { $0.text }
     var iconSize: CGFloat = 18
     fileprivate(set) var isHovered = false
     /// Access keys (Option tapped): the letter that presses this button, shown as a key cap.
@@ -169,7 +177,7 @@ final class ChromeButton: NSButton {
 final class ChromeButtonCell: NSButtonCell {
     override func draw(withFrame cellFrame: NSRect, in controlView: NSView) {
         guard let button = controlView as? ChromeButton else { return }
-        let p = Palette.current
+        let p = ThemeColors.current
         let hot = isEnabled && button.isHovered
         var tone = isEnabled ? button.tone(p) : p.faint
         if hot, let hover = button.hoverTone { tone = hover(p) }
@@ -225,13 +233,13 @@ final class AccentButton: NSButton {
     override func mouseExited(with event: NSEvent) { hovered = false; needsDisplay = true }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         if hovered || isHighlighted {
             fillRounded(bounds.insetBy(dx: 5, dy: 5), radius: 8, p.text.withAlpha(isHighlighted ? 0.14 : 0.08))
         }
         let r: CGFloat = 9 * (hovered || isOpen ? 1.14 : 1)
         let c = NSPoint(x: bounds.midX, y: bounds.midY)
-        func dot(_ radius: CGFloat, _ color: RGBA) {
+        func dot(_ radius: CGFloat, _ color: NSColor) {
             color.ns.setFill()
             NSBezierPath(ovalIn: NSRect(x: c.x - radius, y: c.y - radius, width: 2 * radius, height: 2 * radius)).fill()
         }
@@ -245,7 +253,8 @@ final class AccentButton: NSButton {
 }
 
 /// The 44 pt title bar (`.titlebar`): the window's traffic lights, the tabs, and the accent swatch at the
-/// right end. `--chrome` with a hairline under it. Dragging empty space moves the window.
+/// right end (D4 only: Native takes the accent from System Settings). `--chrome` with a hairline under
+/// it. Dragging empty space moves the window.
 final class TitleBarView: NSView, ThemeAware {
     let accentButton: AccentButton
 
@@ -259,21 +268,28 @@ final class TitleBarView: NSView, ThemeAware {
 
     override var isFlipped: Bool { true }
 
-    func themeDidChange() { accentButton.needsDisplay = true }
+    func themeDidChange() {
+        accentButton.needsDisplay = true
+        if accentButton.isHidden == ThemeController.shared.look.showsAccentSwatch { needsLayout = true }
+    }
 
-    /// Where the tabs go: after the lights (16 + 52) and the 20 pt of margin and gap, up to the swatch.
+    /// Where the tabs go: after the lights (16 + 52) and the 20 pt of margin and gap, up to the swatch,
+    /// or to the right edge when there is none.
     var tabsFrame: NSRect {
-        NSRect(x: 88, y: 0, width: max(0, accentButton.frame.minX - 10 - 88), height: bounds.height)
+        // The chassis asks before this view's own layout, so the look decides, not the button's state.
+        let end = ThemeController.shared.look.showsAccentSwatch ? bounds.width - 6 - 44 - 10 : bounds.width - 10
+        return NSRect(x: 88, y: 0, width: max(0, end - 88), height: bounds.height)
     }
 
     override func layout() {
         super.layout()
+        accentButton.isHidden = !ThemeController.shared.look.showsAccentSwatch
         accentButton.frame = NSRect(x: bounds.width - 6 - 44, y: 0, width: 44, height: 44)
         (window as? BrowserWindow)?.placeTrafficLights()
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         fillRect(bounds, p.chrome)
         fillRect(NSRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1), p.line)
     }

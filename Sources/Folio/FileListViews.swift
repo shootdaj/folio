@@ -262,7 +262,7 @@ final class FolioTableView: NSTableView {
         override var isFlipped: Bool { true }
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func draw(_ dirtyRect: NSRect) {
-            let p = Palette.current
+            let p = ThemeColors.current
             fillRect(bounds, p.selectionFill)
             p.accent.withAlpha(0.8).ns.setStroke()
             let path = NSBezierPath(rect: bounds.insetBy(dx: 0.5, dy: 0.5))
@@ -371,7 +371,7 @@ final class FolioHeaderView: NSTableHeaderView {
     private var font: NSFont { Typeface.mono(12, weight: 600) }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         guard let table = tableView else { return }
         fillRect(bounds, p.pane)
         fillRect(NSRect(x: 0, y: 0, width: bounds.width, height: ListMetrics.headerHeight), p.headBg)
@@ -390,12 +390,12 @@ final class FolioHeaderView: NSTableHeaderView {
         }
     }
 
-    private func drawHeader(_ title: String, key: SortKey, in rect: NSRect, hovered: Bool, _ p: Palette) {
+    private func drawHeader(_ title: String, key: SortKey, in rect: NSRect, hovered: Bool, _ p: ThemeColors) {
         let rank = rank(of: key)
         let primary = rank == 1
         let multi = sort.terms.count > 1
         let color = primary ? p.text : (rank != nil || hovered ? p.text2 : p.muted)
-        let label = title.uppercased()
+        let label = Typeface.caption(title)
         let kern = Typeface.headKern(12)
         if hovered {
             fillRounded(NSRect(x: rect.minX + 2, y: 4, width: rect.width - 4, height: ListMetrics.headerHeight - 8), radius: 5,
@@ -505,7 +505,7 @@ final class HeaderElement: NSAccessibilityElement {
 /// that folds the group, "Today (3)" in Geist 600 with the count in mono, and a hairline to the right edge.
 @MainActor
 enum GroupHeaderDrawing {
-    static func draw(title: String, count: Int, collapsed: Bool, hovered: Bool, in r: NSRect, lead: CGFloat, _ p: Palette) {
+    static func draw(title: String, count: Int, collapsed: Bool, hovered: Bool, in r: NSRect, lead: CGFloat, _ p: ThemeColors) {
         let mid = r.midY.rounded() + 2
         let chev = NSRect(x: lead, y: mid - 7, width: 14, height: 14)
         if hovered { fillRounded(r.insetBy(dx: 3, dy: 3), radius: 8, p.text.withAlpha(0.04)) }
@@ -551,7 +551,7 @@ final class GroupHeaderCellView: NSTableCellView {
 
     override func draw(_ dirtyRect: NSRect) {
         GroupHeaderDrawing.draw(title: title, count: count, collapsed: collapsed, hovered: hovered, in: bounds,
-                                lead: ListMetrics.rowLead + 6, Palette.current)
+                                lead: ListMetrics.rowLead + 6, ThemeColors.current)
     }
 }
 
@@ -570,7 +570,7 @@ final class FolioRowView: NSTableRowView {
     /// when drawing, so it follows the accent.
     struct Item: Equatable { let name: String; let isFolder: Bool }
     var item: Item? { didSet { if item != oldValue { needsDisplay = true } } }
-    private var hue: RGBA { item.map { Palette.current.typeHue(name: $0.name, isFolder: $0.isFolder) } ?? Palette.current.accent }
+    private var hue: NSColor { item.map { ThemeColors.current.typeHue(name: $0.name, isFolder: $0.isFolder) } ?? ThemeColors.current.accent }
     /// Where the pointer is over the row (the glow's centre).
     var pointer: NSPoint? { didSet { if isHovered && pointer != oldValue { needsDisplay = true } } }
     /// Explorer's focus rectangle, drawn when the keyboard focus (Ctrl+arrows) is on an unselected row.
@@ -593,7 +593,7 @@ final class FolioRowView: NSTableRowView {
 
     override func drawBackground(in dirtyRect: NSRect) {
         guard !isGroupRowStyle else { return }
-        let p = Palette.current
+        let p = ThemeColors.current
         let hue = self.hue
         if !isSelected {
             fillRect(NSRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1), p.rowLine)
@@ -614,7 +614,7 @@ final class FolioRowView: NSTableRowView {
 
     override func drawSelection(in dirtyRect: NSRect) {
         guard !isGroupRowStyle else { return }
-        let p = Palette.current
+        let p = ThemeColors.current
         fillRect(bounds, p.selectionFill)
         drawCursorGlow(in: bounds, center: glowCentre(), color: hue, alpha: p.glowAlpha)
         drawEdgeBar(NSRect(x: 0, y: 0, width: 3, height: bounds.height), color: p.accent, glowAlpha: 1)
@@ -626,7 +626,7 @@ final class FolioRowView: NSTableRowView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         guard isDropTarget else { return }
-        let p = Palette.current
+        let p = ThemeColors.current
         let r = bounds.insetBy(dx: 3, dy: 0.5)
         fillRounded(r, radius: 5, p.markFill)
         strokeRounded(r, radius: 5, p.accent)
@@ -710,7 +710,7 @@ final class NameCellView: NSTableCellView, RowCellView, ThemeAware, NSViewToolTi
 
     override func draw(_ dirtyRect: NSRect) {
         guard let entry else { return }
-        let p = Palette.current
+        let p = ThemeColors.current
         let mid = bounds.midY
         let hovered = (superview as? FolioRowView)?.isHovered ?? false
         if showsCheckbox && (selected || hovered) {
@@ -759,7 +759,7 @@ final class NameCellView: NSTableCellView, RowCellView, ThemeAware, NSViewToolTi
 /// Finder's tag dots: one per colour, overlapping a little, each ringed in the row's background.
 @MainActor
 enum TagDots {
-    static func color(_ c: TagColor, _ p: Palette) -> RGBA {
+    static func color(_ c: TagColor, _ p: ThemeColors) -> NSColor {
         switch c {
         case .red: return p.miss
         case .orange: return p.hue(.orange)
@@ -773,7 +773,7 @@ enum TagDots {
 
     /// Returns the width drawn.
     @discardableResult
-    static func draw(_ colors: [TagColor], x: CGFloat, midY: CGFloat, _ p: Palette, size: CGFloat = 8) -> CGFloat {
+    static func draw(_ colors: [TagColor], x: CGFloat, midY: CGFloat, _ p: ThemeColors, size: CGFloat = 8) -> CGFloat {
         let shown = Array(colors.prefix(3))
         for (i, c) in shown.enumerated().reversed() {
             let r = NSRect(x: x + CGFloat(i) * (size - 3), y: (midY - size / 2).rounded(), width: size, height: size)
@@ -785,7 +785,7 @@ enum TagDots {
 
     /// A menu item's coloured dot.
     static func image(_ c: TagColor) -> NSImage {
-        let p = Palette.current
+        let p = ThemeColors.current
         return NSImage(size: NSSize(width: 12, height: 12), flipped: false) { r in
             fillRounded(r.insetBy(dx: 1, dy: 1), radius: 5, color(c, p))
             return true
@@ -821,7 +821,7 @@ final class TextCellView: NSTableCellView, RowCellView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         if isCut { NSGraphicsContext.current?.cgContext.setAlpha(0.45) }
         let font = mono ? Typeface.mono(12) : Typeface.ui(13)
         if pending && text.isEmpty {
@@ -931,7 +931,7 @@ final class ListPaneView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         fillRect(bounds, p.pane)
         if mode == .gallery {
             fillRect(NSRect(x: 0, y: gridScroll.frame.minY - 1, width: bounds.width, height: 1), p.line)
@@ -945,7 +945,7 @@ final class ListPaneView: NSView {
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func draw(_ dirtyRect: NSRect) {
             guard lit else { return }
-            let p = Palette.current
+            let p = ThemeColors.current
             fillRect(bounds, p.accentSoft.withAlpha(p.accentSoft.a / 2))
             strokeRounded(bounds.insetBy(dx: 1, dy: 1), radius: 8, p.accent, width: 2)
         }

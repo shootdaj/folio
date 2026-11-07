@@ -341,7 +341,7 @@ extension BrowserWindowController {
         let bar = chassis.searchOptions
         let text = history.search?.text ?? toolbar.search.text
         let menu = NSMenu(title: chip.title)
-        menu.font = Typeface.mono(13)
+        menu.font = Typeface.menu()
         menu.autoenablesItems = false
         if chip === bar.date {
             let current = SearchBoxText.value(of: .modified, in: text)?.lowercased()

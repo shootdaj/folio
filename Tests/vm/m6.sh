@@ -39,6 +39,8 @@
 set -u
 
 APP="$HOME/folio/Folio.app"
+# These scripts check the D4 Obsidian look (View > Theme); the app's default is Native.
+defaults write com.anshul.folio lookTheme obsidian
 SHOTS="$HOME/folio/shots"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 ROOT="/private/tmp/folio-tests/m6-$STAMP"

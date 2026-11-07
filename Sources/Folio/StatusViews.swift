@@ -64,7 +64,7 @@ final class StatusBarView: NSView {
     private var numberFont: NSFont { Typeface.mono(12, weight: 500) }
 
     /// "28 items, 1 selected": the digit runs in Geist Mono in the text colour, the words in muted Geist.
-    private func countString(_ text: String, _ p: Palette) -> NSAttributedString {
+    private func countString(_ text: String, _ p: ThemeColors) -> NSAttributedString {
         let out = NSMutableAttributedString()
         var run = "", runIsNumber = false
         func flush() {
@@ -87,12 +87,12 @@ final class StatusBarView: NSView {
 
     /// Left block: padding 6 + 10, the 6 pt light, gap 6, the count; then the selected name in its own
     /// segment and the job chip.
-    private var countEnd: CGFloat { 16 + 6 + 6 + ceil(countString(leftText, Palette.current).size().width) + 10 }
+    private var countEnd: CGFloat { 16 + 6 + 6 + ceil(countString(leftText, ThemeColors.current).size().width) + 10 }
 
     private struct Segment { var x: CGFloat; var width: CGFloat }
 
     /// The right-hand segments, right to left: view toggle, volume, sort (each 10 pt padded, a hairline before).
-    private func rightSegments(_ p: Palette) -> (sort: Segment?, volume: Segment?, view: Segment?) {
+    private func rightSegments(_ p: ThemeColors) -> (sort: Segment?, volume: Segment?, view: Segment?) {
         guard let r = readout else { return (nil, nil, nil) }
         var x = bounds.width - 6
         let viewW = viewToggle.fit()
@@ -112,7 +112,7 @@ final class StatusBarView: NSView {
     override func layout() {
         super.layout()
         light.place(dotAt: NSPoint(x: 16, y: ((bounds.height + 1) / 2 - 3).rounded()))
-        let segs = rightSegments(Palette.current)
+        let segs = rightSegments(ThemeColors.current)
         if let v = segs.view { viewToggle.frame = NSRect(x: v.x, y: 1, width: v.width, height: bounds.height - 1) }
         var x = countEnd
         if let sel = readout?.selected { x += 10 + textWidth(sel, font: wordFont) + 10 }
@@ -120,7 +120,7 @@ final class StatusBarView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         fillRect(bounds, p.chrome)
         fillRect(NSRect(x: 0, y: 0, width: bounds.width, height: 1), p.line)
         let mid = (bounds.height + 1) / 2
@@ -197,7 +197,7 @@ final class StatusViewToggle: NSButton {
     override func mouseExited(with event: NSEvent) { hovered = false; needsDisplay = true }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         let tone = hovered ? p.text : p.muted
         if hovered || isHighlighted { fillRounded(bounds.insetBy(dx: 2, dy: 3), radius: 5, p.text.withAlpha(isHighlighted ? 0.12 : 0.06)) }
         let mid = bounds.midY
@@ -257,7 +257,7 @@ final class StatusChip: NSButton {
     override func mouseExited(with event: NSEvent) { hovered = false; needsDisplay = true }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         fillRounded(bounds, radius: 10, hovered ? p.accent.withAlpha(0.24) : p.accentSoft)
         drawLine(text, font: labelFont, color: p.text, x: 8 + 7 + 8, midY: bounds.midY)
     }

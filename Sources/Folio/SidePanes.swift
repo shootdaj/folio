@@ -49,7 +49,7 @@ final class QuickLookBox: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         guard preview == nil || preview?.isHidden == true else { return }
-        let p = Palette.current
+        let p = ThemeColors.current
         drawLine(message, font: Typeface.ui(13), color: p.text2, x: bounds.midX - textWidth(message, font: Typeface.ui(13)) / 2,
                  midY: bounds.midY, maxWidth: bounds.width - 24)
     }
@@ -206,7 +206,7 @@ final class SidePaneView: NSView, NSTextFieldDelegate {
     private static let rowH: CGFloat = 21
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         fillRect(bounds, p.side)
         fillRect(NSRect(x: 0, y: 0, width: 1, height: bounds.height), p.line)
         fillRect(NSRect(x: 1, y: Self.headerH - 1, width: bounds.width - 1, height: 1), p.line)
@@ -236,7 +236,7 @@ final class SidePaneView: NSView, NSTextFieldDelegate {
                  midY: ty + 20, maxWidth: bounds.width - 28)
         if entry != nil {
             for field in [tags, comments] where !field.isHidden {
-                drawLine(field.label.uppercased(), font: Typeface.ui(11, weight: 650), color: p.text2, x: 14,
+                drawLine(Typeface.caption(field.label), font: Typeface.ui(11, weight: 650), color: p.text2, x: 14,
                          midY: field.frame.minY - 9, kern: 0.5)
             }
             fillRect(NSRect(x: 14, y: detailsTop - 8, width: bounds.width - 28, height: 1), p.line)
@@ -282,7 +282,7 @@ final class PaneField: NSView {
         field.drawsBackground = false
         field.focusRingType = .none
         field.font = Typeface.mono(12)
-        field.textColor = Palette.current.text.ns
+        field.textColor = ThemeColors.current.text.ns
         field.placeholderString = label == "Tags" ? "Add tags, separated by commas" : "Add a comment"
         field.setAccessibilityLabel(label)
         field.cell?.wraps = label != "Tags"
@@ -309,11 +309,11 @@ final class PaneField: NSView {
     override func layout() {
         super.layout()
         field.frame = bounds.insetBy(dx: 8, dy: 6)
-        field.textColor = Palette.current.text.ns
+        field.textColor = ThemeColors.current.text.ns
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         fillRounded(bounds, radius: 4, p.s2)
         strokeRounded(bounds, radius: 4, isEditing ? p.accent : p.line2)
     }

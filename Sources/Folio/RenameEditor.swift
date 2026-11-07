@@ -34,7 +34,7 @@ final class RenameEditor: NSObject, NSTextFieldDelegate {
         let width = max(120, min(max(cell.maxX - x, 120), want)) + 6
         box.frame = NSRect(x: x, y: (cell.midY - 14).rounded(), width: width, height: 28)
         box.field.font = font
-        box.field.textColor = Palette.current.text.ns
+        box.field.textColor = ThemeColors.current.text.ns
         box.field.stringValue = entry.name
         box.field.delegate = self
         box.field.setAccessibilityLabel("Rename " + entry.name)
@@ -42,7 +42,7 @@ final class RenameEditor: NSObject, NSTextFieldDelegate {
         self.row = row
         table.window?.makeFirstResponder(box.field)
         if let editor = box.field.currentEditor() as? NSTextView {
-            let p = Palette.current
+            let p = ThemeColors.current
             editor.insertionPointColor = p.accent.ns
             editor.selectedTextAttributes = [.backgroundColor: p.markFill.ns]
             let r = FileNaming.baseNameRange(entry.name, isFolder: entry.isFolder)
@@ -121,7 +121,7 @@ final class RenameBox: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         strokeRounded(bounds, radius: 8, p.accentSoft, width: 3)
         let field = bounds.insetBy(dx: 3, dy: 3)
         fillRounded(field, radius: 5, p.s1)

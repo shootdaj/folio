@@ -57,7 +57,7 @@ final class OSButton: NSButton {
     override func mouseExited(with event: NSEvent) { hovered = false; needsDisplay = true }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         let enabled = isEnabled
         let hot = enabled && hovered
         // `:active { transform: scale(.97) }`
@@ -132,7 +132,7 @@ final class OSCheck: NSButton {
     func fit() -> CGFloat { 14 + 8 + textWidth(title, font: labelFont) + 2 }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         let box = NSRect(x: 0, y: (bounds.height - 14) / 2, width: 14, height: 14)
         // Greyed when it cannot change (Choose details' Name).
         if !isEnabled { NSGraphicsContext.current?.cgContext.setAlpha(0.5) }
@@ -145,7 +145,7 @@ final class OSCheck: NSButton {
 /// The check box drawing shared by OSCheck, the list's item check boxes and the header box.
 @MainActor
 enum CheckBox {
-    static func draw(in box: NSRect, on: Bool, mixed: Bool, _ p: Palette) {
+    static func draw(in box: NSRect, on: Bool, mixed: Bool, _ p: ThemeColors) {
         if on || mixed {
             fillRounded(box, radius: 4, p.accent)
             let path = NSBezierPath()

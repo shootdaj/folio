@@ -124,7 +124,7 @@ final class GridCellView: NSView, NSViewToolTipOwner {
 
     override func draw(_ dirtyRect: NSRect) {
         guard let entry else { return }
-        let p = Palette.current
+        let p = ThemeColors.current
         let r = bounds.insetBy(dx: 2, dy: 2)
         if isSelected {
             fillRounded(r, radius: 8, p.selectionFill)
@@ -151,7 +151,7 @@ final class GridCellView: NSView, NSViewToolTipOwner {
         NSGraphicsContext.restoreGraphicsState()
     }
 
-    private func drawIcon(_ entry: FileEntry, _ p: Palette) {
+    private func drawIcon(_ entry: FileEntry, _ p: ThemeColors) {
         let icon = iconRect
         if let thumbnail {
             // Fit inside the square, centred on its bottom edge like Explorer's thumbnails.
@@ -179,7 +179,7 @@ final class GridCellView: NSView, NSViewToolTipOwner {
         }
     }
 
-    private func drawText(_ entry: FileEntry, _ p: Palette) {
+    private func drawText(_ entry: FileEntry, _ p: ThemeColors) {
         let name = entry.displayName(extensions: showsExtension)
         let tone = isSelected ? p.accent : p.text
         let font = Typeface.ui(13, weight: isSelected ? 600 : 400)
@@ -279,7 +279,7 @@ final class GridGroupHeader: NSView, NSCollectionViewElement {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        GroupHeaderDrawing.draw(title: title, count: count, collapsed: collapsed, hovered: hovered, in: bounds, lead: 8, Palette.current)
+        GroupHeaderDrawing.draw(title: title, count: count, collapsed: collapsed, hovered: hovered, in: bounds, lead: 8, ThemeColors.current)
     }
 }
 
@@ -659,7 +659,7 @@ final class FileGridView: NSCollectionView {
         override var isFlipped: Bool { true }
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func draw(_ dirtyRect: NSRect) {
-            let p = Palette.current
+            let p = ThemeColors.current
             fillRect(bounds, p.selectionFill)
             p.accent.withAlpha(0.8).ns.setStroke()
             let path = NSBezierPath(rect: bounds.insetBy(dx: 0.5, dy: 0.5))
