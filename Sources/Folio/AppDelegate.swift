@@ -96,6 +96,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case #selector(reopenClosedTab(_:)): return closedTabs.count > 0
         case #selector(tileWindows(_:)): return !windows.isEmpty
         case #selector(toggleFolderHandler(_:)): item.state = SystemSettings.foldersOpenInFolio ? .on : .off
+        case #selector(toggleRevealsInFolio(_:)): item.state = SystemSettings.revealsInFolio ? .on : .off
         case #selector(toggleLaunchAtLogin(_:)): item.state = SystemSettings.launchesAtLogin ? .on : .off
         case #selector(toggleKeepRunning(_:)): item.state = ListOptions.folder.keepRunning ? .on : .off
         case #selector(setLookTheme(_:)): item.state = item.representedObject as? String == ThemeController.shared.look.rawValue ? .on : .off
@@ -126,7 +127,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 openSavedSearch(saved)
                 continue
             }
-            open(FolioRequest(path: url.path))
+            // A folder revealed from another app shows selected in its parent, as Finder does. A file
+            // always shows selected in its folder.
+            let isFolder = Self.kind(url.path) == .folder
+            open(FolioRequest(path: url.path, select: isFolder && SystemSettings.isReveal(url)))
         }
         NSApp.activate()
     }
@@ -399,6 +403,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         alert.messageText = report.headline
         alert.informativeText = report.details + "\n\n" + report.note
         alert.alertStyle = report.allAccepted ? .informational : .warning
+        alert.addButton(withTitle: "OK")
+        if let window {
+            alert.beginSheetModal(for: window) { _ in MainActor.assumeIsolated { done?() } }
+        } else {
+            alert.runModal()
+            done?()
+        }
+    }
+
+    /// Reveal in Folio instead of Finder: the NSFileViewer default. An alert shows only when macOS did
+    /// not keep it, or when another app had it before.
+    @objc func toggleRevealsInFolio(_ sender: Any?) {
+        setRevealsInFolio(!SystemSettings.revealsInFolio, sheetOn: nil)
+    }
+
+    func setRevealsInFolio(_ on: Bool, sheetOn window: NSWindow?, done: (() -> Void)? = nil) {
+        let report = SystemSettings.setRevealsInFolio(on)
+        let text: (String, String)?
+        if let problem = report.problem {
+            text = (on ? "Reveals from other apps were not moved to Folio" : "Reveals from other apps were not moved back to Finder", problem)
+        } else if let replaced = report.replaced {
+            text = ("Reveals from other apps now go to Folio",
+                    "Before, they went to \(DefaultFolderHandler.appName(replaced)). Turn this off to send them to Finder.")
+        } else {
+            text = nil
+        }
+        guard let (title, info) = text else { done?(); return }
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = info
+        alert.alertStyle = report.problem == nil ? .informational : .warning
         alert.addButton(withTitle: "OK")
         if let window {
             alert.beginSheetModal(for: window) { _ in MainActor.assumeIsolated { done?() } }

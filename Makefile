@@ -78,5 +78,6 @@ install-cli:
 uninstall:
 	@if pgrep -x Folio >/dev/null; then echo "Quit Folio first (Cmd+Q)."; exit 1; fi
 	@if [ -d /Applications/Folio.app ]; then $(LSREGISTER) -u /Applications/Folio.app; mv /Applications/Folio.app "$$HOME/.Trash/Folio-$$(date +%Y%m%d-%H%M%S).app"; fi
+	@if [ "$$(defaults read -g NSFileViewer 2>/dev/null)" = "com.anshul.folio" ]; then defaults delete -g NSFileViewer; echo "reveals from other apps go to Finder again"; fi
 	@for f in /usr/local/bin/ff "$$HOME/bin/ff"; do if [ -f "$$f" ]; then mv "$$f" "$$HOME/.Trash/ff-$$(date +%Y%m%d-%H%M%S)"; echo "moved $$f to the Trash"; fi; done
 	@echo "Folio removed (its settings stay in ~/Library/Preferences/com.anshul.folio.plist and ~/Library/Application Support/Folio)"

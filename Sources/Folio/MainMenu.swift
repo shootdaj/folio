@@ -18,6 +18,7 @@ enum MainMenu {
             .separator(),
             // Milestone 9: Folio and macOS (also in View > Options > General).
             item("Open Folders in Folio Instead of Finder", #selector(AppDelegate.toggleFolderHandler(_:))),
+            item("Reveal in Folio Instead of Finder", #selector(AppDelegate.toggleRevealsInFolio(_:))),
             item("Launch at Login", #selector(AppDelegate.toggleLaunchAtLogin(_:))),
             item("Keep Running When the Last Window Closes", #selector(AppDelegate.toggleKeepRunning(_:))),
             item("Full Disk Access...", #selector(AppDelegate.openFullDiskAccess(_:))),

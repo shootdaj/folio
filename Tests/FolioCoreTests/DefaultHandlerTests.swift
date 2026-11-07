@@ -10,6 +10,8 @@ import Testing
         var handlers: [String: String]
         var refuses: Set<String> = []
         var ignoresSilently: Set<String> = []
+        /// macOS 26: a protected type keeps its handler and returns -50 for every app, Finder too.
+        var protected: Set<String> = []
         var asked: [(String, String)] = []
 
         init(_ handlers: [String: String] = ["public.folder": "com.apple.finder"]) { self.handlers = handlers }
@@ -18,6 +20,7 @@ import Testing
 
         func setDefaultHandler(_ bundleID: String, for contentType: String) -> Int32 {
             asked.append((contentType, bundleID))
+            if protected.contains(contentType) { return -50 }
             if refuses.contains(contentType) { return -54 }
             if !ignoresSilently.contains(contentType) { handlers[contentType] = bundleID }
             return 0
@@ -56,6 +59,34 @@ import Testing
         let report = DefaultFolderHandler.apply(on: true, bundleID: "com.anshul.folio", registry: reg)
         #expect(report.headline == "macOS opens folders in Folio but kept drives on another app")
         #expect(report.details.contains("Drives (public.volume): asked for Folio, macOS still reports no app"))
+    }
+
+    /// Measured on macOS 26.4.1: public.folder returns -50 (paramErr) for every app, and the log says
+    /// "scheme or content type is protected". public.volume still changes.
+    @Test func aProtectedFolderTypeIsExplainedNotShownAsABareError() {
+        let reg = FakeRegistry(["public.folder": "com.apple.finder", "public.volume": "com.apple.finder"])
+        reg.protected = ["public.folder"]
+        let report = DefaultFolderHandler.apply(on: true, bundleID: "com.anshul.folio", registry: reg)
+        #expect(report.lines[0].protected)
+        #expect(!report.lines[1].protected)
+        #expect(report.headline == "macOS opens drives in Folio, but it does not let apps open folders")
+        #expect(report.details.contains("Folders (public.folder): macOS keeps Finder."))
+        #expect(report.details.contains("only Finder can change it (error -50)"))
+        #expect(report.details.contains("Drives (public.volume): Folio"))
+        #expect(!report.details.contains("asked for Folio"))
+    }
+
+    @Test func drivesInFolioCountAsOnSoTheBoxCanTurnThemOffAgain() {
+        let reg = FakeRegistry(["public.folder": "com.apple.finder", "public.volume": "com.apple.finder"])
+        reg.protected = ["public.folder"]
+        _ = DefaultFolderHandler.apply(on: true, bundleID: "com.anshul.folio", registry: reg)
+        #expect(DefaultFolderHandler.isFolio(bundleID: "com.anshul.folio", registry: reg))
+
+        let off = DefaultFolderHandler.apply(on: false, bundleID: "com.anshul.folio", registry: reg)
+        #expect(off.allAccepted, "Finder keeps folders, and drives go back to Finder")
+        #expect(off.headline == "macOS opens folders and drives in Finder again")
+        #expect(reg.handlers["public.volume"] == "com.apple.finder")
+        #expect(!DefaultFolderHandler.isFolio(bundleID: "com.anshul.folio", registry: reg))
     }
 
     @Test func turningItOffHandsFoldersBackToFinder() {

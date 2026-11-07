@@ -44,6 +44,39 @@ enum SystemSettings {
         DefaultFolderHandler.apply(on: on, bundleID: bundleID, registry: LaunchServices())
     }
 
+    /// The global domain (`defaults write -g`), as FolioCore's FileViewerSetting sees it.
+    struct GlobalPreferences: GlobalDefaults {
+        func string(for key: String) -> String? {
+            CFPreferencesCopyValue(key as CFString, kCFPreferencesAnyApplication, kCFPreferencesCurrentUser,
+                                   kCFPreferencesAnyHost) as? String
+        }
+
+        func set(_ value: String?, for key: String) {
+            CFPreferencesSetValue(key as CFString, value as CFString?, kCFPreferencesAnyApplication,
+                                  kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
+            CFPreferencesSynchronize(kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
+        }
+    }
+
+    /// Reveal in Folio instead of Finder: NSFileViewer names Folio.
+    static var revealsInFolio: Bool { FileViewerSetting.isFolio(bundleID: bundleID, defaults: GlobalPreferences()) }
+
+    static func setRevealsInFolio(_ on: Bool) -> FileViewerReport {
+        FileViewerSetting.apply(on: on, bundleID: bundleID, defaults: GlobalPreferences())
+    }
+
+    /// Whether a folder in the open-documents event AppKit is handling now is a reveal from another app.
+    static func isReveal(_ folder: URL) -> Bool {
+        let event = NSAppleEventManager.shared().currentAppleEvent
+        let pid = event?.attributeDescriptor(forKeyword: AEKeyword(keySenderPIDAttr))?.int32Value
+        let sender = pid.flatMap { NSRunningApplication(processIdentifier: $0)?.bundleIdentifier }
+        // /Volumes/Macintosh HD is a symlink to /, and isVolume is false for the link itself.
+        let isVolumeRoot = (try? folder.resolvingSymlinksInPath().resourceValues(forKeys: [.isVolumeKey]))?.isVolume ?? false
+        return FileViewerSetting.isReveal(sender: sender, ownBundleID: bundleID,
+                                          fileViewer: GlobalPreferences().string(for: FileViewerSetting.key),
+                                          isVolumeRoot: isVolumeRoot)
+    }
+
     static var launchesAtLogin: Bool { SMAppService.mainApp.status == .enabled }
 
     /// Nil when macOS did it; otherwise what went wrong, in words.

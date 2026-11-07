@@ -9,6 +9,13 @@ pushed; the release workflow publishes the section below with that number as the
 
 ### Added
 
+- **Reveal in Folio instead of Finder.** A new box in the Folio menu and in View > Options... >
+  General > Folio and macOS. It sets the `NSFileViewer` default to Folio, so "Reveal in Finder" and
+  "Show in Finder" in other apps show the item in Folio. A revealed folder shows selected in its parent,
+  as in Finder. A folder from a command-line tool, the Dock, Finder or a drive's root still opens the
+  folder itself. Turning the box off sends reveals to Finder again, and `make uninstall` removes the key.
+  See docs/INSTALL.md section 5.
+
 - **View > Theme: Native and D4 Obsidian.** Native is the new default and follows macOS: SF Pro, the
   system colours (light, dark and Increase Contrast follow the Mac), and the accent and highlight
   colours from System Settings > Appearance, so the title bar's accent swatch is hidden. Labels keep
@@ -53,6 +60,12 @@ pushed; the release workflow publishes the section below with that number as the
   longer starts with the author's own `Anshul/Code` folder. Saved pins do not change.
 
 ### Fixed
+
+- **Open Folders in Folio says why macOS 26 keeps folders on Finder.** macOS 26 protects the default
+  app for folders (`public.folder`) and refuses it with error -50 for every app. Folio now says that
+  macOS protects the setting and that only Finder can change it, in place of a bare "error -50". Drives
+  still open in Folio. The box now shows on while drives open in Folio, so a second click hands them
+  back to Finder. Before, the box stayed off, and a click only asked for Folio again.
 
 - **A drag no longer sticks when Mission Control takes the mouse-up.** Dragging files, a marquee
   selection, resizing the navigation pane or the search box, and the date filter's calendar now stop

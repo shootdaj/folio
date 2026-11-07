@@ -46,6 +46,7 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
     /// General's two boxes that change macOS itself at once (not on OK): they show what the Mac reports.
     private var folderHandlerBox: OSCheck?
     private var loginItemBox: OSCheck?
+    private var revealBox: OSCheck?
 
     private init() {
         // 860 wide: General's two columns (milestone 9 added Folio and macOS) fit a 1024 pt screen.
@@ -100,6 +101,7 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
         controls = []
         folderHandlerBox = nil
         loginItemBox = nil
+        revealBox = nil
         let w = content.bounds.width, h = content.bounds.height
         header.frame = NSRect(x: 0, y: 0, width: w, height: 44)
         var x: CGFloat = 24
@@ -195,17 +197,22 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
         group("Privacy", at: &right, column: 1, rows: [(check("Show recently used files", .showRecentFiles), 0),
                                                        (check("Show frequently used folders", .showFrequentFolders), 0),
                                                        (clearRow, 0)])
-        // Milestone 9. The first and last change macOS at once and show what it reports; the rest wait for OK.
+        // Milestone 9. The first two and the last change macOS at once and show what it reports; the rest wait for OK.
         let handler = OSCheck("Open folders in Folio instead of Finder")
         handler.toolTip = "Asks macOS to open folders and drives in Folio, then says what macOS kept"
         handler.onToggle = { [weak self] on in self?.setFolderHandler(on) }
         folderHandlerBox = handler
+        let reveal = OSCheck("Reveal in Folio instead of Finder")
+        reveal.toolTip = "\"Reveal in Finder\" and \"Show in Finder\" in other apps show the item in Folio (the NSFileViewer setting)"
+        reveal.onToggle = { [weak self] on in self?.setReveals(on) }
+        revealBox = reveal
         let login = OSCheck("Launch Folio at login")
         login.toolTip = "Adds Folio to your login items (System Settings > General > Login Items)"
         login.onToggle = { [weak self] on in self?.setLoginItem(on) }
         loginItemBox = login
         group("Folio and macOS", at: &right, column: 1, rows: [
             (handler, 0),
+            (reveal, 0),
             (check("Open external folder links in a new tab", .externalFoldersInNewTab,
                    note: "Folders from ff and other apps open as a tab in the front window"), 0),
             (check("Reopen windows and tabs on relaunch", .reopenWindows), 0),
@@ -217,6 +224,11 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
     private func setFolderHandler(_ on: Bool) {
         guard let app = NSApp.delegate as? AppDelegate else { return }
         app.setFolderHandler(on: on, sheetOn: window) { [weak self] in self?.refresh() }
+    }
+
+    private func setReveals(_ on: Bool) {
+        guard let app = NSApp.delegate as? AppDelegate else { return }
+        app.setRevealsInFolio(on, sheetOn: window) { [weak self] in self?.refresh() }
     }
 
     private func setLoginItem(_ on: Bool) {
@@ -277,6 +289,7 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
             if let r = control as? OSRadio { r.isSelected = draft.isOn(setting) }
         }
         folderHandlerBox?.isChecked = SystemSettings.foldersOpenInFolio
+        revealBox?.isChecked = SystemSettings.revealsInFolio
         loginItemBox?.isChecked = SystemSettings.launchesAtLogin
         apply.isEnabled = draft != ListOptions.folder
     }
