@@ -4,8 +4,10 @@ import ImageIO
 import Testing
 @testable import FolioCore
 
-/// The Dock icon: a frosted white glass folder (two sheets seen through its front) on a cyan-to-blue
-/// ground, drawn full bleed at every size an iconset needs (iconutil makes Folio.icns from them).
+/// The Dock icon: three folder-shaped glass leaves, fanned like cards. The light look has a blue front leaf
+/// on a white tile, the dark look a white front leaf on a graphite tile. Both are drawn full bleed: the
+/// iconset (iconutil makes Folio.icns) and the Icon Composer file (actool makes Assets.car, which macOS 26
+/// switches with the icon style).
 @Suite struct AppIconTests {
     /// The pixel at (x, y) in 1024-unit icon coordinates, y up (as AppIcon draws).
     private func pixel(_ image: CGImage, _ x: CGFloat, _ y: CGFloat) -> (r: Int, g: Int, b: Int, a: Int) {
@@ -44,8 +46,8 @@ import Testing
     /// 32 px (tested on macOS 26.4). The picture is opaque to every edge at every size; macOS cuts its own
     /// shape and adds the rim and the shadow.
     @Test func everySizeIsOpaqueToTheEdges() throws {
-        for pixels in [16, 32, 64, 128, 256, 512, 1024] {
-            let image = try #require(AppIcon.render(pixels: pixels))
+        for look in AppIcon.Look.allCases { for pixels in [16, 32, 64, 128, 256, 512, 1024] {
+            let image = try #require(AppIcon.render(pixels: pixels, look: look))
             let step = AppIcon.canvas / CGFloat(pixels)
             var clear: [CGPoint] = []
             for i in 0..<pixels {
@@ -56,9 +58,9 @@ import Testing
                     clear.append(p)
                 }
             }
-            #expect(clear.isEmpty, "the edge is opaque at \(pixels) px; clear at \(clear.prefix(3))")
+            #expect(clear.isEmpty, "the \(look) edge is opaque at \(pixels) px; clear at \(clear.prefix(3))")
             #expect(pixel(image, 512, 512).a == 255)
-        }
+        } }
     }
 
     /// Outside the bundle (`swift run`) nothing masks the picture, so the Dock gets it in the tile:
@@ -95,27 +97,75 @@ import Testing
         #expect(shape.contains(CGPoint(x: b.midX, y: b.midY)))
     }
 
-    @Test func aWhiteGlassFolderOnABlueGround() throws {
+    /// The light look: a white tile, a blue front leaf, a cyan leaf on the left and a pink one on the right.
+    @Test func theLightLookIsABlueLeafOnAWhiteTile() throws {
         for pixels in [1024, 256, 64, 32, 16] {
-            let image = try #require(AppIcon.render(pixels: pixels))
+            let image = try #require(AppIcon.render(pixels: pixels, look: .light))
             for (x, y) in [(40.0, 40.0), (984.0, 984.0), (512.0, 990.0)] {
-                let ground = pixel(image, x, y)
-                #expect(ground.b > 200 && ground.b > ground.r + 90, "blue ground at (\(x), \(y)), \(pixels) px: \(ground)")
+                let tile = pixel(image, x, y)
+                #expect(min(tile.r, tile.g, tile.b) > 220 && max(tile.r, tile.g, tile.b) - min(tile.r, tile.g, tile.b) < 16,
+                        "white tile at (\(x), \(y)), \(pixels) px: \(tile)")
             }
-            let glass = pixel(image, AppIcon.glassMark.x, AppIcon.glassMark.y)
-            #expect(glass.r > 170 && glass.g > 200 && glass.b > 230 && glass.b >= glass.r,
-                    "white glass front at \(pixels) px: \(glass)")
+            let front = pixel(image, AppIcon.frontMark.x, AppIcon.frontMark.y)
+            #expect(front.b > 220 && front.b > front.r + 80, "blue front leaf at \(pixels) px: \(front)")
+            guard pixels >= 32 else { continue }
+            let left = pixel(image, AppIcon.leftMark.x, AppIcon.leftMark.y)
+            #expect(left.b > 200 && left.g > 150 && left.r < 170, "cyan left leaf at \(pixels) px: \(left)")
+            let right = pixel(image, AppIcon.rightMark.x, AppIcon.rightMark.y)
+            #expect(right.r > 170 && right.b > 180 && right.g < 170, "pink right leaf at \(pixels) px: \(right)")
         }
-        let large = try #require(AppIcon.render(pixels: 512))
-        let sheet = pixel(large, AppIcon.sheetMark.x, AppIcon.sheetMark.y)
-        #expect(sheet.r > 225 && sheet.g > 225 && sheet.b > 235, "the white sheet above the glass: \(sheet)")
     }
 
-    @Test func thePictureInTheRepoIsTheOneTheRendererDraws() throws {
+    /// The dark look: a graphite tile and a white front leaf between the same cyan and pink leaves.
+    @Test func theDarkLookIsAWhiteLeafOnAGraphiteTile() throws {
+        for pixels in [1024, 256, 64, 32, 16] {
+            let image = try #require(AppIcon.render(pixels: pixels, look: .dark))
+            for (x, y) in [(40.0, 40.0), (984.0, 984.0), (512.0, 990.0)] {
+                let tile = pixel(image, x, y)
+                #expect(max(tile.r, tile.g, tile.b) < 70, "graphite tile at (\(x), \(y)), \(pixels) px: \(tile)")
+            }
+            let front = pixel(image, AppIcon.frontMark.x, AppIcon.frontMark.y)
+            #expect(min(front.r, front.g, front.b) > 200, "white front leaf at \(pixels) px: \(front)")
+            guard pixels >= 32 else { continue }
+            let left = pixel(image, AppIcon.leftMark.x, AppIcon.leftMark.y)
+            #expect(left.b > 180 && left.g > 130 && left.r < 170, "cyan left leaf at \(pixels) px: \(left)")
+            let right = pixel(image, AppIcon.rightMark.x, AppIcon.rightMark.y)
+            #expect(right.r > 160 && right.b > 160 && right.g < 160, "pink right leaf at \(pixels) px: \(right)")
+        }
+    }
+
+    /// The Icon Composer file: one 1024 picture for each look, the dark one used in macOS 26's dark icon
+    /// style, and no glass, shadow or specular of the system's own on top of a picture that has them.
+    @Test func theIconComposerFileHasALightAndADarkPicture() throws {
+        let dir = URL(fileURLWithPath: "/private/tmp/folio-tests/icon-\(UUID().uuidString)/AppIcon.icon", isDirectory: true)
+        defer { try? FileManager.default.trashItem(at: dir.deletingLastPathComponent(), resultingItemURL: nil) }
+        try AppIcon.writeIconFile(to: dir)
+        let json = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: dir.appendingPathComponent("icon.json"))) as? [String: Any])
+        let group = try #require((json["groups"] as? [[String: Any]])?.first)
+        let layer = try #require((group["layers"] as? [[String: Any]])?.first)
+        #expect(layer["image-name"] == nil, "a plain image-name makes actool ignore the dark picture")
+        let names = try #require(layer["image-name-specializations"] as? [[String: String]])
+        #expect(names.contains { $0["appearance"] == nil && $0["value"] == "light.png" })
+        #expect(names.contains { $0["appearance"] == "dark" && $0["value"] == "dark.png" })
+        #expect(layer["glass"] as? Bool == false)
+        #expect(group["specular"] as? Bool == false)
+        #expect((group["shadow"] as? [String: Any])?["kind"] as? String == "none")
+        for (name, look) in [("light.png", AppIcon.Look.light), ("dark.png", .dark)] {
+            let source = try #require(CGImageSourceCreateWithURL(dir.appendingPathComponent("Assets/\(name)") as CFURL, nil))
+            let image = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
+            #expect(image.width == 1024 && image.height == 1024, "\(name) is 1024 px")
+            let drawn = try #require(AppIcon.render(pixels: 1024, look: look))
+            let a = pixel(image, AppIcon.frontMark.x, AppIcon.frontMark.y), b = pixel(drawn, AppIcon.frontMark.x, AppIcon.frontMark.y)
+            #expect(a.r == b.r && a.g == b.g && a.b == b.b, "\(name) is the \(look) picture")
+        }
+    }
+
+    @Test(arguments: [("Resources/AppIcon.png", AppIcon.Look.light), ("Resources/AppIcon-dark.png", .dark)])
+    func thePicturesInTheRepoAreTheOnesTheRendererDraws(file: String, look: AppIcon.Look) throws {
         let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let source = try #require(CGImageSourceCreateWithURL(repo.appendingPathComponent("Resources/AppIcon.png") as CFURL, nil))
+        let source = try #require(CGImageSourceCreateWithURL(repo.appendingPathComponent(file) as CFURL, nil))
         let committed = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
-        let drawn = try #require(AppIcon.render(pixels: 1024))
+        let drawn = try #require(AppIcon.render(pixels: 1024, look: look))
         #expect(committed.width == 1024 && committed.height == 1024)
         // Sampled colour by colour; a little slack for CoreGraphics differences between macOS versions.
         var worst = 0
@@ -125,6 +175,6 @@ import Testing
                 worst = max(worst, abs(a.r - b.r), abs(a.g - b.g), abs(a.b - b.b), abs(a.a - b.a))
             }
         }
-        #expect(worst <= 6, "Resources/AppIcon.png is regenerated with `folio-icon --png Resources/AppIcon.png` (worst \(worst))")
+        #expect(worst <= 6, "\(file) is regenerated with `folio-icon --png \(file)\(look == .dark ? " --dark" : "")` (worst \(worst))")
     }
 }

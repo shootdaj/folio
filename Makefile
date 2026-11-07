@@ -34,6 +34,17 @@ app:
 	cp -R Resources/Fonts/ $(APP)/Contents/Resources/Fonts/
 	"$$(swift build -c release --show-bin-path)/folio-icon" build/Folio.iconset
 	iconutil -c icns build/Folio.iconset -o $(APP)/Contents/Resources/Folio.icns
+	@# macOS 26's light and dark icons: actool (it comes with Xcode) compiles the Icon Composer file into
+	@# Assets.car. Without Xcode the bundle has Folio.icns only, the light icon in every icon style.
+	"$$(swift build -c release --show-bin-path)/folio-icon" --icon build/AppIcon.icon
+	@if xcrun --find actool >/dev/null 2>&1; then \
+		mkdir -p build/icon && \
+		xcrun actool build/AppIcon.icon --compile build/icon --platform macosx --minimum-deployment-target 14.0 \
+			--app-icon AppIcon --output-partial-info-plist build/icon/partial.plist >/dev/null && \
+		cp build/icon/Assets.car $(APP)/Contents/Resources/Assets.car && \
+		/usr/libexec/PlistBuddy -c "Add :CFBundleIconName string AppIcon" $(APP)/Contents/Info.plist && \
+		echo "Assets.car: the light and dark icons"; \
+	else echo "no actool (Xcode): Folio.icns only, no dark icon"; fi
 	codesign --force --deep -s "$(SIGN_ID)" $(APP)
 	@echo "built $(APP): Folio $(VERSION) ($(GIT_SHA))"
 

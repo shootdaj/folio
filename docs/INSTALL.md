@@ -25,8 +25,8 @@ Releases zip ──► /Applications ──► make install-cli ──► BTT pr
    ```
    (Or try to open it, then System Settings > Privacy & Security > **Open Anyway**.)
 4. Open it once from /Applications. That registers it with Launch Services, so `ff`, `open -b
-   com.anshul.folio` and folio: links find it. Its Dock icon is the folder with the green light (a light
-   version on a light Mac).
+   com.anshul.folio` and folio: links find it. Its Dock icon is three glass leaves: a blue front leaf on a
+   white tile, or a white one on a graphite tile in macOS 26's dark icon style.
 
 `/Applications/Folio.app/Contents/MacOS/Folio --version` prints the version and the commit it was built
 from, for example `Folio 1.0.0 (f12cd6f)`.
@@ -42,7 +42,9 @@ make install                # copies it to /Applications and registers it
 ```
 
 `make app` draws the Dock icon (`folio-icon` writes build/Folio.iconset, `iconutil` turns it into
-Folio.icns) and stamps the version from the git tags (`git describe --tags --always --dirty`: 1.0.0 on the
+Folio.icns). If Xcode is installed, `actool` also compiles build/AppIcon.icon into Assets.car, which has
+the dark icon for macOS 26's dark icon style. Without Xcode the light icon shows in every style. `make
+app` also stamps the version from the git tags (`git describe --tags --always --dirty`: 1.0.0 on the
 tag v1.0.0, 1.0.0-3-gabc1234 three commits after it) and the commit into the bundle.
 
 `make install` copies build/Folio.app to /Applications (an older copy goes to the Trash first) and

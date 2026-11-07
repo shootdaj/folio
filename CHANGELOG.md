@@ -39,12 +39,14 @@ pushed; the release workflow publishes the section below with that number as the
   Before, each ad hoc build had a new hash and lost them. Without the identity (CI, the VM) the build
   stays ad hoc.
 
-- **The app icon is a white glass folder on blue.** A frosted glass folder, with two sheets seen blurred
-  through its front, on a cyan-to-blue ground, in the style of the macOS 26 system icons. It replaces the
-  D1 grid icon. The picture is full bleed, so macOS cuts its own shape and adds its rim and shadow, and
-  no size gets the grey frame (a tile with a clear margin got one at 16 and 32 px). It is one picture for
-  light and dark, as the system's icons are. In the bundle the Dock draws Folio.icns itself.
-  Resources/AppIcon.png (from `folio-icon --png`) replaces the two SVGs.
+- **The app icon is three glass leaves.** Three folder-shaped glass leaves, fanned like cards (a folio
+  is a leaf), in the style of the macOS 26 system icons. It replaces the D1 grid icon. In the default icon
+  style the front leaf is blue on a white tile. In macOS 26's dark icon style it is white on a graphite
+  tile. `make app` compiles the two pictures with actool (from Xcode) into Assets.car. Without Xcode the
+  bundle has Folio.icns only, with the light icon in every style. The pictures are full bleed, so macOS
+  cuts its own shape and adds its rim and shadow, and no size gets the grey frame (a tile with a clear
+  margin got one at 16 and 32 px). In the bundle the Dock draws the icon itself. Resources/AppIcon.png
+  and AppIcon-dark.png (from `folio-icon --png`) replace the two SVGs.
 
 - **Quick access starts with Explorer's set.** A fresh install pins Desktop, Downloads, Documents,
   Pictures, Music and Movies, in that order, and leaves out any of them that does not exist. It no
