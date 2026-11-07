@@ -16,7 +16,6 @@ clicks in the test VM (Tests/vm/m2.sh to m9.sh).
 
 - **Scaffold and Details view (M1).** Name, Date modified, Type and Size; Explorer's sort (folders first,
   File2 before File10, up to 4 keys with Shift+click); resize, reorder and fit columns; the status bar.
-  The D1 Control room look, dark and light, with a green, amber or cyan accent.
 - **Address bar, history and keys (M2).** Back, Forward and Up with history lists; breadcrumbs with
   folder flyouts; typed paths with typeahead, %temp% and shell: names; F-keys, Backspace, Home and End,
   mouse buttons 4 and 5; keys bound to what macOS sees after Karabiner and BetterTouchTool.
@@ -43,6 +42,9 @@ clicks in the test VM (Tests/vm/m2.sh to m9.sh).
   folio: URL; Open folders in Folio instead of Finder; a BetterTouchTool Win+E preset; the Dock icon;
   windows, tabs, history, selection, scroll, sort, search, tree and view back after a relaunch; keep
   running with no window; launch at login; `Folio --version`; docs/KEYS.md.
+- The D4 Obsidian spotlight look (docs/design/d4-obsidian-spotlight.html): Geist type, dark and light
+  following the Mac, an accent of any hue from the title bar's swatch, tabs in the title bar. It replaces
+  the D1 Control room look the milestones were built in.
 - Cmd+Left and Cmd+Right go back and forward in the list, as Option+Left and Option+Right do.
 - Every key the window receives is logged to ~/Library/Logs/Folio/keys.log, to trace a shortcut that
   does nothing.
