@@ -1,22 +1,28 @@
 import CoreGraphics
+import CoreImage
 import Foundation
 import ImageIO
 
-/// Folio's app icon: a warm manila folder, a sheet and a blue index tab inside it, on a cool slate tile
-/// with the Mac's continuous corners, lit from the top like the system's own icons. macOS 26 shows an
-/// icon file as it is only when it fills the icon shape, so the tile is opaque to its edge. One set of
-/// numbers drives the iconset `make app` turns into Folio.icns and Resources/AppIcon.png.
+/// Folio's app icon: a frosted white glass folder on a cyan-to-blue ground. Two sheets stand in the folder
+/// and show softly blurred through its glass front, as the system's own glass icons do.
+///
+/// macOS 26 puts an icon in a grey frame at 16 and 32 px when its picture leaves part of the square clear,
+/// so the picture is full bleed: opaque to every edge. macOS cuts its own continuous-corner shape, shrinks
+/// the square into its icon grid and adds the glass rim and the shadow. One set of numbers drives the
+/// iconset `make app` turns into Folio.icns and Resources/AppIcon.png.
 public enum AppIcon {
     public static let canvas: CGFloat = 1024
-    /// macOS's icon grid: an 824 pt tile inside the 1024 pt canvas.
+    /// macOS's icon grid: an 824 pt tile inside the 1024 pt canvas (for `masked(pixels:)`).
     static let base = CGRect(x: 100, y: 100, width: 824, height: 824)
     /// The corner radius of the continuous corners (a corner bends over 1.53 radii, as the system's does).
     static let radius: CGFloat = 185
-    /// The folder is drawn in its own units and shrunk to 0.9 about this point, which leaves the tile a margin.
-    static let folderCentre = CGPoint(x: 512, y: 500)
-    static let folderScale: CGFloat = 0.9
-    /// A point in the middle of the index tab's visible part (icon units, y up), for the tests.
-    static let tabMark = CGPoint(x: 681, y: 634)
+    /// The folder is drawn in its own units and enlarged by `folderScale` about `folderCentre`, which
+    /// keeps it inside the middle of the square that macOS's corners do not cut.
+    static let folderCentre = CGPoint(x: 512, y: 517)
+    static let folderScale: CGFloat = 1.10
+    /// Points on the canvas (y up) for the tests: on the glass front, and on the front sheet above it.
+    static let glassMark = CGPoint(x: 400, y: 440)
+    static let sheetMark = CGPoint(x: 741, y: 779)
 
     /// The iconset iconutil wants: file name and pixel size.
     public static let iconset: [(name: String, pixels: Int, scale: Int)] = [16, 32, 128, 256, 512].flatMap { pt in
@@ -53,58 +59,55 @@ public enum AppIcon {
         return p
     }
 
-    /// A rectangle with one radius for its top corners and one for its bottom corners.
-    static func panel(_ r: CGRect, top: CGFloat, bottom: CGFloat) -> CGPath {
+    /// A polygon whose corners each have their own radius: (x, y, radius).
+    static func roundedPolygon(_ pts: [(CGFloat, CGFloat, CGFloat)]) -> CGPath {
         let p = CGMutablePath()
-        p.move(to: CGPoint(x: r.minX + bottom, y: r.minY))
-        p.addLine(to: CGPoint(x: r.maxX - bottom, y: r.minY))
-        p.addQuadCurve(to: CGPoint(x: r.maxX, y: r.minY + bottom), control: CGPoint(x: r.maxX, y: r.minY))
-        p.addLine(to: CGPoint(x: r.maxX, y: r.maxY - top))
-        p.addQuadCurve(to: CGPoint(x: r.maxX - top, y: r.maxY), control: CGPoint(x: r.maxX, y: r.maxY))
-        p.addLine(to: CGPoint(x: r.minX + top, y: r.maxY))
-        p.addQuadCurve(to: CGPoint(x: r.minX, y: r.maxY - top), control: CGPoint(x: r.minX, y: r.maxY))
-        p.addLine(to: CGPoint(x: r.minX, y: r.minY + bottom))
-        p.addQuadCurve(to: CGPoint(x: r.minX + bottom, y: r.minY), control: CGPoint(x: r.minX, y: r.minY))
+        let points = pts.map { CGPoint(x: $0.0, y: $0.1) }
+        let last = points[points.count - 1], first = points[0]
+        p.move(to: CGPoint(x: (last.x + first.x) / 2, y: (last.y + first.y) / 2))
+        for i in points.indices {
+            p.addArc(tangent1End: points[i], tangent2End: points[(i + 1) % points.count], radius: pts[i].2)
+        }
         p.closeSubpath()
         return p
     }
 
-    /// The folder's back with its tab on the left and a sloped shoulder (folder units).
+    static let backBottom: CGFloat = 226, backTop: CGFloat = 870
+
+    /// The folder's back (folder units): a round tab on the left with one smooth S shoulder.
     static func backPath() -> CGPath {
-        let l: CGFloat = 168, r: CGFloat = 856, bot: CGFloat = 250, top: CGFloat = 702, tabTop: CGFloat = 796, tabR: CGFloat = 470
+        let l: CGFloat = 168, r: CGFloat = 868, bot = backBottom, top: CGFloat = 740, tabTop = backTop
         let p = CGMutablePath()
-        p.move(to: CGPoint(x: l + 40, y: bot))
-        p.addLine(to: CGPoint(x: r - 40, y: bot))
-        p.addQuadCurve(to: CGPoint(x: r, y: bot + 40), control: CGPoint(x: r, y: bot))
-        p.addLine(to: CGPoint(x: r, y: top - 36))
-        p.addQuadCurve(to: CGPoint(x: r - 36, y: top), control: CGPoint(x: r, y: top))
-        p.addLine(to: CGPoint(x: tabR + 60, y: top))
-        p.addCurve(to: CGPoint(x: tabR, y: tabTop - 16), control1: CGPoint(x: tabR + 30, y: top), control2: CGPoint(x: tabR + 22, y: tabTop - 8))
-        p.addQuadCurve(to: CGPoint(x: tabR - 36, y: tabTop), control: CGPoint(x: tabR - 8, y: tabTop))
-        p.addLine(to: CGPoint(x: l + 44, y: tabTop))
-        p.addQuadCurve(to: CGPoint(x: l, y: tabTop - 44), control: CGPoint(x: l, y: tabTop))
-        p.addLine(to: CGPoint(x: l, y: bot + 40))
-        p.addQuadCurve(to: CGPoint(x: l + 40, y: bot), control: CGPoint(x: l, y: bot))
+        p.move(to: CGPoint(x: l + 72, y: bot))
+        p.addLine(to: CGPoint(x: r - 72, y: bot))
+        p.addArc(tangent1End: CGPoint(x: r, y: bot), tangent2End: CGPoint(x: r, y: top), radius: 72)
+        p.addArc(tangent1End: CGPoint(x: r, y: top), tangent2End: CGPoint(x: l, y: top), radius: 60)
+        p.addLine(to: CGPoint(x: 734, y: top))
+        p.addCurve(to: CGPoint(x: 440, y: tabTop), control1: CGPoint(x: 624, y: top), control2: CGPoint(x: 556, y: tabTop))
+        p.addArc(tangent1End: CGPoint(x: l, y: tabTop), tangent2End: CGPoint(x: l, y: bot), radius: 104)
+        p.addArc(tangent1End: CGPoint(x: l, y: bot), tangent2End: CGPoint(x: r, y: bot), radius: 72)
         p.closeSubpath()
         return p
     }
 
-    static let frontRect = CGRect(x: 146, y: 196, width: 732, height: 424)
-    static let sheetRect = CGRect(x: 218, y: 400, width: 590, height: 340)
-    static let tabRect = CGRect(x: 612, y: 560, width: 176, height: 118)
+    /// The glass front (folder units).
+    static func frontPath() -> CGPath {
+        roundedPolygon([(146, 186, 74), (878, 186, 74), (878, 604, 66), (146, 604, 66)])
+    }
 
     // MARK: Drawing
 
+    /// The full-bleed picture at `pixels` square: what the iconset holds.
     public static func render(pixels: Int) -> CGImage? {
-        guard pixels > 0, let cs = CGColorSpace(name: CGColorSpace.sRGB),
-              let ctx = CGContext(data: nil, width: pixels, height: pixels, bitsPerComponent: 8, bytesPerRow: 0, space: cs,
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        guard pixels > 0, let cs = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+        func newContext() -> CGContext? {
+            CGContext(data: nil, width: pixels, height: pixels, bitsPerComponent: 8, bytesPerRow: 0, space: cs,
+                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        }
+        guard let ctx = newContext() else { return nil }
         let s = CGFloat(pixels) / canvas
-        // The fine detail (paper sheen, crease, inner rims) is left out where it would only blur.
+        // The fine detail (sheets, sheen, frost, side light) is left out where it would only blur.
         let detailed = pixels >= 64
-        ctx.scaleBy(x: s, y: s)
-        ctx.setAllowsAntialiasing(true)
-        ctx.interpolationQuality = .high
 
         func color(_ hex: UInt32, _ a: CGFloat = 1) -> CGColor {
             CGColor(srgbRed: CGFloat((hex >> 16) & 255) / 255, green: CGFloat((hex >> 8) & 255) / 255,
@@ -113,149 +116,193 @@ public enum AppIcon {
         func gradient(_ stops: [(CGFloat, CGColor)]) -> CGGradient {
             CGGradient(colorsSpace: cs, colors: stops.map(\.1) as CFArray, locations: stops.map(\.0))!
         }
-        func shadow(_ dy: CGFloat, _ blur: CGFloat, _ a: CGFloat) {
-            ctx.setShadow(offset: CGSize(width: 0, height: -dy * s), blur: blur * s, color: color(0x0A1220, a))
+        /// Fills `path` with a vertical gradient from y0 (first stop) to y1 (last stop).
+        func fill(_ c: CGContext, _ path: CGPath, _ g: CGGradient, _ y0: CGFloat, _ y1: CGFloat) {
+            c.saveGState()
+            c.addPath(path)
+            c.clip()
+            c.drawLinearGradient(g, start: CGPoint(x: 0, y: y0), end: CGPoint(x: 0, y: y1),
+                                 options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
+            c.restoreGState()
         }
-        func fill(_ path: CGPath, _ g: CGGradient, from: CGPoint, to: CGPoint) {
-            ctx.saveGState()
-            ctx.addPath(path)
-            ctx.clip()
-            ctx.drawLinearGradient(g, start: from, end: to, options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
-            ctx.restoreGState()
+        /// Fills `path` with `fill` and a navy shadow `dy` units below it.
+        func shadowed(_ c: CGContext, _ path: CGPath, dy: CGFloat, blur: CGFloat, alpha: CGFloat, fill: CGColor) {
+            c.saveGState()
+            c.setShadow(offset: CGSize(width: 0, height: -dy * s), blur: blur * s, color: color(0x021C6B, alpha))
+            c.addPath(path)
+            c.setFillColor(fill)
+            c.fillPath()
+            c.restoreGState()
         }
-
-        let tile = tilePath()
-        ctx.saveGState()
-        ctx.addPath(tile)
-        ctx.clip()
-
-        // The tile: slate blue, lighter at the top, a soft glow up top and a little shade at the foot.
-        ctx.drawLinearGradient(gradient([(0, color(0x9DB2C9)), (0.5, color(0x6B819C)), (1, color(0x3F5069))]),
-                               start: CGPoint(x: 512, y: base.maxY), end: CGPoint(x: 512, y: base.minY), options: [])
-        ctx.drawRadialGradient(gradient([(0, color(0xFFFFFF, 0.28)), (1, color(0xFFFFFF, 0))]),
-                               startCenter: CGPoint(x: 460, y: 960), startRadius: 0,
-                               endCenter: CGPoint(x: 460, y: 960), endRadius: 560, options: [])
-        fill(CGPath(rect: base, transform: nil), gradient([(0, color(0x0B1626, 0.30)), (1, color(0x0B1626, 0))]),
-             from: CGPoint(x: 0, y: base.minY), to: CGPoint(x: 0, y: 330))
-
-        ctx.saveGState()
-        ctx.translateBy(x: folderCentre.x, y: folderCentre.y)
-        ctx.scaleBy(x: folderScale, y: folderScale)
-        ctx.translateBy(x: -folderCentre.x, y: -folderCentre.y)
-
-        // The folder's back, darker amber, casting a shadow on the tile.
-        let back = backPath()
-        ctx.saveGState()
-        shadow(16, 34, 0.40)
-        ctx.addPath(back)
-        ctx.setFillColor(color(0xC98A2B))
-        ctx.fillPath()
-        ctx.restoreGState()
-        fill(back, gradient([(0, color(0xE7AE4A)), (1, color(0xB97A22))]), from: CGPoint(x: 0, y: 796), to: CGPoint(x: 0, y: 250))
-        ctx.saveGState()
-        ctx.addPath(back)
-        ctx.clip()
-        ctx.setStrokeColor(color(0xFFF1C9, 0.55))
-        ctx.setLineWidth(5)
-        ctx.addPath(back)
-        ctx.strokePath()
-        fill(CGPath(rect: CGRect(x: 168, y: 560, width: 700, height: 150), transform: nil),
-             gradient([(0, color(0x6E4308, 0)), (1, color(0x6E4308, 0.35))]), from: CGPoint(x: 0, y: 560), to: CGPoint(x: 0, y: 700))
-        ctx.restoreGState()
-
-        // A sheet of paper standing in it, turned a little.
-        ctx.saveGState()
-        ctx.translateBy(x: 512, y: 660)
-        ctx.rotate(by: -0.03)
-        ctx.translateBy(x: -512, y: -660)
-        let sheet = panel(sheetRect, top: 18, bottom: 0)
-        ctx.saveGState()
-        shadow(6, 14, 0.30)
-        ctx.addPath(sheet)
-        ctx.setFillColor(color(0xFBF8F0))
-        ctx.fillPath()
-        ctx.restoreGState()
-        fill(sheet, gradient([(0, color(0xFFFFFF)), (1, color(0xE9E4D6))]), from: CGPoint(x: 0, y: 740), to: CGPoint(x: 0, y: 400))
-        ctx.restoreGState()
-
-        // The blue index tab behind the front's edge, on the right.
-        let tab = panel(tabRect, top: 26, bottom: 0)
-        ctx.saveGState()
-        shadow(5, 12, 0.35)
-        ctx.addPath(tab)
-        ctx.setFillColor(color(0x2F7BEF))
-        ctx.fillPath()
-        ctx.restoreGState()
-        fill(tab, gradient([(0, color(0x6FB0FF)), (1, color(0x1F63D6))]), from: CGPoint(x: 0, y: 678), to: CGPoint(x: 0, y: 560))
-        if detailed {
-            ctx.saveGState()
-            ctx.addPath(tab)
-            ctx.clip()
-            ctx.setStrokeColor(color(0xFFFFFF, 0.5))
-            ctx.setLineWidth(3)
-            ctx.addPath(tab)
-            ctx.strokePath()
-            ctx.restoreGState()
+        /// An inner light or shadow: a feathered sliver along the inside of `path`, from a copy moved by (dx, dy).
+        func innerGlow(_ c: CGContext, _ path: CGPath, dx: CGFloat = 0, dy: CGFloat, blur: CGFloat, glow: CGColor, sliver: CGColor) {
+            c.saveGState()
+            c.addPath(path)
+            c.clip()
+            c.addRect(CGRect(x: -200, y: -200, width: canvas + 476, height: canvas + 476))
+            c.addPath(path.copy(using: [CGAffineTransform(translationX: dx, y: dy)])!)
+            c.setShadow(offset: .zero, blur: blur * s, color: glow)
+            c.setFillColor(sliver)
+            c.fillPath(using: .evenOdd)
+            c.restoreGState()
+        }
+        func enlargeFolder(_ c: CGContext) {
+            c.translateBy(x: 512, y: 512)
+            c.scaleBy(x: folderScale, y: folderScale)
+            c.translateBy(x: -folderCentre.x, y: -folderCentre.y)
         }
 
-        // The manila front, top-lit, with a lit top edge.
-        let front = panel(frontRect, top: 44, bottom: 50)
-        ctx.saveGState()
-        shadow(-14, 36, 0.45)
-        ctx.addPath(front)
-        ctx.setFillColor(color(0xF3C466))
-        ctx.fillPath()
-        ctx.restoreGState()
-        fill(front, gradient([(0, color(0xFFEBB8)), (0.45, color(0xF9D27E)), (1, color(0xEBA93A))]),
-             from: CGPoint(x: 0, y: frontRect.maxY), to: CGPoint(x: 0, y: frontRect.minY))
-        ctx.saveGState()
-        ctx.addPath(front)
-        ctx.clip()
-        if detailed {
-            // A faint diagonal sheen for paper, and a soft crease.
-            ctx.drawLinearGradient(gradient([(0, color(0xFFFFFF, 0)), (0.35, color(0xFFFFFF, 0.16)), (0.7, color(0xFFFFFF, 0)),
-                                             (1, color(0x8A5A10, 0.10))]),
-                                   start: CGPoint(x: frontRect.minX, y: frontRect.maxY), end: CGPoint(x: frontRect.maxX, y: frontRect.minY), options: [])
-            ctx.setFillColor(color(0xA66D12, 0.20))
-            ctx.fill(CGRect(x: frontRect.minX, y: 316, width: frontRect.width, height: 8))
-            ctx.setFillColor(color(0xFFF4D2, 0.45))
-            ctx.fill(CGRect(x: frontRect.minX, y: 308, width: frontRect.width, height: 6))
+        // What lies behind the glass front: the ground, the folder's back and the sheets. It is drawn once
+        // into the icon and once more off screen, where it is blurred for the frost.
+        func scene(_ c: CGContext) {
+            c.saveGState()
+            c.scaleBy(x: s, y: s)
+            c.interpolationQuality = .high
+            c.drawLinearGradient(gradient([(0, color(0x2FD0FF)), (0.42, color(0x0C8EFF)), (1, color(0x0452F0))]),
+                                 start: CGPoint(x: 512, y: canvas), end: CGPoint(x: 512, y: 0), options: [])
+            c.drawRadialGradient(gradient([(0, color(0xFFFFFF, 0.34)), (1, color(0xFFFFFF, 0))]),
+                                 startCenter: CGPoint(x: 380, y: 1010), startRadius: 0,
+                                 endCenter: CGPoint(x: 380, y: 1010), endRadius: 720, options: [])
+            enlargeFolder(c)
+
+            // The back: tinted glass over the sky, with a warm white top edge.
+            let back = backPath()
+            shadowed(c, back, dy: 16, blur: 36, alpha: 0.38, fill: color(0xFFFFFF, 0.3))
+            if detailed {
+                fill(c, back, gradient([(0, color(0xFFFFFF, 0.70)), (0.5, color(0xBFE3FF, 0.55)), (1, color(0x7CC4FF, 0.45))]),
+                     backTop, backBottom)
+                // Frost: a diagonal sheen, a warm haze, a cool underside and a fine speckle.
+                c.saveGState()
+                c.addPath(back)
+                c.clip()
+                c.drawLinearGradient(gradient([(0, color(0xFFFFFF, 0)), (0.3, color(0xFFFFFF, 0.28)), (0.6, color(0xFFFFFF, 0))]),
+                                     start: CGPoint(x: 168, y: backTop), end: CGPoint(x: 700, y: backBottom), options: [])
+                c.drawRadialGradient(gradient([(0, color(0xFFF8EC, 0.30)), (1, color(0xFFF8EC, 0))]),
+                                     startCenter: CGPoint(x: 330, y: 828), startRadius: 0,
+                                     endCenter: CGPoint(x: 330, y: 828), endRadius: 300, options: [])
+                c.restoreGState()
+                innerGlow(c, back, dy: 40, blur: 40, glow: color(0x1E6FE0, 0.35), sliver: color(0x1E6FE0, 0))
+                c.saveGState()
+                c.addPath(back)
+                c.clip()
+                c.setFillColor(color(0xFFFFFF, 0.10))
+                var seed: UInt64 = 7
+                for _ in 0..<900 {
+                    seed = seed &* 6364136223846793005 &+ 1442695040888963407
+                    c.fill(CGRect(x: 168 + CGFloat((seed >> 33) % 700), y: backBottom + CGFloat((seed >> 17) % 644),
+                                  width: 2.4, height: 2.4))
+                }
+                c.restoreGState()
+            } else {
+                fill(c, back, gradient([(0, color(0xCDEBFF)), (1, color(0x7CC0FF))]), backTop, backBottom)
+            }
+            innerGlow(c, back, dy: -7, blur: 9, glow: color(0xFFF9EE, 0.9), sliver: color(0xFFF9EE, 0.9))
+
+            if detailed {
+                // Two sheets, a pale blue one behind and a white one in front, standing above the glass.
+                c.saveGState()
+                c.translateBy(x: 512, y: 540)
+                c.rotate(by: 0.05)
+                c.translateBy(x: -512, y: -540)
+                let behind = roundedPolygon([(290, 360, 0), (520, 360, 0), (520, 806, 28), (290, 806, 28)])
+                shadowed(c, behind, dy: 8, blur: 22, alpha: 0.28, fill: color(0xFFFFFF, 0.9))
+                fill(c, behind, gradient([(0, color(0xDDF4FF)), (1, color(0x9CD6FF))]), 806, 360)
+                c.restoreGState()
+                c.saveGState()
+                c.translateBy(x: 512, y: 540)
+                c.rotate(by: -0.012)
+                c.translateBy(x: -512, y: -540)
+                let front = roundedPolygon([(598, 360, 0), (838, 360, 0), (838, 826, 28), (598, 826, 28)])
+                shadowed(c, front, dy: 9, blur: 24, alpha: 0.32, fill: color(0xFFFFFF, 0.95))
+                fill(c, front, gradient([(0, color(0xFFFFFF)), (1, color(0xCFE9FF))]), 826, 360)
+                innerGlow(c, front, dy: -4, blur: 4, glow: color(0xFFFFFF, 0.9), sliver: color(0xFFFFFF, 0.9))
+                c.restoreGState()
+            } else if pixels >= 32 {
+                // One bold sheet keeps the folder's outline at 32 px.
+                let sheet = roundedPolygon([(590, 400, 0), (840, 400, 0), (840, 826, 40), (590, 826, 40)])
+                fill(c, sheet, gradient([(0, color(0xFFFFFF)), (1, color(0xD6ECFF))]), 826, 400)
+            }
+            c.restoreGState()
         }
-        fill(CGPath(rect: CGRect(x: frontRect.minX, y: frontRect.minY, width: frontRect.width, height: 70), transform: nil),
-             gradient([(0, color(0x8A5208, 0.30)), (1, color(0x8A5208, 0))]),
-             from: CGPoint(x: 0, y: frontRect.minY), to: CGPoint(x: 0, y: frontRect.minY + 70))
-        ctx.setStrokeColor(color(0xFFFFFF, 0.85))
-        ctx.setLineWidth(7)
-        ctx.addPath(front)
-        ctx.strokePath()
-        ctx.restoreGState()
+
+        scene(ctx)
+
+        // The glass front.
+        ctx.saveGState()
+        ctx.scaleBy(x: s, y: s)
+        enlargeFolder(ctx)
+        let front = frontPath()
+        let frame = front.boundingBox
+        // A soft shadow on the layers behind.
+        shadowed(ctx, front, dy: -4, blur: 8, alpha: 0.85, fill: color(0xFFFFFF, 0.5))
+        shadowed(ctx, front, dy: -14, blur: 44, alpha: 0.62, fill: color(0xFFFFFF, 0.5))
+        if !detailed { shadowed(ctx, front, dy: 14, blur: 12, alpha: 0.55, fill: color(0xFFFFFF, 0.5)) }
+        // The frost: the scene blurred and lightened, seen through the glass.
+        if let behind = newContext() {
+            scene(behind)
+            if let sceneImage = behind.makeImage() {
+                let image = CIImage(cgImage: sceneImage)
+                let frosted = image.clampedToExtent()
+                    .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: 30 * s])
+                    .applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 1.15, kCIInputBrightnessKey: 0.06,
+                                                                     kCIInputContrastKey: 0.92])
+                    .cropped(to: image.extent)
+                let ci = CIContext(options: [.workingColorSpace: cs, .outputColorSpace: cs])
+                if let frost = ci.createCGImage(frosted, from: image.extent, format: .RGBA8, colorSpace: cs) {
+                    ctx.saveGState()
+                    ctx.addPath(front)
+                    ctx.clip()
+                    ctx.concatenate(ctx.ctm.inverted())
+                    ctx.draw(frost, in: CGRect(x: 0, y: 0, width: pixels, height: pixels))
+                    ctx.restoreGState()
+                }
+            }
+        }
+        // The glass's tint: warm milky white at the top, cooler and clearer toward the foot.
+        fill(ctx, front, gradient([(0, color(0xFFFCF4, 0.66)), (0.35, color(0xEEF8FF, 0.42)), (0.75, color(0xB4DAFF, 0.26)),
+                                   (1, color(0x8EC4FF, 0.26))]), frame.maxY, frame.minY)
         if detailed {
             ctx.saveGState()
             ctx.addPath(front)
             ctx.clip()
-            ctx.setStrokeColor(color(0xB87818, 0.35))
-            ctx.setLineWidth(4)
-            ctx.translateBy(x: 0, y: -4)
-            ctx.addPath(front)
-            ctx.strokePath()
+            ctx.drawLinearGradient(gradient([(0, color(0xFFFFFF, 0)), (0.35, color(0xFFFFFF, 0.30)), (0.65, color(0xFFFFFF, 0))]),
+                                   start: CGPoint(x: frame.minX, y: frame.maxY), end: CGPoint(x: frame.maxX * 0.75, y: frame.minY), options: [])
             ctx.restoreGState()
+            // Deeper where the glass thickens at the foot; a feathered top edge, a lit lower lip, lit sides.
+            innerGlow(ctx, front, dy: 30, blur: 36, glow: color(0x1156D0, 0.55), sliver: color(0x1156D0, 0))
+            innerGlow(ctx, front, dy: -10, blur: 16, glow: color(0xFFFAEE, 0.95), sliver: color(0xFFFAEE, 0.95))
+            innerGlow(ctx, front, dy: 8, blur: 9, glow: color(0xFFFFFF, 0.55), sliver: color(0xFFFFFF, 0.55))
+            innerGlow(ctx, front, dx: 7, dy: 0, blur: 8, glow: color(0xFFFFFF, 0.35), sliver: color(0xFFFFFF, 0.3))
+        } else {
+            innerGlow(ctx, front, dy: -12, blur: 8, glow: color(0xFFFFFF), sliver: color(0xFFFFFF))
+            innerGlow(ctx, front, dy: 22, blur: 24, glow: color(0x1773E6, 0.4), sliver: color(0x1773E6, 0))
         }
-        ctx.restoreGState()
-
-        // The tile's rim: light along the top, a little dark along the foot.
-        ctx.setLineWidth(6)
-        ctx.addPath(tile)
+        // A fine rim: bright at the top, fainter in the middle.
+        ctx.saveGState()
+        ctx.addPath(front)
+        ctx.setLineWidth(detailed ? 4 : 8)
         ctx.replacePathWithStrokedPath()
-        if let rim = ctx.path {
-            ctx.beginPath()
-            ctx.saveGState()
-            ctx.addPath(rim)
-            ctx.clip()
-            ctx.drawLinearGradient(gradient([(0, color(0xFFFFFF, 0.55)), (0.35, color(0xFFFFFF, 0.08)), (1, color(0x000000, 0.25))]),
-                                   start: CGPoint(x: 0, y: base.maxY), end: CGPoint(x: 0, y: base.minY), options: [])
-            ctx.restoreGState()
-        }
+        ctx.clip()
+        ctx.drawLinearGradient(gradient([(0, color(0xFFFFFF)), (0.55, color(0xFFFFFF, 0.5)), (1, color(0xFFFFFF, 0.75))]),
+                               start: CGPoint(x: 0, y: frame.maxY), end: CGPoint(x: 0, y: frame.minY),
+                               options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
         ctx.restoreGState()
+        ctx.restoreGState()
+        return ctx.makeImage()
+    }
+
+    /// The picture shrunk into the 824 tile and cut to its continuous corners, clear outside: the Dock
+    /// image for a build run outside the bundle, where nothing masks the picture.
+    public static func masked(pixels: Int) -> CGImage? {
+        guard let picture = render(pixels: pixels), let cs = CGColorSpace(name: CGColorSpace.sRGB),
+              let ctx = CGContext(data: nil, width: pixels, height: pixels, bitsPerComponent: 8, bytesPerRow: 0, space: cs,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        let s = CGFloat(pixels) / canvas
+        ctx.scaleBy(x: s, y: s)
+        ctx.addPath(tilePath())
+        ctx.clip()
+        ctx.interpolationQuality = .high
+        ctx.draw(picture, in: base)
         return ctx.makeImage()
     }
 

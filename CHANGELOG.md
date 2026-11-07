@@ -9,11 +9,12 @@ pushed; the release workflow publishes the section below with that number as the
 
 ### Changed
 
-- **The app icon is a manila folder.** A warm manila folder with a sheet and a blue index tab, on a slate
-  tile with the Mac's continuous corners and top light, replaces the D1 grid icon. It fills the whole icon
-  shape, so macOS 26 shows it as drawn (no grey box). It is one picture for light and dark, as the
-  system's icons are, so the Dock no longer swaps it. Resources/AppIcon.png (from `folio-icon --png`)
-  replaces the two SVGs.
+- **The app icon is a white glass folder on blue.** A frosted glass folder, with two sheets seen blurred
+  through its front, on a cyan-to-blue ground, in the style of the macOS 26 system icons. It replaces the
+  D1 grid icon. The picture is full bleed, so macOS cuts its own shape and adds its rim and shadow, and
+  no size gets the grey frame (a tile with a clear margin got one at 16 and 32 px). It is one picture for
+  light and dark, as the system's icons are. In the bundle the Dock draws Folio.icns itself.
+  Resources/AppIcon.png (from `folio-icon --png`) replaces the two SVGs.
 
 ## [1.0.0] - 2026-11-07
 
