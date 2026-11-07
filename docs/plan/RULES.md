@@ -33,7 +33,7 @@ Binding for every agent and every session that touches this repo. Anshul's words
 ## 4. Scope and style
 
 - One milestone per branch, stacked on the previous one; small commits with messages that name the slice; push, report, stop (no CI watching by agents).
-- The look is `docs/design/d1-control-room.html` (the design Anshul picked). Tokens, type, icons, chassis and motion are ported from it, never improvised. Never italic. Never emoji icons.
+- The look is `docs/design/d4-obsidian-spotlight.html` (the design Anshul picked, replacing D1 Control room on 2026-11-07). Tokens, type, icons, chassis and motion are ported from it, never improvised. Never italic. Never emoji icons.
 - Explorer behaviour comes from `docs/research/` and `docs/plan/MILESTONES.md`; when they disagree with memory, the research wins.
 - Swift 6 + AppKit, SwiftPM, Command Line Tools only. No Xcode project, no Apple developer account, no third-party runtime dependencies without a reason written in the PR.
 - Deleting anything in the repo: `mv` to `~/.Trash`, never `rm -rf`.

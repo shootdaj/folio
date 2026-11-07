@@ -1,10 +1,11 @@
 import AppKit
 import FolioCore
 
-/// D1's `.btn`: 1 pt line-3 border, radius 5, Archivo 600, an optional 16 pt icon 8 pt before the
-/// label, the 8% hover and 14% press state layer. Styles: plain, primary (accent fill), warn (miss
-/// outline), ghost (no border, txt2). `isOn` is `aria-pressed` (accent outline on the selection fill).
-final class D1Button: NSButton {
+/// D4's `.os-btn`: 44 pt tall at most, radius 12, a line-2 border on s2 (outline on hover), Geist 500 14,
+/// an optional 16 pt icon 7 pt before the label, a slight shrink while pressed. Styles: plain, primary
+/// (accent fill, ink label), warn (`.danger`: coral), ghost (no fill, text-2; s2 on hover). `isOn` is
+/// `aria-pressed` (an accent border).
+final class OSButton: NSButton {
     enum Style { case plain, primary, warn, ghost }
 
     var style: Style = .plain { didSet { needsDisplay = true } }
@@ -38,11 +39,11 @@ final class D1Button: NSButton {
         self.style = style
     }
 
-    private var labelFont: NSFont { Typeface.ui(13, weight: 600) }
+    private var labelFont: NSFont { Typeface.ui(14, weight: style == .primary ? 600 : 500) }
 
-    /// Width for the label and icon with D1's 14 pt padding, at least `minimum`.
+    /// Width for the label and icon with D4's 16 pt padding, at least `minimum`.
     func fit(minimum: CGFloat = 0) -> CGFloat {
-        max(minimum, 14 + (glyph == nil ? 0 : 16 + 8) + textWidth(title, font: labelFont) + 14)
+        max(minimum, 16 + (glyph == nil ? 0 : 16 + 7) + textWidth(title, font: labelFont) + 16)
     }
 
     override func updateTrackingAreas() {
@@ -57,50 +58,43 @@ final class D1Button: NSButton {
 
     override func draw(_ dirtyRect: NSRect) {
         let p = Palette.current
-        let r = bounds.insetBy(dx: 0.5, dy: 0.5)
-        var text = p.txt
         let enabled = isEnabled
+        let hot = enabled && hovered
+        // `:active { transform: scale(.97) }`
+        let r = isHighlighted && enabled ? bounds.insetBy(dx: bounds.width * 0.015, dy: bounds.height * 0.015) : bounds
+        let radius: CGFloat = min(12, r.height / 2)
+        var text = p.text
         switch style {
         case .primary:
-            if enabled {
-                fillRounded(r, radius: 5, p.accent)
-                text = p.onAccent
-            } else {
-                fillRounded(r, radius: 5, p.line2)
-                text = p.txt2
-            }
+            fillRounded(r, radius: radius, enabled ? p.accent : p.line2)
+            if hot { withGlow(p.accent.withAlpha(0.35), blur: 24) { fillRounded(r, radius: radius, p.accent) } }
+            text = enabled ? p.onAccent : p.text2
         case .warn:
-            strokeRounded(bounds, radius: 5, p.miss)
+            fillRounded(r, radius: radius, hot ? p.miss.withAlpha(0.12).over(p.s2) : p.s2)
+            strokeRounded(r, radius: radius, hot ? p.miss : p.miss.mixed(0.55, with: p.line2))
             text = p.miss
         case .ghost:
-            text = p.txt2
+            if hot { fillRounded(r, radius: radius, p.s2) }
+            text = p.text2
         case .plain:
-            if isOn {
-                fillRounded(r, radius: 5, p.selectionFill)
-                strokeRounded(bounds, radius: 5, p.accent)
-                text = p.accent
-            } else {
-                strokeRounded(bounds, radius: 5, p.line3)
-            }
-        }
-        if enabled && (hovered || isHighlighted) {
-            fillRounded(r, radius: 5, text.withAlpha(isHighlighted ? 0.14 : 0.08))
+            fillRounded(r, radius: radius, p.s2)
+            strokeRounded(r, radius: radius, isOn ? p.accent : hot ? p.outline : p.line2)
         }
         let tone = enabled ? text : text.withAlpha(0.45)
         let tw = textWidth(title, font: labelFont)
-        let total = (glyph == nil ? 0 : 16 + 8) + tw
+        let total = (glyph == nil ? 0 : 16 + 7) + tw
         var x = (bounds.width - total) / 2
         if let glyph {
             glyph.draw(in: NSRect(x: x, y: bounds.midY - 8, width: 16, height: 16), color: tone.ns)
-            x += 24
+            x += 23
         }
         drawLine(title, font: labelFont, color: tone, x: x, midY: bounds.midY)
     }
 }
 
-/// A D1-styled check box: a 14 pt box (line-3 outline, accent fill and an on-accent tick when on) and a
-/// mono label. An NSButton of the switch type, so accessibility sees a check box.
-final class D1Check: NSButton {
+/// A check box in D4's language: a 14 pt box (outline hairline, accent fill and an ink tick when on) and
+/// a Geist label. An NSButton of the switch type, so accessibility sees a check box.
+final class OSCheck: NSButton {
     var onToggle: ((Bool) -> Void)?
 
     init(_ title: String, onToggle: ((Bool) -> Void)? = nil) {
@@ -133,7 +127,7 @@ final class D1Check: NSButton {
         onToggle?(isChecked)
     }
 
-    private var labelFont: NSFont { Typeface.mono(12) }
+    private var labelFont: NSFont { Typeface.ui(13) }
 
     func fit() -> CGFloat { 14 + 8 + textWidth(title, font: labelFont) + 2 }
 
@@ -143,17 +137,17 @@ final class D1Check: NSButton {
         // Greyed when it cannot change (Choose details' Name).
         if !isEnabled { NSGraphicsContext.current?.cgContext.setAlpha(0.5) }
         CheckBox.draw(in: box, on: isChecked && !isMixed, mixed: isMixed, p)
-        drawLine(title, font: labelFont, color: isChecked || isMixed ? p.txt : p.txt2, x: 22, midY: bounds.midY,
+        drawLine(title, font: labelFont, color: isChecked || isMixed ? p.text : p.text2, x: 22, midY: bounds.midY,
                  maxWidth: bounds.width - 22)
     }
 }
 
-/// The check box drawing shared by D1Check, the list's item check boxes and the header box.
+/// The check box drawing shared by OSCheck, the list's item check boxes and the header box.
 @MainActor
 enum CheckBox {
     static func draw(in box: NSRect, on: Bool, mixed: Bool, _ p: Palette) {
         if on || mixed {
-            fillRounded(box, radius: 3, p.accent)
+            fillRounded(box, radius: 4, p.accent)
             let path = NSBezierPath()
             if mixed {
                 path.move(to: NSPoint(x: box.minX + 3.5, y: box.midY))
@@ -170,8 +164,8 @@ enum CheckBox {
             p.onAccent.ns.setStroke()
             path.stroke()
         } else {
-            fillRounded(box, radius: 3, p.s1)
-            strokeRounded(box, radius: 3, p.line3, width: 1.25)
+            fillRounded(box, radius: 4, p.s1)
+            strokeRounded(box, radius: 4, p.outline, width: 1.25)
         }
     }
 }

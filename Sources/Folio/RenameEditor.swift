@@ -3,7 +3,7 @@ import FolioCore
 
 /// F2's edit box, laid over a row's name: the base name selected so the extension stays, Enter
 /// commits, Esc cancels, Tab and Shift+Tab commit and move to the next or previous item (Explorer).
-/// D1 look: s3 field, 1 pt accent outline, Archivo 13.
+/// D4's `.rn`: an s1 field, a 1 pt accent outline at radius 5 and the 3 pt accent-soft halo, Geist 500 13.
 @MainActor
 final class RenameEditor: NSObject, NSTextFieldDelegate {
     /// The new name and where to go next (-1, 0, +1). Return false to keep editing (a bad name).
@@ -28,12 +28,13 @@ final class RenameEditor: NSObject, NSTextFieldDelegate {
     func begin(in host: NSView, cell: NSRect, row: Int, entry: FileEntry, textX: CGFloat) {
         end()
         let table = host
-        let font = Typeface.ui(13)
+        let font = Typeface.ui(13, weight: 500)
         let want = textWidth(entry.name, font: font) + 40
-        let x = cell.minX + textX - 5
-        box.frame = NSRect(x: x, y: cell.minY + 1, width: max(120, min(max(cell.maxX - x, 120), want)), height: cell.height - 2)
+        let x = cell.minX + textX - 7 - 3
+        let width = max(120, min(max(cell.maxX - x, 120), want)) + 6
+        box.frame = NSRect(x: x, y: (cell.midY - 14).rounded(), width: width, height: 28)
         box.field.font = font
-        box.field.textColor = Palette.current.txt.ns
+        box.field.textColor = Palette.current.text.ns
         box.field.stringValue = entry.name
         box.field.delegate = self
         box.field.setAccessibilityLabel("Rename " + entry.name)
@@ -116,12 +117,14 @@ final class RenameBox: NSView {
     override func layout() {
         super.layout()
         let h = ceil((field.font?.ascender ?? 12) - (field.font?.descender ?? -3)) + 2
-        field.frame = NSRect(x: 4, y: (bounds.height - h) / 2, width: bounds.width - 8, height: h)
+        field.frame = NSRect(x: 3 + 5, y: (bounds.height - h) / 2, width: bounds.width - 16, height: h)
     }
 
     override func draw(_ dirtyRect: NSRect) {
         let p = Palette.current
-        fillRounded(bounds, radius: 3, p.s3)
-        strokeRounded(bounds, radius: 3, p.accent)
+        strokeRounded(bounds, radius: 8, p.accentSoft, width: 3)
+        let field = bounds.insetBy(dx: 3, dy: 3)
+        fillRounded(field, radius: 5, p.s1)
+        strokeRounded(field, radius: 5, p.accent)
     }
 }

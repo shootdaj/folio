@@ -1,16 +1,16 @@
 import AppKit
 import FolioCore
 
-/// D1's status light (`.led`): a dot with a soft ring and, in dark, a glow. `breathing` runs the
-/// 3.2 s opacity cycle from 0.42 to 1 (off under Reduce motion).
+/// A status light (D4's `.sb-dot`): a dot with a soft glow. `breathing` runs a slow opacity cycle from
+/// 0.42 to 1 (off under Reduce motion).
 final class LedView: NSView, ThemeAware {
     static let padding: CGFloat = 5
     let diameter: CGFloat
     var tone: (Palette) -> RGBA = { $0.accent } { didSet { themeDidChange() } }
     var breathing = false { didSet { updateAnimation() } }
-    /// D1's `pulse2`: two quick flashes every 1.6 s (the HUD while the address is being edited).
+    /// Two quick flashes every 1.6 s.
     var pulsing = false { didSet { if pulsing != oldValue { updateAnimation() } } }
-    /// D1's `blink`: on, then at 18% for half of every second (paused, waiting on a conflict).
+    /// On, then at 18% for half of every second (paused, waiting on a conflict).
     var blinking = false { didSet { if blinking != oldValue { updateAnimation() } } }
     var isLit = true { didSet { isHidden = !isLit; updateAnimation() } }
 
@@ -29,7 +29,7 @@ final class LedView: NSView, ThemeAware {
         core.frame = c
         core.cornerRadius = diameter / 2
         core.shadowOffset = .zero
-        core.shadowRadius = 4.5
+        core.shadowRadius = 4
         layer?.addSublayer(ring)
         layer?.addSublayer(core)
         themeDidChange()
@@ -48,9 +48,9 @@ final class LedView: NSView, ThemeAware {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         core.backgroundColor = c.cg
-        ring.backgroundColor = c.withAlpha(0.18).cg
+        ring.backgroundColor = NSColor.clear.cgColor
         core.shadowColor = c.cg
-        core.shadowOpacity = p.glows ? 0.62 : 0
+        core.shadowOpacity = 0.8
         CATransaction.commit()
     }
 
@@ -94,14 +94,13 @@ final class LedView: NSView, ThemeAware {
     }
 }
 
-/// A 44 pt toolbar button drawn the D1 way: stroke icon, an 8% state layer on hover, 14% pressed,
-/// 34% opacity when disabled, and corner brackets on hover (`.hb`).
+/// D4's icon button (`.ib`): 44 pt, a stroke icon in text-2 (text on hover), an 8% state layer inset
+/// 5 pt on hover, 14% and a slight shrink while pressed, faint when disabled.
 final class ChromeButton: NSButton {
     var glyph: Glyph { didSet { needsDisplay = true } }
-    var tone: (Palette) -> RGBA = { $0.txt }
-    var hoverTone: ((Palette) -> RGBA)?
+    var tone: (Palette) -> RGBA = { $0.text2 }
+    var hoverTone: ((Palette) -> RGBA)? = { $0.text }
     var iconSize: CGFloat = 18
-    var hoverBrackets = true
     fileprivate(set) var isHovered = false
     /// Access keys (Option tapped): the letter that presses this button, shown as a key cap.
     var accessKey: String? {
@@ -172,144 +171,111 @@ final class ChromeButtonCell: NSButtonCell {
         guard let button = controlView as? ChromeButton else { return }
         let p = Palette.current
         let hot = isEnabled && button.isHovered
-        var tone = button.tone(p)
+        var tone = isEnabled ? button.tone(p) : p.faint
         if hot, let hover = button.hoverTone { tone = hover(p) }
         if isEnabled && (hot || isHighlighted) {
-            fillRounded(cellFrame, radius: 5, tone.withAlpha(isHighlighted ? 0.14 : 0.08))
+            // The state layer: currentColor at 8% (hover) or 14% (pressed), 5 pt in, radius 8.
+            let inset = min(5, max(1, (min(cellFrame.width, cellFrame.height) - 24) / 2))
+            fillRounded(cellFrame.insetBy(dx: inset, dy: inset), radius: 8, tone.withAlpha(isHighlighted ? 0.14 : 0.08))
         }
-        let s = button.iconSize * (isHighlighted ? 0.95 : 1)
+        let s = button.iconSize * (isHighlighted ? 0.92 : 1)
         let icon = NSRect(x: cellFrame.midX - s / 2, y: cellFrame.midY - s / 2, width: s, height: s)
-        button.glyph.draw(in: icon, color: tone.withAlpha(isEnabled ? 1 : 0.34).ns)
-        if hot && button.hoverBrackets {
-            drawBrackets(cellFrame, color: p.bracket.ns, length: 7)
-        }
+        button.glyph.draw(in: icon, color: tone.ns)
         if let key = button.accessKey {
-            // D1's kbd: line-3 outline with a 2 pt bottom edge, s2, Chivo Mono 500.
+            // D4's kbd: line-2 outline with a 2 pt bottom edge, s2, Geist Mono 500 in text-2.
             let font = Typeface.mono(11, weight: 600)
             let w = max(16, textWidth(key, font: font) + 8)
             let cap = NSRect(x: cellFrame.maxX - w - 1, y: cellFrame.maxY - 18, width: w, height: 17)
-            fillRounded(cap, radius: 3, p.line3)
-            fillRounded(NSRect(x: cap.minX + 1, y: cap.minY + 1, width: cap.width - 2, height: cap.height - 3), radius: 2.5, p.s2)
-            drawLine(key, font: font, color: p.accent, x: cap.midX - textWidth(key, font: font) / 2, midY: cap.minY + 7.5)
+            fillRounded(cap, radius: 5, p.line2)
+            fillRounded(NSRect(x: cap.minX + 1, y: cap.minY + 1, width: cap.width - 2, height: cap.height - 3), radius: 4, p.s2)
+            drawLine(key, font: font, color: p.text, x: cap.midX - textWidth(key, font: font) / 2, midY: cap.minY + 7.5)
         }
     }
 }
 
-/// One accent swatch in the title bar (`.acc`): a 14 pt dot, ringed when chosen.
-final class AccentSwatch: NSButton {
-    let accent: AccentChoice
-    var isChosen = false { didSet { needsDisplay = true } }
+/// The accent swatch at the right end of the title bar (`.acc-btn`): an 18 pt dot in the accent with a
+/// hairline and a 3 pt accent halo, growing a little on hover and while its popover is open.
+final class AccentButton: NSButton {
+    private var hovered = false
+    var isOpen = false { didSet { needsDisplay = true } }
 
-    init(accent: AccentChoice, target: AnyObject?, action: Selector?) {
-        self.accent = accent
-        super.init(frame: NSRect(x: 0, y: 0, width: 30, height: 44))
+    init(target: AnyObject?, action: Selector?) {
+        super.init(frame: NSRect(x: 0, y: 0, width: 44, height: 44))
         isBordered = false
         title = ""
         self.target = target
         self.action = action
-        toolTip = accent.title + " accent"
-        setAccessibilityLabel(accent.title + " accent")
+        toolTip = "Accent colour"
+        setAccessibilityLabel("Accent colour")
+        setAccessibilityRole(.button)
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
     override var isFlipped: Bool { true }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                                       owner: self, userInfo: nil))
+    }
+
+    override func mouseEntered(with event: NSEvent) { hovered = true; needsDisplay = true }
+    override func mouseExited(with event: NSEvent) { hovered = false; needsDisplay = true }
 
     override func draw(_ dirtyRect: NSRect) {
         let p = Palette.current
+        if hovered || isHighlighted {
+            fillRounded(bounds.insetBy(dx: 5, dy: 5), radius: 8, p.text.withAlpha(isHighlighted ? 0.14 : 0.08))
+        }
+        let r: CGFloat = 9 * (hovered || isOpen ? 1.14 : 1)
         let c = NSPoint(x: bounds.midX, y: bounds.midY)
-        func dot(_ r: CGFloat, _ color: RGBA) {
+        func dot(_ radius: CGFloat, _ color: RGBA) {
             color.ns.setFill()
-            NSBezierPath(ovalIn: NSRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)).fill()
+            NSBezierPath(ovalIn: NSRect(x: c.x - radius, y: c.y - radius, width: 2 * radius, height: 2 * radius)).fill()
         }
-        let r: CGFloat = isChosen ? 7.35 : 7
-        if isChosen {
-            dot(r + 3.5, p.txt)
-            dot(r + 2, p.bg)
-        } else {
-            dot(r + 1, p.line3)
-            dot(r + 0.01, p.bg)
-        }
-        dot(r, accent.color(for: p.appearance))
+        dot(r + 3, p.accent.withAlpha(0.22))
+        dot(r, p.accent)
+        p.text.withAlpha(0.22).ns.setStroke()
+        let ring = NSBezierPath(ovalIn: NSRect(x: c.x - r + 0.5, y: c.y - r + 0.5, width: 2 * r - 1, height: 2 * r - 1))
+        ring.lineWidth = 1
+        ring.stroke()
     }
 }
 
-/// The 44 pt title bar: traffic lights (the window's own), the Folio mark, the folder name and full
-/// path, the accent swatches and the theme switch. Dragging it moves the window.
+/// The 44 pt title bar (`.titlebar`): the window's traffic lights, the tabs, and the accent swatch at the
+/// right end. `--chrome` with a hairline under it. Dragging empty space moves the window.
 final class TitleBarView: NSView, ThemeAware {
-    var folderName = "" { didSet { needsDisplay = true } }
-    var folderPath = "" { didSet { needsDisplay = true } }
+    let accentButton: AccentButton
 
-    let swatches: [AccentSwatch]
-    let themeButton: ChromeButton
-
-    init(target: AnyObject?, accentAction: Selector, themeAction: Selector) {
-        swatches = AccentChoice.allCases.map { AccentSwatch(accent: $0, target: target, action: accentAction) }
-        themeButton = ChromeButton(glyph: .sun, label: "Switch theme", target: target, action: themeAction)
-        themeButton.tone = { $0.txt2 }
-        themeButton.hoverTone = { $0.txt }
-        themeButton.hoverBrackets = false
+    init(target: AnyObject?, accentAction: Selector) {
+        accentButton = AccentButton(target: target, action: accentAction)
         super.init(frame: .zero)
-        for swatch in swatches { addSubview(swatch) }
-        addSubview(themeButton)
-        themeDidChange()
+        addSubview(accentButton)
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
     override var isFlipped: Bool { true }
 
-    func themeDidChange() {
-        let p = Palette.current
-        for swatch in swatches { swatch.isChosen = swatch.accent == p.accentChoice }
-        themeButton.glyph = p.appearance == .dark ? .sun : .moon
-        themeButton.toolTip = p.appearance == .dark ? "Light theme" : "Dark theme"
+    func themeDidChange() { accentButton.needsDisplay = true }
+
+    /// Where the tabs go: after the lights (16 + 52) and the 20 pt of margin and gap, up to the swatch.
+    var tabsFrame: NSRect {
+        NSRect(x: 88, y: 0, width: max(0, accentButton.frame.minX - 10 - 88), height: bounds.height)
     }
 
     override func layout() {
         super.layout()
-        let w = bounds.width
-        themeButton.frame = NSRect(x: w - 6 - 44, y: 0, width: 44, height: 44)
-        // .accents: padding 0 6, gap 6, border-right, then margin 2 and gap 6 before the theme button.
-        let groupRight = themeButton.frame.minX - 6 - 2
-        var x = groupRight - 1 - 6 - 30 * 3 - 6 * 2
-        for swatch in swatches {
-            swatch.frame = NSRect(x: x, y: 0, width: 30, height: 44)
-            x += 36
-        }
+        accentButton.frame = NSRect(x: bounds.width - 6 - 44, y: 0, width: 44, height: 44)
         (window as? BrowserWindow)?.placeTrafficLights()
     }
 
-    private var accentGroupLeft: CGFloat { (swatches.first?.frame.minX ?? bounds.width) - 6 }
-    private var accentGroupRight: CGFloat { themeButton.frame.minX - 8 - 1 }
-
     override func draw(_ dirtyRect: NSRect) {
         let p = Palette.current
-        fillRect(bounds, p.bg)
+        fillRect(bounds, p.chrome)
         fillRect(NSRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1), p.line)
-        let mid = bounds.height / 2
-        // Brand: traffic lights take 14 + 52, then a 12 gap.
-        let brandX: CGFloat = 78
-        ItemIcon.drawBrand(in: NSRect(x: brandX + 6, y: mid - 9, width: 18, height: 18), palette: p)
-        let brandFont = Typeface.ui(14, weight: 800, width: 124)
-        let brandW = drawLine("Folio", font: brandFont, color: p.txt, x: brandX + 32, midY: mid, kern: 0.14)
-        let brandRight = brandX + 32 + brandW + 10
-        fillRect(NSRect(x: brandRight, y: mid - 11, width: 1, height: 22), p.line)
-        // Folder name and path, baseline aligned; the path gives way first.
-        fillRect(NSRect(x: accentGroupRight, y: 0, width: 1, height: bounds.height - 1), p.line)
-        let titleX = brandRight + 1 + 12
-        let room = accentGroupLeft - 12 - titleX
-        guard room > 20 else { return }
-        let nameFont = Typeface.ui(14, weight: 700, width: 124)
-        let nameW = drawLine(folderName, font: nameFont, color: p.txt, x: titleX, midY: mid, maxWidth: room)
-        let pathRoom = room - nameW - 12
-        if pathRoom > 30 {
-            let pathFont = Typeface.mono(12)
-            // Same baseline as the name: shift by the ascender difference.
-            let shift = (nameFont.ascender - nameFont.descender) / 2 - nameFont.ascender
-                - ((pathFont.ascender - pathFont.descender) / 2 - pathFont.ascender)
-            drawLine(folderPath, font: pathFont, color: p.txt3, x: titleX + nameW + 12, midY: mid - shift, maxWidth: pathRoom)
-        }
     }
 
     override func mouseDown(with event: NSEvent) {

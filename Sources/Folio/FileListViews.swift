@@ -1,19 +1,24 @@
 import AppKit
 import FolioCore
 
-/// D1 list metrics. `--row-h` in the design is 24 px.
+/// D4 list metrics: `--row-h` 26, a 32 pt column head, `--gut-l` 14 and `--gut-r` 44, cells padded 10.
 enum ListMetrics {
-    static let rowHeight: CGFloat = 24
+    static let rowHeight: CGFloat = 26
     /// View > Compact view.
-    static let compactRowHeight: CGFloat = 20
+    static let compactRowHeight: CGFloat = 22
     /// A Group by header row ("Today (3)").
     static let groupRowHeight: CGFloat = 32
     static let headerHeight: CGFloat = 32
-    /// The list's 4 px top padding (`.list{padding:4px 0}`), drawn as part of the header strip.
+    /// The rows' 4 px top padding (`.rows{padding:4px 0 96px}`), drawn as part of the header strip.
     static let listTopPad: CGFloat = 4
-    static let columnGap: CGFloat = 14
-    /// Grid padding-left is 10 px; NSTableView already insets cells by half the column gap.
-    static let rowLead: CGFloat = 10 - columnGap / 2
+    /// Each cell's 10 pt padding on both sides: NSTableView insets cells by half of this.
+    static let columnGap: CGFloat = 20
+    /// `--gut-l`: the first column's content starts this far into its cell.
+    static let gutterLeft: CGFloat = 14
+    /// `--gut-r`: kept clear right of the last column.
+    static let gutterRight: CGFloat = 44
+    /// Where a row's content starts inside the Name cell (the gutter; cells are already 10 pt in).
+    static let rowLead: CGFloat = gutterLeft
 }
 
 /// What the list asks of its window controller: Explorer's selection rules live there (ListSelection).
@@ -78,7 +83,12 @@ final class FolioTableView: NSTableView {
 
     override func mouseMoved(with event: NSEvent) {
         super.mouseMoved(with: event)
-        setHovered(row(at: convert(event.locationInWindow, from: nil)))
+        let point = convert(event.locationInWindow, from: nil)
+        setHovered(row(at: point))
+        // The cursor glow follows the pointer across the hovered row.
+        if hoveredRow >= 0, let view = rowView(atRow: hoveredRow, makeIfNecessary: false) as? FolioRowView {
+            view.pointer = view.convert(point, from: self)
+        }
     }
 
     override func mouseExited(with event: NSEvent) {
@@ -262,10 +272,10 @@ final class FolioTableView: NSTableView {
     }
 }
 
-/// The column header (`.lh`): s2 strip, wide Archivo labels, the sorted column in the accent with a
-/// glowing underline and arrow; with several sort keys each sorted column gets a numbered badge.
-/// Hovering a header shows a filter chevron at its right edge; a filtered column shows a tick there
-/// instead. Resizing and reordering stay NSTableHeaderView's own.
+/// The column header (D4's `.colhead`): --head-bg, Geist Mono 600 uppercase labels tracked .08em, hairlines
+/// between heads, the sorted column in the text colour with the accent arrow; with several sort keys each
+/// sorted column gets a numbered badge. Hovering a header shows a filter chevron (right edge, or left for a
+/// right-aligned column); a filtered column shows a tick there. Resizing and reordering stay AppKit's.
 final class FolioHeaderView: NSTableHeaderView {
     var sort = SortSpec.standard { didSet { needsDisplay = true; if sort != oldValue { rebuildAccessibility() } } }
     /// Off for search results in relevance order: no column carries the sort arrow.
@@ -309,10 +319,13 @@ final class FolioHeaderView: NSTableHeaderView {
         return ColumnID(rawValue: table.tableColumns[i].identifier.rawValue)
     }
 
-    /// The chevron's hit area at the right edge of column `i` (the gap is the column's own half).
+    /// The filter chevron's hit area: at the right edge of a left-aligned column, at the left edge of a
+    /// right-aligned one (whose label hugs the right, as D4's SIZE does).
     func chevronRect(ofColumn i: Int) -> NSRect {
         let r = headerRect(ofColumn: i)
-        return NSRect(x: r.maxX - ListMetrics.columnGap / 2 - Self.chevronW, y: 6, width: Self.chevronW, height: ListMetrics.headerHeight - 12)
+        let right = key(ofColumn: i).flatMap { SortKey(rawValue: $0.rawValue) }?.alignsRight ?? false
+        let x = right ? r.minX + 4 : r.maxX - 4 - Self.chevronW
+        return NSRect(x: x, y: 6, width: Self.chevronW, height: ListMetrics.headerHeight - 12)
     }
 
     override func updateTrackingAreas() {
@@ -354,19 +367,22 @@ final class FolioHeaderView: NSTableHeaderView {
 
     override var isFlipped: Bool { true }
 
-    private var font: NSFont { Typeface.ui(12, weight: 650, width: 116) }
+    /// `.ch`: Geist Mono 600, 12, uppercase, tracked .08em.
+    private var font: NSFont { Typeface.mono(12, weight: 600) }
 
     override func draw(_ dirtyRect: NSRect) {
         let p = Palette.current
         guard let table = tableView else { return }
-        fillRect(bounds, p.s1)
-        fillRect(NSRect(x: 0, y: 0, width: bounds.width, height: ListMetrics.headerHeight), p.s2)
+        fillRect(bounds, p.pane)
+        fillRect(NSRect(x: 0, y: 0, width: bounds.width, height: ListMetrics.headerHeight), p.headBg)
         fillRect(NSRect(x: 0, y: ListMetrics.headerHeight - 1, width: bounds.width, height: 1), p.line)
         for (index, column) in table.tableColumns.enumerated() {
             var rect = headerRect(ofColumn: index)
             if index == draggedColumn { rect.origin.x += draggedDistance }
             rect.size.height = ListMetrics.headerHeight - 1
             guard let key = SortKey(rawValue: column.identifier.rawValue) else { continue }
+            // `.ch + .ch::before`: a hairline between heads, 9 pt short of top and bottom.
+            if index > 0 { fillRect(NSRect(x: rect.minX, y: 9, width: 1, height: ListMetrics.headerHeight - 18), p.line) }
             drawHeader(column.title, key: key, in: rect, hovered: index == hoverColumn && draggedColumn < 0, p)
         }
         if let box = boxRect, let state = checkState {
@@ -378,66 +394,60 @@ final class FolioHeaderView: NSTableHeaderView {
         let rank = rank(of: key)
         let primary = rank == 1
         let multi = sort.terms.count > 1
-        let color = primary ? p.accent : (rank != nil ? p.txt : p.txt2)
-        let kern: CGFloat = 0.24
-        let tw = textWidth(title, font: font, kern: kern)
-        let arrow: CGFloat = 14, gap: CGFloat = 6, badge: CGFloat = multi ? 15 : 0
+        let color = primary ? p.text : (rank != nil || hovered ? p.text2 : p.muted)
+        let label = title.uppercased()
+        let kern = Typeface.headKern(12)
+        if hovered {
+            fillRounded(NSRect(x: rect.minX + 2, y: 4, width: rect.width - 4, height: ListMetrics.headerHeight - 8), radius: 5,
+                        p.text.withAlpha(0.07))
+        }
+        let tw = textWidth(label, font: font, kern: kern)
+        let arrow: CGFloat = 13, gap: CGFloat = 6, badge: CGFloat = multi && rank != nil ? 15 : 0
         let half = ListMetrics.columnGap / 2
-        let chevron = Self.chevronW
-        // Name sits 16 px in from the grid edge; right-aligned columns hug the right, the arrow and the
-        // filter chevron's slots still reserved.
+        let sorted = rank != nil
+        let extra = sorted ? arrow + gap + badge : 0
+        // Name starts at the gutter; right-aligned heads end 10 pt in, the arrow before them.
         let x: CGFloat = if key == .name {
-            rect.minX + ListMetrics.rowLead + half + 16 + (checkState == nil ? 0 : NameCellView.boxShift)
+            rect.minX + half + ListMetrics.gutterLeft + (checkState == nil ? 0 : NameCellView.boxShift)
         } else if key.alignsRight {
-            max(rect.minX + half, rect.maxX - half - chevron - badge - arrow - gap - tw)
+            max(rect.minX + half, rect.maxX - half - tw)
         } else {
             rect.minX + half
         }
         let mid = rect.midY.rounded()
         NSGraphicsContext.saveGraphicsState()
         NSBezierPath(rect: rect).addClip()
-        let room = max(0, rect.maxX - x - half - chevron - (rank != nil ? arrow + gap + badge : 0))
-        let drawn = drawLine(title, font: font, color: color, x: x, midY: mid, maxWidth: room, kern: kern)
+        let room = max(0, key.alignsRight ? tw : rect.maxX - x - half - extra)
+        let drawn = drawLine(label, font: font, color: color, x: x, midY: mid, maxWidth: room, kern: kern)
         if let rank {
-            if primary {
-                // 2 px underline 8 px below the label box, with a glow in dark.
-                let underline = NSRect(x: x, y: mid + 6 + 8 - 2, width: drawn, height: 2)
-                if p.glows, let ctx = NSGraphicsContext.current?.cgContext {
-                    ctx.saveGState()
-                    ctx.setShadow(offset: .zero, blur: 9, color: p.accent.withAlpha(0.6).cg)
-                    fillRect(underline, p.accent)
-                    ctx.restoreGState()
-                } else {
-                    fillRect(underline, p.accent)
-                }
-            }
-            let ax = x + drawn + gap
-            Glyph.sort.draw(in: NSRect(x: ax, y: mid - arrow / 2, width: arrow, height: arrow),
-                            color: (primary ? p.accent : p.txt2).ns, rotation: (sort.isAscending(key) ?? true) ? 0 : .pi)
+            let ax = key.alignsRight ? x - gap - arrow - badge : x + drawn + gap
+            Glyph.sortUp.draw(in: NSRect(x: ax, y: mid - arrow / 2, width: arrow, height: arrow),
+                              color: (primary ? p.accent : p.muted).ns, rotation: (sort.isAscending(key) ?? true) ? 0 : .pi)
             if multi {
                 // The sort key's number: 1 for the first key, 2 and on for Shift+click keys.
                 let b = NSRect(x: ax + arrow + 1, y: mid - 7, width: 14, height: 14)
                 if primary {
-                    fillRounded(b, radius: 3, p.accent)
+                    fillRounded(b, radius: 4, p.accent)
                 } else {
-                    fillRounded(b, radius: 3, p.s3)
-                    strokeRounded(b, radius: 3, p.line3)
+                    fillRounded(b, radius: 4, p.s3)
+                    strokeRounded(b, radius: 4, p.line2)
                 }
                 let digit = "\(rank)"
                 let f = Typeface.mono(10, weight: 600)
-                drawLine(digit, font: f, color: primary ? p.onAccent : p.txt, x: b.midX - textWidth(digit, font: f) / 2, midY: b.midY)
+                drawLine(digit, font: f, color: primary ? p.onAccent : p.text, x: b.midX - textWidth(digit, font: f) / 2, midY: b.midY)
             }
         }
         NSGraphicsContext.restoreGraphicsState()
-        let c = NSRect(x: rect.maxX - half - chevron, y: 6, width: chevron, height: ListMetrics.headerHeight - 12)
+        guard let i = tableView?.tableColumns.firstIndex(where: { $0.identifier.rawValue == key.rawValue }) else { return }
+        let c = chevronRect(ofColumn: i)
         if filtered.contains(key) {
-            // A filtered column: the tick stays, in the accent, with the chevron's hover box.
-            if hovered { fillRounded(c, radius: 3, p.accent.withAlpha(0.12)) }
+            // A filtered column: the tick stays, in the accent.
+            if hovered { fillRounded(c, radius: 5, p.accentSoft) }
             Glyph.check.draw(in: NSRect(x: c.midX - 7, y: c.midY - 7, width: 14, height: 14), color: p.accent.ns, lineWidth: 2)
         } else if hovered {
-            fillRounded(c, radius: 3, p.txt.withAlpha(0.08))
-            drawBrackets(c, color: p.bracket.ns, length: 5)
-            Glyph.chevronDown.draw(in: NSRect(x: c.midX - 7, y: c.midY - 7, width: 14, height: 14), color: p.txt.ns)
+            fillRounded(c, radius: 5, p.headBg)
+            fillRounded(c, radius: 5, p.text.withAlpha(0.08))
+            Glyph.chevronDown.draw(in: NSRect(x: c.midX - 7, y: c.midY - 7, width: 14, height: 14), color: p.text.ns)
         }
     }
 
@@ -492,24 +502,22 @@ final class HeaderElement: NSAccessibilityElement {
 }
 
 /// A Group by header row in the Details view (and the grid's section header): a chevron on the left
-/// that folds the group, "Today (3)" in the wide face, and a hairline to the right edge.
+/// that folds the group, "Today (3)" in Geist 600 with the count in mono, and a hairline to the right edge.
 @MainActor
 enum GroupHeaderDrawing {
     static func draw(title: String, count: Int, collapsed: Bool, hovered: Bool, in r: NSRect, lead: CGFloat, _ p: Palette) {
         let mid = r.midY.rounded() + 2
         let chev = NSRect(x: lead, y: mid - 7, width: 14, height: 14)
-        if hovered { fillRounded(r.insetBy(dx: 3, dy: 3), radius: 3, p.txt.withAlpha(0.045)) }
-        Glyph.chevronDown.draw(in: chev, color: (hovered ? p.accent : p.txt2).ns, rotation: collapsed ? -.pi / 2 : 0)
-        let font = Typeface.ui(13, weight: 650, width: 116)
+        if hovered { fillRounded(r.insetBy(dx: 3, dy: 3), radius: 8, p.text.withAlpha(0.04)) }
+        Glyph.chevronDown.draw(in: chev, color: (hovered ? p.accent : p.muted).ns, rotation: collapsed ? -.pi / 2 : 0)
+        let font = Typeface.ui(13, weight: 600)
         let tx = chev.maxX + 8
-        let w = drawLine(title, font: font, color: hovered ? p.accent : p.txt, x: tx, midY: mid, maxWidth: max(0, r.maxX - tx - 60), kern: 0.2)
+        let w = drawLine(title, font: font, color: p.text, x: tx, midY: mid, maxWidth: max(0, r.maxX - tx - 60))
         let countText = "(\(count))"
-        let cw = drawLine(countText, font: Typeface.mono(12), color: p.txt3, x: tx + w + 6, midY: mid)
+        let cw = drawLine(countText, font: Typeface.mono(12, weight: 500), color: p.muted, x: tx + w + 6, midY: mid)
         let lineX = tx + w + 6 + cw + 10
         if lineX < r.maxX - 10 {
             fillRect(NSRect(x: lineX, y: mid, width: r.maxX - 10 - lineX, height: 1), p.line)
-            // D1's bracket language: a short accent tick where the rule starts.
-            fillRect(NSRect(x: lineX, y: mid - 2, width: 1, height: 5), hovered ? p.accent : p.line3)
         }
     }
 }
@@ -547,7 +555,9 @@ final class GroupHeaderCellView: NSTableCellView {
     }
 }
 
-/// A row (`.row`): hover wash, and when selected the accent fill inset 3 px with corner brackets.
+/// A row (D4's `.row.os-row`): a hairline under it; on hover a 3% wash, the cursor glow in the row's hue
+/// following the pointer and a 2 pt edge in the hue; selected, the `--sel` fill and a glowing 3 pt
+/// accent edge on the left.
 final class FolioRowView: NSTableRowView {
     var isHovered = false {
         didSet {
@@ -556,6 +566,13 @@ final class FolioRowView: NSTableRowView {
             subviews.forEach { $0.needsDisplay = true }
         }
     }
+    /// The item on the row; its hue (the accent for folders, the type's neon hue for files) is looked up
+    /// when drawing, so it follows the accent.
+    struct Item: Equatable { let name: String; let isFolder: Bool }
+    var item: Item? { didSet { if item != oldValue { needsDisplay = true } } }
+    private var hue: RGBA { item.map { Palette.current.typeHue(name: $0.name, isFolder: $0.isFolder) } ?? Palette.current.accent }
+    /// Where the pointer is over the row (the glow's centre).
+    var pointer: NSPoint? { didSet { if isHovered && pointer != oldValue { needsDisplay = true } } }
     /// Explorer's focus rectangle, drawn when the keyboard focus (Ctrl+arrows) is on an unselected row.
     var isFocusRow = false { didSet { if isFocusRow != oldValue { needsDisplay = true } } }
 
@@ -569,16 +586,28 @@ final class FolioRowView: NSTableRowView {
         }
     }
 
+    private func glowCentre() -> NSPoint {
+        if isHovered, let pointer { return pointer }
+        return NSPoint(x: bounds.width * 0.3, y: bounds.height * 0.4)
+    }
+
     override func drawBackground(in dirtyRect: NSRect) {
         guard !isGroupRowStyle else { return }
+        let p = Palette.current
+        let hue = self.hue
+        if !isSelected {
+            fillRect(NSRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1), p.rowLine)
+        }
         if isHovered && !isSelected {
-            fillRounded(bounds.insetBy(dx: 3, dy: 0), radius: 3, Palette.current.txt.withAlpha(0.055))
+            fillRect(bounds, p.text.withAlpha(0.03))
+            drawCursorGlow(in: bounds, center: glowCentre(), color: hue, alpha: p.glowAlpha)
+            drawEdgeBar(NSRect(x: 0, y: 0, width: 2, height: bounds.height), color: hue)
         }
         if isFocusRow && !isSelected {
-            let path = NSBezierPath(rect: bounds.insetBy(dx: 3.5, dy: 0.5))
+            let path = NSBezierPath(rect: bounds.insetBy(dx: 1.5, dy: 0.5))
             path.lineWidth = 1
             path.setLineDash([2, 2], count: 2, phase: 0)
-            Palette.current.txt3.ns.setStroke()
+            p.muted.ns.setStroke()
             path.stroke()
         }
     }
@@ -586,22 +615,21 @@ final class FolioRowView: NSTableRowView {
     override func drawSelection(in dirtyRect: NSRect) {
         guard !isGroupRowStyle else { return }
         let p = Palette.current
-        let r = bounds.insetBy(dx: 3, dy: 0)
-        fillRect(r, p.selectionFill)
-        drawBrackets(r, color: p.accent.ns, length: 7)
+        fillRect(bounds, p.selectionFill)
+        drawCursorGlow(in: bounds, center: glowCentre(), color: hue, alpha: p.glowAlpha)
+        drawEdgeBar(NSRect(x: 0, y: 0, width: 3, height: bounds.height), color: p.accent, glowAlpha: 1)
     }
 
-    /// A folder row under a drag: the mark fill, an accent outline and brackets, over the selection.
+    /// A folder row under a drag: the mark fill and an accent outline, over the selection.
     var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         guard isDropTarget else { return }
         let p = Palette.current
-        let r = bounds.insetBy(dx: 3, dy: 0)
-        fillRect(r, p.markFill)
-        strokeRounded(r.insetBy(dx: 0.5, dy: 0.5), radius: 3, p.accent)
-        drawBrackets(r, color: p.accent.ns, length: 7)
+        let r = bounds.insetBy(dx: 3, dy: 0.5)
+        fillRounded(r, radius: 5, p.markFill)
+        strokeRounded(r, radius: 5, p.accent)
     }
 
     override func didAddSubview(_ subview: NSView) {
@@ -615,7 +643,8 @@ protocol RowCellView: AnyObject {
     func rowSelectionChanged(_ selected: Bool)
 }
 
-/// Name cell: selection light, folder or file icon, tag dots, name (accent and semibold when selected).
+/// Name cell (`.c-name`): the folder or file glyph in its hue (glowing on hover and when selected), tag
+/// dots, and the name in Geist 500.
 final class NameCellView: NSTableCellView, RowCellView, ThemeAware, NSViewToolTipOwner {
     /// Finder tags with a colour: a dot each before the name, as Finder marks them.
     var tagColors: [TagColor] = [] { didSet { if tagColors != oldValue { needsDisplay = true } } }
@@ -623,7 +652,7 @@ final class NameCellView: NSTableCellView, RowCellView, ThemeAware, NSViewToolTi
     var underline: FolderOptions.Underline? { didSet { if underline != oldValue { needsDisplay = true } } }
     /// Show encrypted or compressed files in colour: a locked or compressed item draws dimmed.
     var isFlagDimmed = false { didSet { if isFlagDimmed != oldValue { needsDisplay = true } } }
-    /// A folder with a custom icon (Customize this folder) shows it instead of D1's folder.
+    /// A folder with a custom icon (Customize this folder) shows it instead of D4's folder.
     var customIcon: NSImage? { didSet { needsDisplay = true } }
     /// Show pop-up description: the hover tip, built when it is about to show.
     var tip: (() -> String?)? { didSet { needsLayout = true } }
@@ -641,12 +670,10 @@ final class NameCellView: NSTableCellView, RowCellView, ThemeAware, NSViewToolTi
     var showsCheckbox = false {
         didSet {
             guard showsCheckbox != oldValue else { return }
-            light.isLit = selected && !showsCheckbox
             needsDisplay = true
         }
     }
     private var selected = false
-    private let light = LedView(diameter: 6)
     /// Search results: the parts of the name that matched (UTF-16 ranges of the name shown), lit.
     var highlights: [NSRange] = [] { didSet { if highlights != oldValue { needsDisplay = true } } }
 
@@ -656,9 +683,6 @@ final class NameCellView: NSTableCellView, RowCellView, ThemeAware, NSViewToolTi
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        light.isLit = false
-        light.breathing = true
-        addSubview(light)
         setAccessibilityRole(.staticText)
     }
 
@@ -669,15 +693,13 @@ final class NameCellView: NSTableCellView, RowCellView, ThemeAware, NSViewToolTi
     func rowSelectionChanged(_ selected: Bool) {
         guard selected != self.selected else { return }
         self.selected = selected
-        light.isLit = selected && !showsCheckbox
         needsDisplay = true
     }
 
-    func themeDidChange() { light.themeDidChange() }
+    func themeDidChange() { needsDisplay = true }
 
     override func layout() {
         super.layout()
-        light.place(dotAt: NSPoint(x: ListMetrics.rowLead, y: (bounds.midY - 3).rounded()))
         removeAllToolTips()
         if tip != nil { addToolTip(bounds, owner: self, userData: nil) }
     }
@@ -695,25 +717,20 @@ final class NameCellView: NSTableCellView, RowCellView, ThemeAware, NSViewToolTi
             CheckBox.draw(in: NSRect(x: Self.boxX, y: (mid - 7).rounded(), width: 14, height: 14), on: selected, mixed: false, p)
         }
         if isCut || entry.isHidden || isFlagDimmed { NSGraphicsContext.current?.cgContext.setAlpha(0.45) }
-        let iconX = ListMetrics.rowLead + 6 + 8 + (showsCheckbox ? Self.boxShift : 0)
-        var textX: CGFloat
+        let iconX = ListMetrics.rowLead + (showsCheckbox ? Self.boxShift + 8 : 0)
+        let icon = NSRect(x: iconX, y: (mid - 8).rounded(), width: 16, height: 16)
         if let customIcon, entry.isFolder {
-            customIcon.draw(in: NSRect(x: iconX, y: mid - 9, width: 18, height: 18), from: .zero, operation: .sourceOver,
-                            fraction: 1, respectFlipped: true, hints: nil)
-            textX = iconX + 18 + 8
-        } else if entry.isFolder {
-            ItemIcon.drawFolder(in: NSRect(x: iconX, y: mid - 7.5, width: 18, height: 15), palette: p, lit: selected)
-            textX = iconX + 18 + 8
+            customIcon.draw(in: icon, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
         } else {
-            ItemIcon.drawFile(named: entry.name, in: NSRect(x: iconX, y: mid - 7.5, width: 15, height: 15), palette: p)
-            textX = iconX + 15 + 8
+            ItemIcon.draw(name: entry.name, isFolder: entry.isFolder, in: icon, palette: p, glow: selected || hovered)
         }
+        var textX = iconX + 16 + 9
         if entry.isLink { ItemIcon.drawLinkBadge(in: NSRect(x: iconX - 2, y: mid + 1, width: 9, height: 9), palette: p) }
         if !tagColors.isEmpty {
             textX += TagDots.draw(tagColors, x: textX - 2, midY: mid, p) + 4
         }
         let shown = entry.displayName(extensions: showsExtension)
-        let font = Typeface.ui(13, weight: selected ? 600 : 400)
+        let font = Typeface.ui(13, weight: 500)
         let maxW = max(0, bounds.width - textX - (entry.isCloudOnly ? 22 : 0))
         if !highlights.isEmpty {
             // A soft accent mark behind each matched word start, as Explorer lights search terms.
@@ -723,16 +740,18 @@ final class NameCellView: NSTableCellView, RowCellView, ThemeAware, NSViewToolTi
                 let w = textWidth(ns.substring(with: r), font: font)
                 guard x0 < maxW else { continue }
                 let rect = NSRect(x: textX + x0 - 1, y: mid - 9, width: min(w + 2, maxW - x0 + 1), height: 18)
-                fillRounded(rect, radius: 3, p.accent.withAlpha(0.22))
+                // D4's `mark`: --mark with a 1 pt ring of the accent at 40%.
+                fillRounded(rect, radius: 3, p.markFill)
+                strokeRounded(rect, radius: 3, p.accent.withAlpha(0.40))
             }
         }
-        let nameW = drawLine(shown, font: font, color: selected ? p.accent : p.txt, x: textX, midY: mid, maxWidth: maxW)
+        let nameW = drawLine(shown, font: font, color: p.text, x: textX, midY: mid, maxWidth: maxW)
         if let underline, underline == .always || hovered {
-            fillRect(NSRect(x: textX, y: (mid + 7).rounded(), width: nameW, height: 1), selected ? p.accent : p.txt.withAlpha(0.7))
+            fillRect(NSRect(x: textX, y: (mid + 7).rounded(), width: nameW, height: 1), p.text.withAlpha(0.7))
         }
         if entry.isCloudOnly {
             // Online only: a cloud after the name, as Explorer marks OneDrive files.
-            Glyph.cloud.draw(in: NSRect(x: textX + nameW + 6, y: mid - 7, width: 14, height: 14), color: p.txt3.ns, lineWidth: 1.6)
+            Glyph.cloud.draw(in: NSRect(x: textX + nameW + 6, y: mid - 7, width: 14, height: 14), color: p.muted.ns, lineWidth: 1.6)
         }
     }
 }
@@ -741,15 +760,14 @@ final class NameCellView: NSTableCellView, RowCellView, ThemeAware, NSViewToolTi
 @MainActor
 enum TagDots {
     static func color(_ c: TagColor, _ p: Palette) -> RGBA {
-        let dark = p.appearance == .dark
         switch c {
         case .red: return p.miss
-        case .orange: return p.typeData
-        case .yellow: return p.typeCode
+        case .orange: return p.hue(.orange)
+        case .yellow: return p.hue(.gold)
         case .green: return p.ok
-        case .blue: return p.typeDoc
-        case .purple: return RGBA(hex: dark ? 0xB794F6 : 0x6D4BB0)
-        case .gray, .none: return p.txt3
+        case .blue: return p.hue(.blue)
+        case .purple: return p.hue(.violet)
+        case .gray, .none: return p.muted
         }
     }
 
@@ -759,7 +777,7 @@ enum TagDots {
         let shown = Array(colors.prefix(3))
         for (i, c) in shown.enumerated().reversed() {
             let r = NSRect(x: x + CGFloat(i) * (size - 3), y: (midY - size / 2).rounded(), width: size, height: size)
-            fillRounded(r.insetBy(dx: -1, dy: -1), radius: size / 2 + 1, p.s1)
+            fillRounded(r.insetBy(dx: -1, dy: -1), radius: size / 2 + 1, p.pane)
             fillRounded(r, radius: size / 2, color(c, p))
         }
         return shown.isEmpty ? 0 : size + CGFloat(shown.count - 1) * (size - 3)
@@ -775,7 +793,8 @@ enum TagDots {
     }
 }
 
-/// Date, Type and Size cells: one line of text, mono for dates and sizes, Size right-aligned.
+/// Date, Type and Size cells (`.c-date`, `.c-type`, `.c-size`): dates and sizes in Geist Mono 12 in text-2
+/// (text on the selected row), words in muted Geist 13, Size right-aligned.
 final class TextCellView: NSTableCellView, RowCellView {
     var text = "" {
         didSet {
@@ -791,9 +810,15 @@ final class TextCellView: NSTableCellView, RowCellView {
     /// A metadata column whose value is still being read: a dim placeholder.
     var pending = false
 
+    private var selected = false
+
     override var isFlipped: Bool { true }
 
-    func rowSelectionChanged(_ selected: Bool) {}
+    func rowSelectionChanged(_ selected: Bool) {
+        guard selected != self.selected else { return }
+        self.selected = selected
+        needsDisplay = true
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         let p = Palette.current
@@ -803,14 +828,14 @@ final class TextCellView: NSTableCellView, RowCellView {
             fillRect(NSRect(x: alignRight ? bounds.maxX - 18 : 0, y: bounds.midY, width: 18, height: 1), p.line2)
             return
         }
-        drawLine(text, font: font, color: p.txt2, x: alignRight ? bounds.maxX : 0, midY: bounds.midY,
+        let tone = mono ? (selected ? p.text : p.text2) : p.muted
+        drawLine(text, font: font, color: tone, x: alignRight ? bounds.maxX : 0, midY: bounds.midY,
                  maxWidth: bounds.width, alignRight: alignRight)
     }
 }
 
-/// The list pane (`.pane`): s1 panel with a hairline border, radius 4 and accent corner brackets.
-/// It holds the Details table and the icon grid (one shown at a time) and, in Gallery, Quick Look's
-/// preview above the grid's strip.
+/// The list (D4's `.main`): edge to edge on the pane colour, no panel. It holds the Details table and the
+/// icon grid (one shown at a time) and, in Gallery, Quick Look's preview above the grid's strip.
 final class ListPaneView: NSView {
     let scrollView = NSScrollView()
     let gridScroll = NSScrollView()
@@ -828,7 +853,7 @@ final class ListPaneView: NSView {
             needsLayout = true
         }
     }
-    private let overlay = BracketOverlay()
+    private let overlay = DropOverlay()
     /// Search results: "Search again in" under the list, and the empty or working text over it.
     let searchFooter = SearchFooterView(frame: .zero)
     let searchEmpty = SearchEmptyView(frame: .zero)
@@ -862,10 +887,6 @@ final class ListPaneView: NSView {
         scrollView.horizontalScrollElasticity = .none
         scrollView.autohidesScrollers = true
         scrollView.scrollerStyle = .overlay
-        // Keeps the header's square corners inside the pane's 4 pt radius.
-        scrollView.wantsLayer = true
-        scrollView.layer?.cornerRadius = 3
-        scrollView.layer?.masksToBounds = true
         addSubview(scrollView)
         gridScroll.drawsBackground = false
         gridScroll.contentView.drawsBackground = false
@@ -874,9 +895,6 @@ final class ListPaneView: NSView {
         gridScroll.autohidesScrollers = true
         gridScroll.scrollerStyle = .overlay
         gridScroll.isHidden = true
-        gridScroll.wantsLayer = true
-        gridScroll.layer?.cornerRadius = 3
-        gridScroll.layer?.masksToBounds = true
         addSubview(gridScroll)
         gallery.isHidden = true
         addSubview(gallery)
@@ -894,7 +912,7 @@ final class ListPaneView: NSView {
     override func layout() {
         super.layout()
         guard bounds.width > 4, bounds.height > 4 else { return }
-        var inner = bounds.insetBy(dx: 1, dy: 1)
+        var inner = bounds
         if showsSearchFooter {
             searchFooter.frame = NSRect(x: inner.minX, y: inner.maxY - SearchFooterView.height, width: inner.width, height: SearchFooterView.height)
             inner.size.height -= SearchFooterView.height
@@ -914,26 +932,22 @@ final class ListPaneView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         let p = Palette.current
-        fillRounded(bounds, radius: 4, p.s1)
-        strokeRounded(bounds, radius: 4, p.line)
+        fillRect(bounds, p.pane)
         if mode == .gallery {
-            fillRect(NSRect(x: 1, y: gridScroll.frame.minY - 1, width: bounds.width - 2, height: 1), p.line)
+            fillRect(NSRect(x: 0, y: gridScroll.frame.minY - 1, width: bounds.width, height: 1), p.line)
         }
     }
 
-    /// Brackets drawn above the scrolling rows; never takes clicks.
-    private final class BracketOverlay: NSView {
+    /// A drag over the list background: an accent outline with the soft halo inside; never takes clicks.
+    private final class DropOverlay: NSView {
         var lit = false
         override var isFlipped: Bool { true }
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func draw(_ dirtyRect: NSRect) {
+            guard lit else { return }
             let p = Palette.current
-            if lit {
-                strokeRounded(bounds.insetBy(dx: 0.5, dy: 0.5), radius: 4, p.accent)
-                drawBrackets(bounds, color: p.accent.ns, length: 14, width: 2)
-            } else {
-                drawBrackets(bounds, color: p.bracket.ns, length: 12)
-            }
+            fillRect(bounds, p.accentSoft.withAlpha(p.accentSoft.a / 2))
+            strokeRounded(bounds.insetBy(dx: 1, dy: 1), radius: 8, p.accent, width: 2)
         }
     }
 }

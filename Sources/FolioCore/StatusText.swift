@@ -1,6 +1,6 @@
 import Foundation
 
-/// What is selected, reduced to what the status bar, HUD and ticker print.
+/// What is selected, reduced to what the status bar prints.
 public struct SelectionSummary: Sendable, Equatable {
     public let count: Int
     public let firstName: String?
@@ -25,13 +25,13 @@ public struct SelectionSummary: Sendable, Equatable {
 }
 
 public enum SortLabel {
-    /// "Name, A to Z", as the HUD shows it; Shift+click keys follow as "then Type, Name".
+    /// "Name, A to Z"; Shift+click keys follow as "then Type, Name".
     public static func label(_ spec: SortSpec) -> String {
         let first = term(spec.key, spec.ascending)
         return spec.then.isEmpty ? first : first + ", then " + spec.then.map(\.key.title).joined(separator: ", ")
     }
 
-    /// The HUD's room: the first key and how many more ("Date modified, newest first +2").
+    /// Short form: the first key and how many more ("Date modified, newest first +2").
     public static func short(_ spec: SortSpec) -> String {
         term(spec.key, spec.ascending) + (spec.then.isEmpty ? "" : " +\(spec.then.count)")
     }
@@ -50,11 +50,8 @@ public enum SortLabel {
         return key.title + ", " + way
     }
 
-    /// "Sorted by name, A to Z", as the ticker shows it.
-    public static func sentence(_ spec: SortSpec) -> String {
-        let text = label(spec)
-        return "Sorted by " + text.prefix(1).lowercased() + text.dropFirst()
-    }
+    /// "Sorted by Name, A to Z", as the status bar shows it.
+    public static func sentence(_ spec: SortSpec) -> String { "Sorted by " + label(spec) }
 }
 
 public enum StatusText {
@@ -72,143 +69,90 @@ public enum StatusText {
     }
 }
 
-/// A run of ticker text; strong runs are drawn in the main text colour.
-public struct TickerSegment: Sendable, Equatable {
-    public let text: String
-    public let strong: Bool
+/// The status bar's readouts (D4's `.status`): the count and the selection on the left; the sort, the
+/// volume's free space and the view on the right. The Control room's HUD figures (items, selected,
+/// sort) live here now.
+public struct StatusReadout: Sendable, Equatable {
+    /// "28 items, 1 selected" ("3 items (filtered from 12), 0 selected"); "Searching work" while a search
+    /// is still gathering its first results.
+    public let count: String
+    /// After the count: the one selected item's name (with its size for a file), or the size of several
+    /// files; nil when there is nothing to add.
+    public let selected: String?
+    /// "Sorted by Name, A to Z", or "Sorted by relevance" for search results in relevance order.
+    public let sort: String
+    /// "Macintosh HD" and "81.0 GB" (drawn "Macintosh HD, 81.0 GB free"); nil when the volume is unknown.
+    public let volumeName: String?
+    public let volumeFree: String?
+    /// The view's name ("Details"), the toggle at the right end.
+    public let view: String
+    /// A search is gathering: the light pulses in the accent.
+    public let busy: Bool
 
-    public init(_ text: String, strong: Bool = false) {
-        self.text = text
-        self.strong = strong
-    }
-}
+    public var volumeText: String? { volumeName.flatMap { n in volumeFree.map { n + ", " + $0 + " free" } } }
 
-public struct TickerItem: Sendable, Equatable {
-    public let segments: [TickerSegment]
-
-    public init(_ segments: [TickerSegment]) { self.segments = segments }
-
-    public var plain: String { segments.map(\.text).joined() }
-}
-
-/// The right of the status bar: a ticker of free space, selection, sort and path that loops.
-public enum Ticker {
-    public static func items(volume: VolumeCapacity?, selection: SelectionSummary, sort: SortSpec,
-                             path: String) -> [TickerItem] {
-        var out: [TickerItem] = []
-        if let volume {
-            out.append(TickerItem([
-                TickerSegment(volume.name + " "),
-                TickerSegment(ByteText.storage(volume.free) + " free", strong: true),
-                TickerSegment(" of " + ByteText.storage(volume.total)),
-            ]))
-        }
-        out.append(selectionItem(selection))
-        out.append(TickerItem([TickerSegment(SortLabel.sentence(sort))]))
-        out.append(TickerItem([TickerSegment("Path "), TickerSegment(path, strong: true)]))
-        if let volume {
-            out.append(TickerItem([TickerSegment(
-                "\(volume.percentText) of \(volume.name) used, \(ByteText.storage(volume.used))")]))
-        }
-        return out
+    public static func make(items: Int, total: Int? = nil, selection: SelectionSummary, sort: SortSpec?,
+                            volume: VolumeCapacity?, view: String, searchingIn scope: String? = nil) -> StatusReadout {
+        let busy = scope != nil
+        var count = ByteText.grouped(items) + (items == 1 ? " item" : " items")
+        if let total { count += " (filtered from " + ByteText.grouped(total) + ")" }
+        if selection.count > 0 { count += ", " + ByteText.grouped(selection.count) + " selected" }
+        return StatusReadout(count: busy && items == 0 ? "Searching " + (scope ?? "") : count,
+                             selected: selectedDetail(selection),
+                             sort: sort.map(SortLabel.sentence) ?? "Sorted by relevance",
+                             volumeName: volume?.name, volumeFree: volume.map { ByteText.storage($0.free) },
+                             view: view, busy: busy)
     }
 
-    static func selectionItem(_ s: SelectionSummary) -> TickerItem {
+    /// The name of one item (and its size when it is a file), or the size of several files.
+    static func selectedDetail(_ s: SelectionSummary) -> String? {
+        let size = s.hasSize ? ByteText.kilobytes(s.bytes) : nil
         switch s.count {
-        case 0:
-            return TickerItem([TickerSegment("Nothing selected")])
-        case 1:
-            let tail = s.firstIsFolder ? ", folder" : ", " + ByteText.kilobytes(s.bytes)
-            return TickerItem([TickerSegment("Selected "), TickerSegment(s.firstName ?? "", strong: true),
-                               TickerSegment(tail)])
-        default:
-            var segments = [TickerSegment("Selected "),
-                            TickerSegment(ByteText.grouped(s.count) + " items", strong: true)]
-            if s.bytes > 0 { segments.append(TickerSegment(", " + ByteText.kilobytes(s.bytes))) }
-            return TickerItem(segments)
+        case 0: return nil
+        case 1: return (s.firstName ?? "") + (size.map { ", " + $0 } ?? "")
+        default: return size
         }
     }
 }
 
-/// One readout in the HUD strip under the toolbar.
-public struct HudSegment: Sendable, Equatable {
-    public let key: String
-    public let value: String
-    /// The breathing light before the key (Path depth only).
-    public let hasLight: Bool
-    /// Pushed to the right edge (Selected).
-    public let trailing: Bool
-    /// The light pulses (a search gathering results) instead of breathing.
-    public var pulses = false
-}
-
-public enum Hud {
-    public static func segments(path: String, entries: [FileEntry], sort: SortSpec,
-                                selection: SelectionSummary, view: String = "Details") -> [HudSegment] {
-        let folders = entries.reduce(0) { $0 + ($1.isFolder ? 1 : 0) }
-        return [
-            HudSegment(key: "Path depth", value: "\(depth(path))", hasLight: true, trailing: false),
-            HudSegment(key: "Items", value: ByteText.grouped(entries.count), hasLight: false, trailing: false),
-            HudSegment(key: "Folders", value: ByteText.grouped(folders), hasLight: false, trailing: false),
-            HudSegment(key: "Files", value: ByteText.grouped(entries.count - folders), hasLight: false, trailing: false),
-            HudSegment(key: "Sort", value: SortLabel.short(sort), hasLight: false, trailing: false),
-            HudSegment(key: "View", value: view, hasLight: false, trailing: false),
-            HudSegment(key: "Selected", value: selectedText(selection), hasLight: false, trailing: true),
-        ]
+/// The sidebar's Details card (D4's `.dt`): the selected item's glyph, name and kind with Modified,
+/// Size and Where; for several items a stack, "3 items selected", what they are and their size.
+public struct DetailsCard: Sendable, Equatable {
+    public struct Field: Sendable, Equatable {
+        public let key: String
+        public let value: String
     }
+    public enum Icon: Sendable, Equatable { case item(name: String, isFolder: Bool), stack }
 
-    /// While the address bar is being edited (D1 step 2): Mode, Matches, Path depth, Keys, Selected.
-    public static func editingSegments(shown: Int, total: Int, path: String, selection: SelectionSummary) -> [HudSegment] {
-        [
-            HudSegment(key: "Mode", value: "Edit address", hasLight: true, trailing: false),
-            HudSegment(key: "Matches", value: ByteText.grouped(shown) + " of " + ByteText.grouped(total), hasLight: false, trailing: false),
-            HudSegment(key: "Path depth", value: "\(depth(path))", hasLight: false, trailing: false),
-            HudSegment(key: "Keys", value: "Tab, Enter, Esc", hasLight: false, trailing: false),
-            HudSegment(key: "Selected", value: selectedText(selection), hasLight: false, trailing: true),
-        ]
-    }
+    public let icon: Icon?
+    public let title: String
+    public let subtitle: String
+    public let fields: [Field]
+    /// Nothing selected: the card says so instead.
+    public var isEmpty: Bool { icon == nil }
 
-    /// While a search is shown (D1 step 3): Query (its light pulsing while results gather), Scope,
-    /// Results ("Scanning" until the first come), Sort (Relevance until a header is clicked), Selected.
-    public static func searchSegments(query: String, scope: String, results: Int, searching: Bool, sort: SortSpec?,
-                                      selection: SelectionSummary) -> [HudSegment] {
-        var q = HudSegment(key: "Query", value: query.isEmpty ? "Empty" : query, hasLight: true, trailing: false)
-        q.pulses = searching
-        return [
-            q,
-            HudSegment(key: "Scope", value: scope, hasLight: false, trailing: false),
-            HudSegment(key: "Results", value: searching && results == 0 ? "Scanning" : ByteText.grouped(results), hasLight: false, trailing: false),
-            HudSegment(key: "Sort", value: sort.map(SortLabel.short) ?? "Relevance", hasLight: false, trailing: false),
-            HudSegment(key: "Selected", value: selectedText(selection), hasLight: false, trailing: true),
-        ]
-    }
+    public static let emptyText = "Select an item to see its details here."
 
-    static func depth(_ path: String) -> Int {
-        path.split(separator: "/", omittingEmptySubsequences: true).count
-    }
-
-    /// "Nothing", the one name, or "3 items", each followed by the selected files' size when there is one.
-    static func selectedText(_ selection: SelectionSummary) -> String {
-        let size = selection.hasSize ? ", " + ByteText.kilobytes(selection.bytes) : ""
-        switch selection.count {
-        case 0: return "Nothing"
-        case 1: return (selection.firstName ?? "") + size
-        default: return ByteText.grouped(selection.count) + " items" + size
+    public static func make(_ selected: [FileEntry], timeZone: TimeZone = .current) -> DetailsCard {
+        guard let first = selected.first else {
+            return DetailsCard(icon: nil, title: emptyText, subtitle: "", fields: [])
         }
-    }
-}
-
-/// The colour group of a file icon's badge, as D1 sorts extensions.
-public enum FileTypeCategory: Sendable, Equatable {
-    case doc, code, web, data
-
-    public init(name: String) {
-        let ext = (name as NSString).pathExtension.lowercased()
-        switch ext {
-        case "md", "txt": self = .doc
-        case "js", "mjs", "ts", "go", "py", "swift": self = .code
-        case "css", "html", "htm": self = .web
-        default: self = .data
+        if selected.count > 1 {
+            let folders = selected.filter(\.isFolder).count, files = selected.count - folders
+            let what = [folders > 0 ? "\(folders) folder" + (folders == 1 ? "" : "s") : nil,
+                        files > 0 ? "\(files) file" + (files == 1 ? "" : "s") : nil].compactMap { $0 }.joined(separator: ", ")
+            let summary = SelectionSummary(selected)
+            return DetailsCard(icon: .stack, title: ByteText.grouped(selected.count) + " items selected", subtitle: what,
+                               fields: summary.bytes > 0 ? [Field(key: "Size", value: ByteText.kilobytes(summary.bytes))] : [])
         }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        var fields: [Field] = []
+        if let date = first.modified { fields.append(Field(key: "Modified", value: formatter.string(from: date))) }
+        if let size = first.size, !first.isFolder { fields.append(Field(key: "Size", value: ByteText.kilobytes(size))) }
+        fields.append(Field(key: "Where", value: first.url.deletingLastPathComponent().path))
+        return DetailsCard(icon: .item(name: first.name, isFolder: first.isFolder), title: first.name, subtitle: first.kind, fields: fields)
     }
 }

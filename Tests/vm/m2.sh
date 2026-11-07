@@ -5,7 +5,7 @@
 # rule 0). Makes a test tree under /private/tmp/folio-tests/m2-<stamp>/, opens ~/folio/Folio.app on it as a
 # normal foreground app, drives it with System Events and writes PNGs to ~/folio/shots/:
 #   m2-1-typeahead.png   Cmd+L (caret at the end), Cmd+A, then typing /private/tmp/folio-tests/m2-<stamp>/Code/a
-#   m2-1b-highlight.png  Down: the first match highlighted (extra shot of D1's highlighted row)
+#   m2-1b-highlight.png  Down: the first match highlighted (extra shot of the highlighted row)
 #   m2-2-tab.png         Tab: the field holds .../Code/agent-expert/ and lists its folders
 #   m2-3-enter.png       Enter: the window is in agent-expert
 #   m2-4-up.png          Option+Up: back in Code
@@ -133,13 +133,14 @@ mkdir -p "$SHOTS"
 for d in agent-expert agent-expert-tests ai-harness alpha beta; do mkdir -p "$CODE/$d/sub"; done
 echo "setup: $CODE with agent-expert, agent-expert-tests, ai-harness, alpha, beta (each with sub)"
 
-# A clean start: no Folio running, an empty address history (the F4 list is this run's only), the dark
-# theme of D1's reference, and no macOS notification banner over the toolbar.
+# A clean start: no Folio running, an empty address history (the F4 list is this run's only), the Mac in
+# dark mode, and no macOS notification banner over the toolbar.
 osascript -e 'quit app "Folio"' >/dev/null 2>&1
 sleep 1
 pkill -x Folio 2>/dev/null
 defaults delete com.anshul.folio addressHistory >/dev/null 2>&1
-defaults write com.anshul.folio theme dark
+# Folio follows the Mac's light or dark setting (it has no theme of its own): the shots are in dark.
+osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true' >/dev/null 2>&1
 osascript >/dev/null 2>&1 <<'OSA'
 tell application "System Events" to tell process "NotificationCenter"
     repeat 5 times

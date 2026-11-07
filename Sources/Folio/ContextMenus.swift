@@ -550,7 +550,7 @@ enum PinsChanged {
 }
 
 /// The icon row at the top of the item menu (Windows 11's Cut, Copy, Paste, Rename, Share, Delete),
-/// drawn the D1 way: stroke icons with the hover state layer and brackets, the name of the one under
+/// drawn the D4 way: stroke icons with the hover state layer, the name of the one under
 /// the pointer at the right.
 final class MenuIconRow: NSView {
     private struct Action { let glyph: Glyph; let name: String; let selector: Selector }
@@ -622,15 +622,14 @@ final class MenuIconRow: NSView {
             let r = rect(i)
             let on = enabled(i)
             if hovered == i && on {
-                fillRounded(r, radius: 5, p.txt.withAlpha(0.08))
-                drawBrackets(r, color: p.bracket.ns, length: 7)
+                fillRounded(r, radius: 8, p.text.withAlpha(0.08))
             }
             let s: CGFloat = 18
             actions[i].glyph.draw(in: NSRect(x: r.midX - s / 2, y: r.midY - s / 2, width: s, height: s),
-                                  color: p.txt.withAlpha(on ? 1 : 0.34).ns)
+                                  color: p.text.withAlpha(on ? 1 : 0.34).ns)
         }
         if let hovered {
-            drawLine(actions[hovered].name, font: Typeface.mono(12), color: p.txt2, x: bounds.maxX - 12,
+            drawLine(actions[hovered].name, font: Typeface.mono(12), color: p.text2, x: bounds.maxX - 12,
                      midY: rect(0).midY, alignRight: true)
         }
     }

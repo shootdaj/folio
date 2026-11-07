@@ -412,7 +412,8 @@ echo "setup: Small or Medium should be: $expect_small_medium ($total items in al
 
 quit_folio
 clean_defaults
-defaults write com.anshul.folio theme dark
+# Folio follows the Mac's light or dark setting (it has no theme of its own): the shots are in dark.
+osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true' >/dev/null 2>&1
 open -a "$APP" "$WORK"
 if wait_window "work" 15 && [ -n "$(list_point work notes-5k.txt)" ]; then
     echo "launch: ok - window \"work\": $(list_rows work | paste -sd ' ' -)"

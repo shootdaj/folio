@@ -7,7 +7,7 @@ extension RGBA {
 }
 
 extension Palette {
-    /// The palette every view draws with: the saved theme resolved against the system, plus the accent.
+    /// The palette every view draws with: the Mac's light or dark setting, plus the accent hue.
     @MainActor static var current: Palette { ThemeController.shared.palette }
 }
 
@@ -25,49 +25,50 @@ func refreshTheme(in view: NSView) {
     for sub in view.subviews { refreshTheme(in: sub) }
 }
 
-/// Owns the theme and accent choice (UserDefaults keys `theme` and `accent`) and the resolved palette.
-/// Theme System leaves `NSApp.appearance` nil so the app follows the Mac's light or dark setting.
+/// Owns the accent hue (UserDefaults key `accentHue`) and the resolved palette. The theme follows the
+/// Mac's appearance only: `NSApp.appearance` stays nil (under `--uitest`, a forced appearance for that run).
 @MainActor
 final class ThemeController {
     static let shared = ThemeController()
     static let didChange = Notification.Name("FolioThemeDidChange")
 
-    private var settings = ThemeSettings(defaults: .standard)
-    private(set) var palette = Theme.palette(.dark, accent: .green)
+    private var settings = AccentSettings(defaults: .standard)
+    private(set) var palette = Theme.palette(.dark)
+    /// A hue being dragged in the picker: drawn everywhere, saved when the drag ends.
+    private var previewHue: Int?
 
     private init() {}
 
     /// Called once at launch, before any window. `defaults` is a temp store under `--uitest`.
-    func start(defaults: UserDefaults) {
-        settings = ThemeSettings(defaults: defaults)
-        apply()
-    }
-
-    var theme: ThemeChoice {
-        get { settings.theme }
-        set { settings.theme = newValue; apply() }
-    }
-
-    var accent: AccentChoice {
-        get { settings.accent }
-        set { settings.accent = newValue; refresh(force: true) }
-    }
-
-    /// The system switched light and dark (only matters while the theme is System).
-    func systemAppearanceMayHaveChanged() { refresh(force: false) }
-
-    private func apply() {
-        switch settings.theme {
-        case .system: NSApp.appearance = nil
-        case .dark: NSApp.appearance = NSAppearance(named: .darkAqua)
-        case .light: NSApp.appearance = NSAppearance(named: .aqua)
+    func start(defaults: UserDefaults, forcedAppearance: Appearance? = nil) {
+        settings = AccentSettings(defaults: defaults)
+        settings.clearRetiredKeys()
+        switch forcedAppearance {
+        case .dark?: NSApp.appearance = NSAppearance(named: .darkAqua)
+        case .light?: NSApp.appearance = NSAppearance(named: .aqua)
+        case nil: NSApp.appearance = nil
         }
         refresh(force: true)
     }
 
+    /// The saved hue (0...359).
+    var hue: Int {
+        get { previewHue ?? settings.hue }
+        set { previewHue = nil; settings.hue = newValue; refresh(force: false) }
+    }
+
+    /// Live preview while the hue slider moves: every window recolours, nothing is saved yet.
+    func preview(hue: Int) {
+        previewHue = Accent.normalized(Double(hue))
+        refresh(force: false)
+    }
+
+    /// The system switched light and dark.
+    func systemAppearanceMayHaveChanged() { refresh(force: false) }
+
     private func refresh(force: Bool) {
         let systemIsDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        let next = Theme.palette(settings.theme.resolve(systemIsDark: systemIsDark), accent: settings.accent)
+        let next = Theme.palette(systemIsDark ? .dark : .light, hue: previewHue ?? settings.hue)
         guard force || next != palette else { return }
         palette = next
         NotificationCenter.default.post(name: Self.didChange, object: self)

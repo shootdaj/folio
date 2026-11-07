@@ -3,20 +3,23 @@ import Testing
 @testable import FolioCore
 
 @Suite struct ColumnFitTests {
-    /// Date 150 + Type 132 + Size 88, a 14 pt gap per column and D1's 7 pt right inset.
+    /// D4's grid: Date 148 + Type 128 + Size 76 (168, 148 and 96 with their 10 pt padding each side), a
+    /// 20 pt gap per column and the 44 pt right gutter.
     private func fit(_ clip: Double) -> Double {
-        ColumnFit.nameWidth(clipWidth: clip, otherWidths: [150, 132, 88], gap: 14, minimum: 120)
+        ColumnFit.nameWidth(clipWidth: clip, otherWidths: [148, 128, 76], gap: 20, trailing: 44, minimum: 120)
     }
 
     @Test func nameTakesWhatTheOtherColumnsLeave() {
-        // 1440 pt window with an always-visible 15 pt scroller: the clip is 1131 pt wide.
-        let name = fit(1131)
-        #expect(name == 1131 - 370 - 56 - 7)
-        #expect(name + 370 + 4 * 14 <= 1131)  // no horizontal overflow
+        // A 1440 pt window with the 248 pt sidebar: the list is 1192 pt wide.
+        let name = fit(1192)
+        #expect(name == 1192 - 352 - 80 - 44)
+        #expect(name + 352 + 4 * 20 + 44 <= 1192)  // no horizontal overflow
+        // D4's Date column starts 14 + 722 pt in: Name's 716 plus its 20 pt of padding.
+        #expect(name + 20 == 736)
     }
 
-    @Test func overlayScrollersGiveNameTheFullWidth() {
-        #expect(fit(1146) - fit(1131) == 15)
+    @Test func alwaysVisibleScrollersTakeTheirWidthFromName() {
+        #expect(fit(1192) - fit(1177) == 15)
     }
 
     @Test func nameNeverDropsBelowItsMinimum() {
@@ -25,7 +28,7 @@ import Testing
 
     @Test func fractionalWidthsRoundDownSoTheyStillFit() {
         let name = fit(1000.6)
-        let want: Double = (1000.6 - 370 - 56 - 7).rounded(.down)  // typed, or Swift 6.3 times out on it
+        let want: Double = (1000.6 - 352 - 80 - 44).rounded(.down)  // typed, or Swift 6.3 times out on it
         #expect(name == want)
     }
 }

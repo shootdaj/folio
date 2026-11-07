@@ -39,13 +39,16 @@ public enum AppIcon {
         var glows: Bool
     }
 
+    /// The icon keeps the Control room colours it was drawn in (its own numbers, not the app's theme).
     static func colors(_ appearance: Appearance) -> Colors {
-        let p = Theme.palette(appearance, accent: .green)
         let dark = appearance == .dark
-        return Colors(top: dark ? p.s2 : p.s1, bottom: p.bg, hairline: p.line,
-                      gridMinor: p.accent.withAlpha(dark ? 0.05 : 0.06), gridMajor: p.accent.withAlpha(dark ? 0.11 : 0.12),
-                      bracket: p.accent.withAlpha(0.70), accent: p.accent,
-                      back: p.foldBack, front: p.foldFront, line: p.foldLine, glows: p.glows)
+        let accent = RGBA(hex: dark ? 0x9BFF57 : 0x2F7D1E)
+        return Colors(top: RGBA(hex: dark ? 0x161A20 : 0xFFFFFF), bottom: RGBA(hex: dark ? 0x0C0E11 : 0xF4F6F8),
+                      hairline: dark ? RGBA(201, 209, 219, 0.10) : RGBA(28, 44, 62, 0.11),
+                      gridMinor: accent.withAlpha(dark ? 0.05 : 0.06), gridMajor: accent.withAlpha(dark ? 0.11 : 0.12),
+                      bracket: accent.withAlpha(0.70), accent: accent,
+                      back: RGBA(hex: dark ? 0x262C35 : 0xD2DAE2), front: RGBA(hex: dark ? 0x343C48 : 0xE6ECF1),
+                      line: RGBA(hex: dark ? 0x5F6B79 : 0x7A8796), glows: dark)
     }
 
     /// The light's centre at a pixel size, from the top left.

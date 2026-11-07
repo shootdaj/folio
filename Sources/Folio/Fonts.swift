@@ -1,8 +1,8 @@
 import AppKit
 import CoreText
 
-/// Archivo (wdth and wght axes) and Chivo Mono ship in Contents/Resources/Fonts under the OFL,
-/// each next to its OFL.txt, and are registered for this process only.
+/// Geist and Geist Mono (weight axis) ship in Contents/Resources/Fonts under the OFL, each next to its
+/// OFL.txt, and are registered for this process only.
 enum Fonts {
     @discardableResult
     static func registerBundled(in bundle: Bundle = .main) -> Int {
@@ -22,32 +22,34 @@ enum Fonts {
     }
 }
 
-/// D1's type: `--font-ui` Archivo with its width axis (100 body, 116 column heads, 124 headings)
-/// and `--font-mono` Chivo Mono for dates, sizes, counts and paths.
+/// D4's type: `--font` Geist for the interface and `--mono` Geist Mono for dates, sizes, counts, paths
+/// and the uppercase labels (`.os-label`: 600, 12, tracked .12em).
 @MainActor
 enum Typeface {
     private static var cache: [String: NSFont] = [:]
     private static let weightAxis = NSNumber(value: 0x7767_6874)  // 'wght'
-    private static let widthAxis = NSNumber(value: 0x7764_7468)   // 'wdth'
 
-    /// Archivo. The font's default weight is 600, so weight is always set explicitly.
-    static func ui(_ size: CGFloat, weight: CGFloat = 400, width: CGFloat = 100) -> NSFont {
-        font("Archivo", size, [weightAxis: weight, widthAxis: width])
+    /// Geist.
+    static func ui(_ size: CGFloat, weight: CGFloat = 400) -> NSFont {
+        font("Geist", size, weight)
             ?? NSFont.systemFont(ofSize: size, weight: weight >= 600 ? .semibold : weight >= 500 ? .medium : .regular)
     }
 
-    /// Chivo Mono.
+    /// Geist Mono (its digits are tabular, as D4's `.num` asks).
     static func mono(_ size: CGFloat, weight: CGFloat = 400) -> NSFont {
-        font("Chivo Mono", size, [weightAxis: weight])
+        font("Geist Mono", size, weight)
             ?? NSFont.monospacedSystemFont(ofSize: size, weight: weight >= 600 ? .semibold : weight >= 500 ? .medium : .regular)
     }
 
-    private static func font(_ family: String, _ size: CGFloat, _ axes: [NSNumber: CGFloat]) -> NSFont? {
-        let key = family + "|\(size)|" + axes.keys.sorted { $0.intValue < $1.intValue }
-            .map { "\($0)=\(axes[$0]!)" }.joined(separator: ",")
+    /// `.os-label`'s tracking (.12em) and the column heads' (.08em), in points for a size.
+    static func labelKern(_ size: CGFloat) -> CGFloat { size * 0.12 }
+    static func headKern(_ size: CGFloat) -> CGFloat { size * 0.08 }
+
+    private static func font(_ family: String, _ size: CGFloat, _ weight: CGFloat) -> NSFont? {
+        let key = family + "|\(size)|\(weight)"
         if let cached = cache[key] { return cached }
         let descriptor = NSFontDescriptor(fontAttributes: [.family: family])
-            .addingAttributes([.variation: axes])
+            .addingAttributes([.variation: [weightAxis: weight]])
         guard let font = NSFont(descriptor: descriptor, size: size), font.familyName == family else { return nil }
         cache[key] = font
         return font

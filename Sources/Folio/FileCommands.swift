@@ -287,8 +287,8 @@ extension BrowserWindowController: FileListDelegate {
             renamer.begin(in: grid, cell: box, row: row, entry: entry, textX: 5)
             return
         }
-        let iconX = ListMetrics.rowLead + 6 + 8 + (tableView.showsCheckboxes ? NameCellView.boxShift : 0)
-        let textX = iconX + (entry.isFolder ? 18 : 15) + 8
+        let iconX = ListMetrics.rowLead + (tableView.showsCheckboxes ? NameCellView.boxShift + 8 : 0)
+        let textX = iconX + 16 + 9
         renamer.begin(in: tableView, tableRow: tableRow(ofItem: row), row: row, entry: entry, textX: textX)
     }
 
@@ -529,7 +529,7 @@ extension BrowserWindowController: FileListDelegate {
 
     // MARK: The command bar
 
-    /// New, Cut, Copy, Paste, Rename, Share, Delete | Sort, View | See more, as D1 toolbar buttons.
+    /// New, Cut, Copy, Paste, Rename, Share, Delete | Sort, View | See more, as D4 `.ib` buttons.
     func makeCommandBar() -> [ChromeButton] {
         func button(_ glyph: Glyph, _ label: String, _ action: Selector?) -> ChromeButton {
             let b = ChromeButton(glyph: glyph, label: label, target: self, action: action)

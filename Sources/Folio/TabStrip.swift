@@ -6,12 +6,14 @@ struct TabItem: Equatable {
     let id: UUID
     let title: String
     let isHome: Bool
+    /// The tab shows search results (a magnifier instead of the folder).
+    var isSearch = false
     /// The folder a file dropped on the tab goes into (nil for Home).
     let folder: URL?
 }
 
-/// The tab strip under the title bar (D1 has none, so it is drawn in D1's language): mono labels, the
-/// active tab on the s1 surface with an accent underline, corner brackets on hover, a + at the end.
+/// The tabs in the title bar (D4's `.tabs`): each sized to its title (at most 260 pt), the active one on
+/// the toolbar's surface with hairline sides and a plain 2 pt accent underline, a + after the last.
 /// Click selects, the x or a middle-click closes, double-click on empty space opens a new tab. Drag a
 /// tab sideways to reorder it; drag it off the strip (up, down or past the window's edge) to tear it
 /// out into its own window, or onto another Folio window's strip to move it there. Files dragged over a tab switch to it after a moment,
@@ -41,9 +43,10 @@ final class TabStripView: NSView, NSDraggingSource {
     private var springTimer: Timer?
     private var axParts: [AddressPart] = []
 
-    private static let lead: CGFloat = 10
-    private static let maxW: CGFloat = 220, minW: CGFloat = 84
-    private static let plusW: CGFloat = 32
+    private static let lead: CGFloat = 0
+    private static let maxW: CGFloat = 260, minW: CGFloat = 84
+    private static let plusW: CGFloat = 44
+    private static let tabH: CGFloat = 36
     /// A drag that set this was dropped on a strip (so the source does not tear the tab out).
     @MainActor static var dropAccepted = false
 
@@ -59,28 +62,51 @@ final class TabStripView: NSView, NSDraggingSource {
 
     override var isFlipped: Bool { true }
 
+    /// The strip sits in the window's title bar area: a press there is the strip's (select, reorder, tear
+    /// out), never a window drag; empty space moves the window from mouseDown.
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    /// AppKit's title bar drags the window from any part of its area that no view claims; the strip claims
+    /// all of itself, so a tab drag reorders or tears out instead of moving the window (as Chromium does
+    /// for its tab strip in the same place).
+    @objc(_opaqueRectForWindowMoveWhenInTitlebar)
+    func opaqueRectForWindowMoveWhenInTitlebar() -> NSRect { bounds }
+
     // MARK: Geometry
 
-    private var readoutW: CGFloat { 96 }
+    private var titleFont: NSFont { Typeface.ui(13, weight: 500) }
 
-    private var tabWidth: CGFloat {
-        guard !items.isEmpty else { return Self.maxW }
-        let room = bounds.width - Self.lead - Self.plusW - 8 - readoutW
-        return min(Self.maxW, max(Self.minW, floor(room / CGFloat(items.count))))
+    /// `.tab-main`'s padding 13 and 12, the 15 pt icon and 8 pt gap, the title, and the 30 pt close
+    /// button with its 4 pt margin when there is more than one tab.
+    private func naturalWidth(_ item: TabItem) -> CGFloat {
+        13 + 15 + 8 + textWidth(item.title, font: titleFont) + 12 + (items.count > 1 ? 34 : 0)
+    }
+
+    /// Each tab's width: its title's, cut down evenly when they do not all fit (2 pt apart).
+    private var widths: [CGFloat] {
+        let natural = items.map { min(Self.maxW, ceil(naturalWidth($0))) }
+        let room = bounds.width - Self.plusW - 2 * CGFloat(max(0, items.count))
+        let total = natural.reduce(0, +)
+        guard total > room, !natural.isEmpty else { return natural }
+        let even = max(Self.minW, floor(room / CGFloat(natural.count)))
+        return natural.map { min($0, even) }
     }
 
     func tabRect(_ i: Int) -> NSRect {
-        NSRect(x: Self.lead + CGFloat(i) * tabWidth, y: 5, width: tabWidth, height: bounds.height - 5)
+        let w = widths
+        guard w.indices.contains(i) else { return .zero }
+        let x = Self.lead + w.prefix(i).reduce(0, +) + CGFloat(i) * 2
+        return NSRect(x: x, y: bounds.height - Self.tabH, width: w[i], height: Self.tabH)
     }
 
     private func closeRect(_ i: Int) -> NSRect {
         let r = tabRect(i)
-        return NSRect(x: r.maxX - 26, y: r.midY - 9, width: 18, height: 18)
+        return NSRect(x: r.maxX - 4 - 30, y: r.midY - 15, width: 30, height: 30)
     }
 
     private var plusRect: NSRect {
-        let x = Self.lead + CGFloat(items.count) * tabWidth + 4
-        return NSRect(x: x, y: 7, width: 28, height: bounds.height - 12)
+        let end = items.isEmpty ? Self.lead : tabRect(items.count - 1).maxX + 2
+        return NSRect(x: end, y: (bounds.height - 44) / 2, width: 44, height: 44)
     }
 
     private func index(at point: NSPoint) -> Int? {
@@ -89,79 +115,85 @@ final class TabStripView: NSView, NSDraggingSource {
 
     /// The gap a dragged tab would land in (0...count).
     private func insertion(at point: NSPoint) -> Int {
-        let w = tabWidth
-        return max(0, min(items.count, Int(((point.x - Self.lead) / w).rounded())))
+        for i in items.indices where point.x < tabRect(i).midX { return i }
+        return items.count
     }
 
     // MARK: Drawing
 
     override func draw(_ dirtyRect: NSRect) {
         let p = Palette.current
-        fillRect(bounds, p.bg)
-        fillRect(NSRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1), p.line)
-        let label = Typeface.mono(12, weight: 500), active = Typeface.mono(12, weight: 600)
         for (i, item) in items.enumerated() {
             let r = tabRect(i)
             let on = i == activeIndex
             if on {
-                fillRect(NSRect(x: r.minX, y: r.minY, width: r.width, height: r.height), p.s1)
-                fillRect(NSRect(x: r.minX, y: r.minY, width: 1, height: r.height), p.line)
-                fillRect(NSRect(x: r.maxX - 1, y: r.minY, width: 1, height: r.height), p.line)
-                fillRect(NSRect(x: r.minX, y: r.minY, width: r.width, height: 1), p.line)
-                // The accent underline, glowing in dark like the sorted column's.
-                let line = NSRect(x: r.minX + 1, y: r.maxY - 2, width: r.width - 2, height: 2)
-                if p.glows, let ctx = NSGraphicsContext.current?.cgContext {
-                    ctx.saveGState()
-                    ctx.setShadow(offset: .zero, blur: 9, color: p.accent.withAlpha(0.6).cg)
-                    fillRect(line, p.accent)
-                    ctx.restoreGState()
-                } else {
-                    fillRect(line, p.accent)
-                }
-            } else {
-                if hovered == i { fillRect(r.insetBy(dx: 1, dy: 0), p.txt.withAlpha(0.06)) }
-                let next = i + 1
-                if next != activeIndex && next < items.count {
-                    fillRect(NSRect(x: r.maxX - 0.5, y: r.minY + 8, width: 1, height: r.height - 16), p.line)
-                }
+                // `.tab.on`: --bar-solid, top line-2 and sides line, radius 8 at the top, no bottom edge.
+                let shape = topRounded(r, radius: 8)
+                p.bar.ns.setFill()
+                shape.fill()
+                p.line.ns.setStroke()
+                shape.lineWidth = 1
+                topRounded(r.insetBy(dx: 0.5, dy: 0).offsetBy(dx: 0, dy: 0.5), radius: 7.5, open: true).stroke()
+                p.line2.ns.setStroke()
+                let top = NSBezierPath()
+                top.move(to: NSPoint(x: r.minX + 8, y: r.minY + 0.5))
+                top.line(to: NSPoint(x: r.maxX - 8, y: r.minY + 0.5))
+                top.lineWidth = 1
+                top.stroke()
+                // A plain 2 pt accent underline, 12 pt in from each side, no glow.
+                let line = NSRect(x: r.minX + 12, y: r.maxY - 2, width: r.width - 24, height: 2)
+                p.accent.ns.setFill()
+                NSBezierPath(roundedRect: line, xRadius: 1, yRadius: 1).fill()
+            } else if hovered == i {
+                p.text.withAlpha(0.05).ns.setFill()
+                topRounded(r, radius: 8).fill()
             }
-            if hovered == i && !on { drawBrackets(r.insetBy(dx: 1, dy: 1), color: p.bracket.ns, length: 7) }
             if dropTab == i {
-                fillRect(r, p.markFill)
-                strokeRounded(r.insetBy(dx: 0.5, dy: 0.5), radius: 2, p.accent)
-                drawBrackets(r, color: p.accent.ns, length: 7)
+                fillRounded(r, radius: 8, p.markFill)
+                strokeRounded(r, radius: 8, p.accent)
             }
             let mid = r.midY
-            let iconX = r.minX + 12
+            let iconX = r.minX + 13
+            let icon = NSRect(x: iconX, y: mid - 7.5, width: 15, height: 15)
             if item.isHome {
-                Glyph.home.draw(in: NSRect(x: iconX, y: mid - 7.5, width: 15, height: 15), color: (on ? p.accent : p.txt2).ns)
+                Glyph.home.draw(in: icon, color: p.accent.ns)
+            } else if item.isSearch {
+                Glyph.search.draw(in: icon, color: p.accent.ns)
             } else {
-                ItemIcon.drawFolder(in: NSRect(x: iconX, y: mid - 6.5, width: 16, height: 13), palette: p, lit: on)
+                ItemIcon.drawFolder(in: icon, palette: p, lit: false)
             }
-            let showClose = on || hovered == i
-            let textX = iconX + 16 + 8
-            let room = r.maxX - textX - (showClose ? 30 : 10)
-            drawLine(item.title, font: on ? active : label, color: on ? p.txt : p.txt2, x: textX, midY: mid, maxWidth: room)
+            let showClose = items.count > 1
+            let textX = iconX + 15 + 8
+            let room = r.maxX - textX - (showClose ? 34 : 12)
+            let tone: RGBA = on ? p.text : (hovered == i ? p.text2 : p.muted)
+            drawLine(item.title, font: titleFont, color: tone, x: textX, midY: mid, maxWidth: room)
             if showClose {
                 let c = closeRect(i)
-                if hoveredClose && hovered == i { fillRounded(c, radius: 3, p.txt.withAlpha(0.12)) }
-                Glyph.close.draw(in: c.insetBy(dx: 3, dy: 3), color: p.txt2.ns, lineWidth: 1.6)
+                let hot = hoveredClose && hovered == i
+                if hot { fillRounded(c.insetBy(dx: 5, dy: 5), radius: 8, p.text.withAlpha(0.08)) }
+                Glyph.close.draw(in: NSRect(x: c.midX - 7, y: c.midY - 7, width: 14, height: 14), color: (hot ? p.text : p.text2).ns)
             }
         }
         if let at = insertAt {
-            let x = Self.lead + CGFloat(at) * tabWidth
-            fillRect(NSRect(x: x - 1, y: 6, width: 2, height: bounds.height - 10), p.accent)
+            let x = at < items.count ? tabRect(at).minX - 1 : (items.isEmpty ? 0 : tabRect(items.count - 1).maxX + 1)
+            fillRect(NSRect(x: x - 1, y: bounds.height - Self.tabH + 4, width: 2, height: Self.tabH - 8), p.accent)
         }
         let plus = plusRect
-        if hoveredPlus {
-            fillRounded(plus, radius: 4, p.txt.withAlpha(0.08))
-            drawBrackets(plus, color: p.bracket.ns, length: 6)
-        }
-        Glyph.plus.draw(in: NSRect(x: plus.midX - 8, y: plus.midY - 8, width: 16, height: 16), color: p.txt2.ns)
-        // The readout at the right: which tab of how many.
-        let readout = "TAB \(min(activeIndex + 1, items.count))/\(items.count)"
-        drawLine(readout, font: Typeface.mono(11, weight: 500), color: p.txt3, x: bounds.width - 14, midY: bounds.height / 2 + 2,
-                 alignRight: true, kern: 0.6)
+        if hoveredPlus { fillRounded(plus.insetBy(dx: 5, dy: 5), radius: 8, p.text.withAlpha(0.08)) }
+        Glyph.plus.draw(in: NSRect(x: plus.midX - 8, y: plus.midY - 8, width: 16, height: 16), color: (hoveredPlus ? p.text : p.muted).ns)
+    }
+
+    /// A rect with only its top corners rounded; `open` leaves the bottom edge out (for stroking).
+    private func topRounded(_ r: NSRect, radius: CGFloat, open: Bool = false) -> NSBezierPath {
+        let path = NSBezierPath()
+        path.move(to: NSPoint(x: r.minX, y: r.maxY))
+        path.line(to: NSPoint(x: r.minX, y: r.minY + radius))
+        path.appendArc(withCenter: NSPoint(x: r.minX + radius, y: r.minY + radius), radius: radius, startAngle: 180, endAngle: 270)
+        path.line(to: NSPoint(x: r.maxX - radius, y: r.minY))
+        path.appendArc(withCenter: NSPoint(x: r.maxX - radius, y: r.minY + radius), radius: radius, startAngle: 270, endAngle: 360)
+        path.line(to: NSPoint(x: r.maxX, y: r.maxY))
+        if !open { path.close() }
+        return path
     }
 
     // MARK: Mouse
@@ -176,7 +208,7 @@ final class TabStripView: NSView, NSDraggingSource {
     override func mouseMoved(with event: NSEvent) {
         let p = convert(event.locationInWindow, from: nil)
         let i = index(at: p)
-        let onClose = i.map { closeRect($0).contains(p) } ?? false
+        let onClose = items.count > 1 && (i.map { closeRect($0).contains(p) } ?? false)
         let onPlus = plusRect.contains(p)
         if i != hovered || onClose != hoveredClose || onPlus != hoveredPlus {
             hovered = i
@@ -200,7 +232,7 @@ final class TabStripView: NSView, NSDraggingSource {
             if event.clickCount == 2 { onNew?() } else { window?.performDrag(with: event) }
             return
         }
-        if closeRect(i).contains(start), i == activeIndex || hovered == i {
+        if items.count > 1, closeRect(i).contains(start) {
             // Closes when the button comes up over the x, as a button does.
             guard let window else { return }
             while let next = MouseTracking.next(window, [.leftMouseUp, .leftMouseDragged]) {
@@ -230,7 +262,8 @@ final class TabStripView: NSView, NSDraggingSource {
                 beginTabDrag(current, event: next)
                 return
             }
-            let target = max(0, min(items.count - 1, Int((p.x - Self.lead) / tabWidth)))
+            // The tab whose middle is nearest the pointer (tabs differ in width and sit 2 pt apart).
+            let target = items.indices.min { abs(tabRect($0).midX - p.x) < abs(tabRect($1).midX - p.x) } ?? current
             if target != current {
                 onMove?(current, target)
                 current = target

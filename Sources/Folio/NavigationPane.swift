@@ -1,10 +1,9 @@
 import AppKit
 import FolioCore
 
-/// The sidebar (`.side`) on a blueprint grid tinted with the accent. It holds one outline: Quick access
-/// (Home and the pins), This PC (every volume with its bar, each the root of a folder tree) and Network
-/// (mounted shares, servers found on the network, Connect to server). The grid stays put while the
-/// groups scroll, as in D1.
+/// The sidebar (D4's `.side`): one outline drawn as spotlight cards. Quick access (Home and the pins),
+/// This PC (every volume with its capacity bar, each the root of a folder tree), Details (the selected
+/// item) and Network (mounted shares, servers found on the network, Connect to server).
 final class SidebarView: NSView {
     let outline = SidebarOutlineView(frame: .zero)
     let pane = NavigationPane()
@@ -37,14 +36,7 @@ final class SidebarView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         let p = Palette.current
-        fillRect(bounds, p.bg)
-        // 16 pt minor and 64 pt major lines, offset by -1 like `background-position:-1px -1px`.
-        for (step, color) in [(CGFloat(16), p.gridMinor), (CGFloat(64), p.gridMajor)] {
-            var x = step - 1
-            while x < bounds.width { fillRect(NSRect(x: x, y: 0, width: 1, height: bounds.height), color); x += step }
-            var y = step - 1
-            while y < bounds.height { fillRect(NSRect(x: 0, y: y, width: bounds.width, height: 1), color); y += step }
-        }
+        fillRect(bounds, p.side)
         fillRect(NSRect(x: bounds.width - 1, y: 0, width: 1, height: bounds.height), p.line)
     }
 
@@ -74,8 +66,9 @@ struct NavigationLayout: Equatable {
 /// One row of the navigation pane. Objects stay the same across reloads so the outline keeps what is
 /// expanded.
 final class SideNode: NSObject, @unchecked Sendable {
-    /// `allFolders` replaces This PC and Network with Folder Options > Show all folders on.
-    enum Section: String, CaseIterable { case quickAccess, thisPC, network, allFolders }
+    /// `allFolders` replaces This PC and Network with Folder Options > Show all folders on. `details` is
+    /// D4's card for the selected item.
+    enum Section: String, CaseIterable { case quickAccess, thisPC, network, allFolders, details }
 
     enum Kind {
         case header(Section), footer(Section)
@@ -89,6 +82,8 @@ final class SideNode: NSObject, @unchecked Sendable {
         case browse, server(String), connect, notice(String)
         /// An iPhone or camera seen through Image Capture (a Mac has no MTP).
         case device(String)
+        /// The Details card's body.
+        case details
     }
 
     var kind: Kind
@@ -114,6 +109,8 @@ final class SideNode: NSObject, @unchecked Sendable {
         case .header(.thisPC): "This PC"
         case .header(.network): "Network"
         case .header(.allFolders): "All folders"
+        case .header(.details): "Details"
+        case .details: ""
         case .footer: ""
         case .home: "Home"
         case .pin(let place, _): place.title
@@ -164,6 +161,16 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
     private let recycleNode = SideNode(.recycle)
     private var cloudNodes: [SideNode] = []
     private let browseNode = SideNode(.browse)
+    private let detailsNode = SideNode(.details)
+    /// The Details card: what the window has selected.
+    var details = DetailsCard.make([]) {
+        didSet {
+            guard details != oldValue, let outline else { return }
+            let row = outline.row(forItem: detailsNode)
+            if row >= 0 { outline.noteHeightOfRows(withIndexesChanged: IndexSet(integer: row)) }
+            outline.redrawRows()
+        }
+    }
     private let connectNode = SideNode(.connect)
     private var pinNodes: [SideNode] = []
     private var volumeNodes: [SideNode] = []
@@ -183,11 +190,12 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
         return SideNode(.cloud(CloudPlace(name: FileManager.default.displayName(atPath: home.path), path: home.path)))
     }()
 
-    /// The sections shown, top to bottom.
+    /// The cards shown, top to bottom: D4's Quick access, This PC and Details, then Network.
     var sections: [SideNode.Section] {
         var out: [SideNode.Section] = [.quickAccess]
-        if layoutOptions.showAllFolders { return out + [.allFolders] }
+        if layoutOptions.showAllFolders { return out + [.allFolders, .details] }
         if layoutOptions.showThisPC { out.append(.thisPC) }
+        out.append(.details)
         if layoutOptions.showNetwork { out.append(.network) }
         return out
     }
@@ -237,12 +245,23 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
         reload(.quickAccess)
     }
 
-    /// The number a header shows: pins, drives, shares.
-    func headerCount(_ s: SideNode.Section) -> Int {
+    /// The number a card's label shows: pins, drives, shares (Details has none).
+    func headerCount(_ s: SideNode.Section) -> Int? {
         switch s {
         case .quickAccess: pinNodes.count
         case .thisPC, .allFolders: volumeNodes.count
         case .network: shareNodes.count
+        case .details: nil
+        }
+    }
+
+    /// The hue a card's rows take on hover (D4's `--hue` per card).
+    func hue(of s: SideNode.Section, _ p: Palette) -> RGBA {
+        switch s {
+        case .quickAccess, .allFolders: p.accent
+        case .thisPC: p.hue(.green)
+        case .network: p.hue(.teal)
+        case .details: p.accent
         }
     }
 
@@ -310,6 +329,7 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
         case .network: return network
         // The top of the Mac: Home, the drives, Network and the Recycle Bin, as Explorer's Desktop root.
         case .allFolders: return [homeFolderNode] + volumeNodes + (layoutOptions.showNetwork ? network : []) + [recycleNode]
+        case .details: return [detailsNode]
         }
     }
 
@@ -367,16 +387,21 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
 
     // MARK: Delegate
 
+    /// D4's cards: 10 pt between them, a 40 pt label row, 30 pt items, 8 pt under the last item, and 14 pt
+    /// under the last card. A drive adds its capacity bar and free space under its row.
+    static let cardGap: CGFloat = 10, labelH: CGFloat = 40, itemH: CGFloat = 30, volumeH: CGFloat = 68
+
     func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
-        guard let node = item as? SideNode else { return 30 }
+        guard let node = item as? SideNode else { return Self.itemH }
         switch node.kind {
-        case .header: return 12 + 1 + 36
+        case .header: return Self.cardGap + Self.labelH
         case .footer(let s):
             let open = !collapsed.contains(s.rawValue)
-            return (open ? 6 : 0) + 1 + (s == sections.last ? 12 : 0)
-        case .volume, .share: return 77.75
+            return (open ? 8 : 0) + 1 + (s == sections.last ? 14 : 0)
+        case .volume, .share: return Self.volumeH
         case .folder: return 26
-        default: return 30
+        case .details: return DetailsCardDrawing.height(details, width: outlineView.bounds.width - 20)
+        default: return Self.itemH
         }
     }
 
@@ -398,6 +423,7 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
         guard let node = item as? SideNode else { return false }
         if node.isFooter { return false }
         if case .notice = node.kind { return false }
+        if case .details = node.kind { return false }
         return true
     }
 
@@ -423,7 +449,7 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
 
     // MARK: Drawing state
 
-    /// Whether a row is the place the window shows (drawn lit, as D1's `.si.on`).
+    /// Whether a row is the place the window shows (drawn lit, as D4's `.sitem.on`).
     func isCurrent(_ node: SideNode) -> Bool {
         if case .home = node.kind { return isHome }
         guard !isHome, let path = node.path else { return false }
@@ -436,7 +462,7 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
         return max(0, outline.level(forItem: node) - 2)
     }
 
-    /// The section rectangles (header to footer), drawn behind the rows.
+    /// The cards (label row to footer), drawn behind the rows.
     func panelRects() -> [NSRect] {
         guard let outline else { return [] }
         let w = outline.bounds.width
@@ -444,10 +470,21 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
             guard let h = headers[s], let f = footers[s] else { return nil }
             let hr = outline.row(forItem: h), fr = outline.row(forItem: f)
             guard hr >= 0, fr >= 0 else { return nil }
-            let top = outline.rect(ofRow: hr).minY + 12
-            let bottom = outline.rect(ofRow: fr).maxY - (s == sections.last ? 12 : 0)
+            let top = outline.rect(ofRow: hr).minY + Self.cardGap
+            let bottom = outline.rect(ofRow: fr).maxY - (s == sections.last ? 14 : 0)
             return NSRect(x: 10, y: top, width: w - 20, height: bottom - top)
         }
+    }
+
+    /// The card a row belongs to.
+    func section(of node: SideNode) -> SideNode.Section? {
+        guard let outline else { return nil }
+        var item: Any? = node
+        while let n = item as? SideNode {
+            if case .header(let s) = n.kind { return s }
+            item = outline.parent(forItem: n)
+        }
+        return nil
     }
 
     // MARK: Clicks
@@ -470,7 +507,7 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
         case .browse: onBrowse?()
         case .server(let name): onServer?(name)
         case .device: onDevice?()
-        case .footer, .notice: break
+        case .footer, .notice, .details: break
         }
     }
 
@@ -753,8 +790,8 @@ extension SideNode {
     }
 }
 
-/// The outline: no header, no native disclosure triangles (the rows draw D1 chevrons), panels behind
-/// the groups, an insertion line for pins, and the tree keys.
+/// The outline: no header, no native disclosure triangles (the rows draw their own chevrons), D4's cards
+/// behind the groups, an insertion line for pins, and the tree keys.
 final class SidebarOutlineView: NSOutlineView {
     weak var pane: NavigationPane?
     private(set) var hoveredRow = -1
@@ -810,12 +847,12 @@ final class SidebarOutlineView: NSOutlineView {
         enumerateAvailableRowViews { view, _ in view.needsDisplay = true }
     }
 
+    /// `.scard.os-card`: s1, a hairline, radius 12; no hover effect on the card itself.
     override func drawBackground(inClipRect clipRect: NSRect) {
         let p = Palette.current
         for r in pane?.panelRects() ?? [] {
-            fillRounded(r, radius: 4, p.bg.withAlpha(0.86))
-            strokeRounded(r, radius: 4, p.line)
-            drawBrackets(r.insetBy(dx: -1, dy: -1), color: p.accent.withAlpha(0.55).ns, length: 8)
+            fillRounded(r, radius: 12, p.s1)
+            strokeRounded(r, radius: 12, p.line)
         }
     }
 
@@ -852,9 +889,9 @@ final class SidebarOutlineView: NSOutlineView {
         guard let pane, let node = item(atRow: row) as? SideNode, isExpandable(node) else { return nil }
         let r = rect(ofRow: row)
         switch node.kind {
-        case .volume, .share: return NSRect(x: 15, y: r.minY + 8.8, width: 16, height: 16)
-        case .cloud: return NSRect(x: 21, y: r.midY - 8, width: 16, height: 16)
-        case .folder: return NSRect(x: 19 + CGFloat(pane.depth(of: node)) * 14, y: r.midY - 8, width: 16, height: 16)
+        case .volume, .share: return NSRect(x: 12, y: r.minY + 7, width: 16, height: 16)
+        case .cloud: return NSRect(x: 12, y: r.midY - 8, width: 16, height: 16)
+        case .folder: return NSRect(x: 18 + CGFloat(pane.depth(of: node)) * 14, y: r.midY - 8, width: 16, height: 16)
         default: return nil
         }
     }
@@ -1019,7 +1056,7 @@ final class SidebarOutlineView: NSOutlineView {
         override func draw(_ dirtyRect: NSRect) {
             guard let y else { return }
             let p = Palette.current
-            let line = NSRect(x: 18, y: y - 1, width: bounds.width - 36, height: 2)
+            let line = NSRect(x: 24, y: y - 1, width: bounds.width - 48, height: 2)
             fillRect(line, p.accent)
             fillRounded(NSRect(x: line.minX - 3, y: y - 3, width: 6, height: 6), radius: 3, p.accent)
         }
@@ -1034,8 +1071,9 @@ final class SidebarOutlineView: NSOutlineView {
     }
 }
 
-/// A row: every navigation pane row is drawn here (headers, places, volumes with their bars, tree
-/// folders), with the hover wash, the lit current row, the drop highlight and the keyboard focus.
+/// A row: every navigation pane row is drawn here (card labels, places, drives with their capacity bars,
+/// tree folders, the Details card), with D4's `.sitem` states: a 7% wash on hover, the accent at 16% with
+/// a glowing left edge on the current place, the drop highlight and the keyboard focus ring.
 final class SideRowView: NSTableRowView {
     var node: SideNode?
     weak var pane: NavigationPane?
@@ -1049,8 +1087,10 @@ final class SideRowView: NSTableRowView {
     override func drawSelection(in dirtyRect: NSRect) {}
     override func drawBackground(in dirtyRect: NSRect) {}
 
-    /// The row inside its panel (5 pt in from the panel's sides).
-    private var inner: NSRect { NSRect(x: 15, y: 0, width: bounds.width - 30, height: bounds.height) }
+    /// The row across its card (the card is 10 pt in from the sidebar's sides).
+    private var inner: NSRect { NSRect(x: 10, y: 0, width: bounds.width - 20, height: bounds.height) }
+    /// The 30 pt item line at the top of the row (a drive's bar and free space sit under it).
+    private var line: NSRect { NSRect(x: inner.minX, y: 0, width: inner.width, height: min(bounds.height, NavigationPane.itemH)) }
 
     override func draw(_ dirtyRect: NSRect) {
         guard let node, let pane, let outline else { return }
@@ -1059,171 +1099,215 @@ final class SideRowView: NSTableRowView {
         let hovered = row >= 0 && outline.hoveredRow == row
         let focused = isSelected && outline.window?.firstResponder === outline
         let on = pane.isCurrent(node)
+        let hue = pane.section(of: node).map { pane.hue(of: $0, p) } ?? p.accent
         switch node.kind {
         case .header(let s): drawHeader(s, hovered: hovered, focused: focused, collapsed: pane.isCollapsed(s), p)
         case .footer: break
+        case .details: DetailsCardDrawing.draw(pane.details, in: inner, p)
         default:
-            let r = inner
-            if on, node.volume == nil {
-                fillRounded(r, radius: 3, p.selectionFill)
+            // `.sitem::before`: inset 1 pt top and bottom and 6 pt at the sides, radius 8.
+            let wash = line.insetBy(dx: 6, dy: 1)
+            if on {
+                fillRounded(wash, radius: 8, p.accent.withAlpha(0.16))
+                drawEdgeBar(NSRect(x: inner.minX, y: line.minY + 7, width: 3, height: line.height - 14), color: p.accent,
+                            glowAlpha: 1, rounded: true)
             } else if hovered {
-                fillRounded(r, radius: 3, p.txt.withAlpha(0.08))
+                fillRounded(wash, radius: 8, p.text.withAlpha(0.07))
             }
             if outline.dropRow == row {
-                fillRounded(r, radius: 3, p.markFill)
-                strokeRounded(r.insetBy(dx: 0.5, dy: 0.5), radius: 3, p.accent)
-                drawBrackets(r, color: p.accent.ns, length: 7)
+                fillRounded(wash, radius: 8, p.markFill)
+                strokeRounded(wash, radius: 8, p.accent)
             }
-            drawContent(node, in: r, on: on, p)
-            if focused { strokeRounded(r.insetBy(dx: 1, dy: 1), radius: 3, p.accent, width: 2) }
+            drawContent(node, on: on, hovered: hovered, hue: hue, p)
+            if focused { strokeRounded(line.insetBy(dx: 3, dy: 1), radius: 8, p.accent, width: 2) }
         }
     }
 
+    /// `.scard-h`: the mono uppercase label (text-2 on hover), the count, and the chevron at the right.
     private func drawHeader(_ s: SideNode.Section, hovered: Bool, focused: Bool, collapsed: Bool, _ p: Palette) {
-        let r = NSRect(x: 10, y: 13, width: bounds.width - 20, height: 36)
-        if hovered { fillRounded(r.insetBy(dx: 1, dy: 0), radius: 4, p.txt2.withAlpha(0.08)) }
+        let r = NSRect(x: inner.minX, y: NavigationPane.cardGap, width: inner.width, height: NavigationPane.labelH)
         let mid = r.midY
-        let glyph: Glyph = switch s { case .quickAccess: .star; case .thisPC: .pc; case .network: .globe; case .allFolders: .desktop }
-        glyph.draw(in: NSRect(x: r.minX + 11, y: mid - 8, width: 16, height: 16), color: p.txt2.ns)
-        let title = node?.title ?? ""
-        let tw = drawLine(title, font: Typeface.ui(12, weight: 700, width: 124), color: p.txt, x: r.minX + 35, midY: mid, kern: 0.48)
-        let shown = pane?.headerCount(s) ?? 0
-        drawLine("\(shown)", font: Typeface.mono(12), color: p.txt3, x: r.minX + 35 + tw + 8, midY: mid)
-        Glyph.chevronDown.draw(in: NSRect(x: r.maxX - 11 - 16, y: mid - 8, width: 16, height: 16), color: p.txt2.ns,
-                               rotation: collapsed ? -.pi / 2 : 0)
-        if focused { strokeRounded(r.insetBy(dx: 1, dy: 1), radius: 4, p.accent, width: 2) }
-    }
-
-    private func drawLight(at point: NSPoint, _ p: Palette) {
-        let c = NSRect(x: point.x, y: point.y, width: 6, height: 6)
-        fillRounded(c.insetBy(dx: -2, dy: -2), radius: 5, p.accent.withAlpha(0.18))
-        if p.glows, let ctx = NSGraphicsContext.current?.cgContext {
-            ctx.saveGState()
-            ctx.setShadow(offset: .zero, blur: 4.5, color: p.accent.withAlpha(0.62).cg)
-            fillRounded(c, radius: 3, p.accent)
-            ctx.restoreGState()
-        } else {
-            fillRounded(c, radius: 3, p.accent)
+        let title = (node?.title ?? "").uppercased()
+        let font = Typeface.mono(12, weight: 600)
+        let tw = drawLine(title, font: font, color: hovered ? p.text2 : p.muted, x: r.minX + 14, midY: mid, kern: Typeface.labelKern(12))
+        if let count = pane?.headerCount(s) {
+            drawLine("\(count)", font: Typeface.mono(12, weight: 500), color: p.muted, x: r.minX + 14 + tw + 8, midY: mid)
         }
+        Glyph.chevronDown.draw(in: NSRect(x: r.maxX - 10 - 16, y: mid - 8, width: 16, height: 16), color: p.muted.ns,
+                               rotation: collapsed ? -.pi / 2 : 0)
+        if focused { strokeRounded(r.insetBy(dx: 3, dy: 3), radius: 12, p.accent, width: 2) }
     }
 
-    private func drawContent(_ node: SideNode, in r: NSRect, on: Bool, _ p: Palette) {
+    /// A place's glyph: muted, the card's hue under the pointer, the accent when it is the current place.
+    private func glyphTone(on: Bool, hovered: Bool, hue: RGBA, _ p: Palette) -> RGBA { on ? p.accent : hovered ? hue : p.muted }
+    private func labelTone(on: Bool, hovered: Bool, _ p: Palette) -> RGBA { on || hovered ? p.text : p.text2 }
+
+    private func drawContent(_ node: SideNode, on: Bool, hovered: Bool, hue: RGBA, _ p: Palette) {
+        let r = line
         let mid = r.midY
-        let font = Typeface.ui(13)
+        let font = Typeface.ui(13, weight: 500)
+        let icon = NSRect(x: r.minX + 14, y: mid - 8, width: 16, height: 16)
+        let textX = icon.maxX + 10
+        let room = r.maxX - 12 - textX
+        let glyph = glyphTone(on: on, hovered: hovered, hue: hue, p).ns
+        let label = labelTone(on: on, hovered: hovered, p)
+        func chevron(at x: CGFloat) {
+            guard let outline, outline.isExpandable(node) else { return }
+            Glyph.chevron.draw(in: NSRect(x: x, y: mid - 5, width: 10, height: 10), color: p.muted.ns, lineWidth: 2.2,
+                               rotation: outline.isItemExpanded(node) ? .pi / 2 : 0)
+        }
         switch node.kind {
         case .home:
-            if on { drawLight(at: NSPoint(x: r.minX + 8, y: (mid - 3).rounded()), p) }
-            Glyph.home.draw(in: NSRect(x: r.minX + 24, y: mid - 8, width: 16, height: 16), color: (on ? p.accent : p.txt2).ns)
-            drawLine("Home", font: font, color: on ? p.accent : p.txt, x: r.minX + 50, midY: mid, maxWidth: r.width - 58)
+            Glyph.home.draw(in: icon, color: glyph)
+            drawLine("Home", font: font, color: label, x: textX, midY: mid, maxWidth: room)
         case .pin(let place, _):
-            if on { drawLight(at: NSPoint(x: r.minX + 8, y: (mid - 3).rounded()), p) }
-            drawPlace(place, in: r, on: on, p)
+            drawPlace(place, icon: icon, textX: textX, room: room, glyph: glyph, label: label, p)
         case .cloud(let c):
-            if on { drawLight(at: NSPoint(x: r.minX + 8, y: (mid - 3).rounded()), p) }
-            if let outline, outline.isExpandable(node) {
-                Glyph.chevron.draw(in: NSRect(x: r.minX + 8, y: mid - 6, width: 12, height: 12), color: p.txt3.ns, lineWidth: 2,
-                                   rotation: outline.isItemExpanded(node) ? .pi / 2 : 0)
-            }
-            let glyph: Glyph = c.path == FileManager.default.homeDirectoryForCurrentUser.path ? .home : .cloud
-            glyph.draw(in: NSRect(x: r.minX + 24, y: mid - 8, width: 16, height: 16), color: (on ? p.accent : p.txt2).ns)
-            drawLine(c.name, font: font, color: on ? p.accent : p.txt, x: r.minX + 50, midY: mid, maxWidth: r.width - 58)
+            chevron(at: r.minX + 3)
+            let g: Glyph = c.path == FileManager.default.homeDirectoryForCurrentUser.path ? .home : .cloud
+            g.draw(in: icon, color: glyph)
+            drawLine(c.name, font: font, color: label, x: textX, midY: mid, maxWidth: room)
         case .recycle:
-            if on { drawLight(at: NSPoint(x: r.minX + 8, y: (mid - 3).rounded()), p) }
-            Glyph.trash.draw(in: NSRect(x: r.minX + 24, y: mid - 8, width: 16, height: 16), color: (on ? p.accent : p.txt2).ns)
-            drawLine("Recycle Bin", font: font, color: on ? p.accent : p.txt, x: r.minX + 50, midY: mid, maxWidth: r.width - 58)
-        case .volume(let v): drawVolume(v, in: r, glyph: .drive, on: on, node: node, p)
-        case .share(let v): drawVolume(v, in: r, glyph: .server, on: on, node: node, p)
+            Glyph.trash.draw(in: icon, color: glyph)
+            drawLine("Recycle Bin", font: font, color: label, x: textX, midY: mid, maxWidth: room)
+        case .volume(let v): drawVolume(v, glyph: .drive, on: on, hovered: hovered, hue: hue, node: node, p)
+        case .share(let v): drawVolume(v, glyph: .server, on: on, hovered: hovered, hue: hue, node: node, p)
         case .folder(let f):
             let depth = CGFloat(pane?.depth(of: node) ?? 0)
-            let x0 = r.minX + 4 + depth * 14
-            if let outline, outline.isExpandable(node) {
-                Glyph.chevron.draw(in: NSRect(x: x0 + 2, y: mid - 6, width: 12, height: 12), color: p.txt3.ns, lineWidth: 2,
-                                   rotation: outline.isItemExpanded(node) ? .pi / 2 : 0)
-            }
-            if on { drawLight(at: NSPoint(x: x0 - 6, y: (mid - 3).rounded()), p) }
-            ItemIcon.drawFolder(in: NSRect(x: x0 + 18, y: mid - 6.5, width: 16, height: 13), palette: p, lit: on)
-            let tone: RGBA = on ? p.accent : (f.isHidden ? p.txt3 : p.txt)
-            drawLine(f.name, font: Typeface.ui(13, weight: on ? 600 : 400), color: tone, x: x0 + 42, midY: mid,
-                     maxWidth: r.maxX - x0 - 48)
+            let x0 = r.minX + 8 + depth * 14
+            chevron(at: x0 + 3)
+            ItemIcon.drawFolder(in: NSRect(x: x0 + 18, y: mid - 8, width: 16, height: 16), hue: p.accent, palette: p, glow: on || hovered)
+            let tone: RGBA = on ? p.text : (f.isHidden ? p.muted : label)
+            drawLine(f.name, font: Typeface.ui(13, weight: on ? 600 : 500), color: tone, x: x0 + 42, midY: mid, maxWidth: r.maxX - x0 - 48)
         case .browse:
-            Glyph.globe.draw(in: NSRect(x: r.minX + 24, y: mid - 8, width: 16, height: 16), color: p.txt2.ns)
-            drawLine(pane?.browseStatus ?? "Browse network", font: font, color: p.txt2, x: r.minX + 50, midY: mid, maxWidth: r.width - 58)
+            Glyph.globe.draw(in: icon, color: glyph)
+            drawLine(pane?.browseStatus ?? "Browse network", font: font, color: label, x: textX, midY: mid, maxWidth: room)
         case .device(let name):
-            Glyph.pics.draw(in: NSRect(x: r.minX + 24, y: mid - 8, width: 16, height: 16), color: p.txt2.ns)
-            drawLine(name, font: font, color: p.txt, x: r.minX + 50, midY: mid, maxWidth: r.width - 58)
+            Glyph.pics.draw(in: icon, color: glyph)
+            drawLine(name, font: font, color: label, x: textX, midY: mid, maxWidth: room)
         case .server(let name):
-            Glyph.server.draw(in: NSRect(x: r.minX + 24, y: mid - 8, width: 16, height: 16), color: p.txt2.ns)
-            drawLine(name, font: font, color: p.txt, x: r.minX + 50, midY: mid, maxWidth: r.width - 58)
+            Glyph.server.draw(in: icon, color: glyph)
+            drawLine(name, font: font, color: label, x: textX, midY: mid, maxWidth: room)
         case .connect:
-            Glyph.link.draw(in: NSRect(x: r.minX + 24, y: mid - 8, width: 16, height: 16), color: p.txt2.ns)
-            drawLine("Connect to server...", font: font, color: p.txt2, x: r.minX + 50, midY: mid, maxWidth: r.width - 58)
+            Glyph.link.draw(in: icon, color: glyph)
+            drawLine("Connect to server...", font: font, color: label, x: textX, midY: mid, maxWidth: room)
         case .notice(let text):
-            drawLine(text, font: Typeface.mono(11), color: p.part, x: r.minX + 10, midY: mid, maxWidth: r.width - 16)
-        case .header, .footer:
+            drawLine(text, font: Typeface.mono(12), color: p.part, x: r.minX + 14, midY: mid, maxWidth: r.width - 26)
+        case .header, .footer, .details:
             break
         }
     }
 
-    private func drawPlace(_ place: QuickAccessPlace, in r: NSRect, on: Bool, _ p: Palette) {
-        let mid = r.midY
-        let iconX = r.minX + 8 + 6 + 10
-        let glyph: Glyph? = switch place.title {
+    /// A pin: D4's place glyphs (download, monitor, doc, image, film), else the accent folder; the
+    /// parent path dim before the name ("Anshul/" Code).
+    private func drawPlace(_ place: QuickAccessPlace, icon: NSRect, textX: CGFloat, room: CGFloat, glyph: NSColor, label: RGBA, _ p: Palette) {
+        let g: Glyph? = switch place.title {
         case "Downloads": .download
         case "Desktop": .desktop
         case "Documents": .docs
         case "Pictures": .pics
         case "Movies": .movies
+        case "Code": .code
         default: nil
         }
-        let textX: CGFloat
-        if let glyph {
-            glyph.draw(in: NSRect(x: iconX, y: mid - 8, width: 16, height: 16), color: (on ? p.accent : p.txt2).ns)
-            textX = iconX + 16 + 10
+        if let g {
+            g.draw(in: icon, color: glyph)
         } else {
-            ItemIcon.drawFolder(in: NSRect(x: iconX, y: mid - 7.5, width: 18, height: 15), palette: p, lit: on)
-            textX = iconX + 18 + 10
+            ItemIcon.drawFolder(in: icon, hue: p.accent, palette: p)
         }
-        let font = Typeface.ui(13)
-        let room = r.maxX - 8 - textX
-        let pw = place.prefix.isEmpty ? 0 : drawLine(place.prefix, font: font, color: p.txt3, x: textX, midY: mid, maxWidth: room)
-        drawLine(place.title, font: font, color: on ? p.accent : p.txt, x: textX + pw, midY: mid, maxWidth: room - pw)
+        let font = Typeface.ui(13, weight: 500)
+        let pw = place.prefix.isEmpty ? 0 : drawLine(place.prefix, font: font, color: p.muted, x: textX, midY: icon.midY, maxWidth: room)
+        drawLine(place.title, font: font, color: label, x: textX + pw, midY: icon.midY, maxWidth: room - pw)
     }
 
-    private func drawVolume(_ v: VolumeCapacity, in r: NSRect, glyph: Glyph, on: Bool, node: SideNode, _ p: Palette) {
-        let topMid = r.minY + 8 + 8.8
-        let tone: RGBA = v.isNearlyFull ? p.miss : p.accent
-        if let outline {
-            Glyph.chevron.draw(in: NSRect(x: r.minX + 2, y: topMid - 6, width: 12, height: 12), color: p.txt3.ns, lineWidth: 2,
+    /// A drive (`.sitem` + `.cap` + `.cap-l`): the row with its used share in the card's hue, a 6 pt
+    /// capacity bar glowing in the hue (coral from 90% full), and "81.0 GB free of 926 GB" in mono.
+    private func drawVolume(_ v: VolumeCapacity, glyph: Glyph, on: Bool, hovered: Bool, hue: RGBA, node: SideNode, _ p: Palette) {
+        let r = line
+        let mid = r.midY
+        let tone: RGBA = v.isNearlyFull ? p.miss : hue
+        if let outline, outline.isExpandable(node) {
+            Glyph.chevron.draw(in: NSRect(x: r.minX + 3, y: mid - 5, width: 10, height: 10), color: p.muted.ns, lineWidth: 2.2,
                                rotation: outline.isItemExpanded(node) ? .pi / 2 : 0)
         }
-        glyph.draw(in: NSRect(x: r.minX + 18, y: topMid - 8, width: 16, height: 16), color: (on ? p.accent : p.txt2).ns)
+        let icon = NSRect(x: r.minX + 16, y: mid - 8, width: 16, height: 16)
+        glyph.draw(in: icon, color: glyphTone(on: on, hovered: hovered, hue: hue, p).ns)
         let ejectRoom: CGFloat = v.canEject ? 26 : 0
-        let pctW = drawLine(v.percentText, font: Typeface.mono(12), color: tone, x: r.maxX - 8 - ejectRoom, midY: topMid, alignRight: true)
-        drawLine(pane?.label(v) ?? v.name, font: Typeface.ui(13, weight: 600), color: on ? p.accent : p.txt, x: r.minX + 42, midY: topMid,
-                 maxWidth: r.width - 42 - 8 - pctW - 8 - ejectRoom)
-        // 24 segments, gap 2, the used share lit in the accent (red from 90% full).
-        let barY = r.minY + 8 + 17.55 + 9
-        let barW = r.width - 16
-        let segW = (barW - 23 * 2) / 24
-        let lit = v.litSegments()
-        for i in 0..<24 {
-            let seg = NSRect(x: r.minX + 8 + CGFloat(i) * (segW + 2), y: barY, width: segW, height: 10)
-            if i < lit {
-                if p.glows, let ctx = NSGraphicsContext.current?.cgContext {
-                    ctx.saveGState()
-                    ctx.setShadow(offset: .zero, blur: 9, color: tone.withAlpha(0.5).cg)
-                    fillRounded(seg, radius: 1, tone)
-                    ctx.restoreGState()
-                } else {
-                    fillRounded(seg, radius: 1, tone)
-                }
-            } else {
-                fillRounded(seg, radius: 1, p.line2)
-            }
+        let pctW = drawLine(v.percentText, font: Typeface.mono(12, weight: 500), color: tone, x: r.maxX - 12 - ejectRoom, midY: mid,
+                            alignRight: true)
+        drawLine(pane?.label(v) ?? v.name, font: Typeface.ui(13, weight: 500), color: labelTone(on: on, hovered: hovered, p),
+                 x: icon.maxX + 10, midY: mid, maxWidth: r.maxX - 12 - ejectRoom - pctW - 8 - icon.maxX - 10)
+        // `.cap`: 6 pt, 6 pt under the row, 14 pt in from the card's sides, s3 track.
+        let bar = NSRect(x: inner.minX + 14, y: r.maxY + 6, width: inner.width - 28, height: 6)
+        fillRounded(bar, radius: 3, p.s3)
+        let used = NSRect(x: bar.minX, y: bar.minY, width: max(bar.height, bar.width * CGFloat(min(1, v.usedFraction))), height: bar.height)
+        withGlow(tone, blur: 10) { fillRounded(used, radius: 3, tone) }
+        // `.cap-l`: the free figure in text-2 500, the rest muted.
+        let mono = Typeface.mono(12)
+        let s = NSMutableAttributedString(string: ByteText.storage(v.free),
+                                          attributes: [.font: Typeface.mono(12, weight: 500), .foregroundColor: p.text2.ns])
+        s.append(NSAttributedString(string: " free of " + ByteText.storage(v.total), attributes: [.font: mono, .foregroundColor: p.muted.ns]))
+        drawAttributed(s, x: inner.minX + 14, midY: bar.maxY + 8 + 8, width: min(ceil(s.size().width), inner.width - 28), font: mono)
+    }
+}
+
+/// The Details card's body (D4's `.dt`): the glyph at 34 pt with the name and kind beside it, then each
+/// field's mono uppercase key over its value; or "Select an item to see its details here."
+@MainActor
+enum DetailsCardDrawing {
+    private static let pad: CGFloat = 14
+    private static var keyFont: NSFont { Typeface.mono(12, weight: 600) }
+    private static var valueFont: NSFont { Typeface.mono(12) }
+    private static var nameFont: NSFont { Typeface.ui(14, weight: 600) }
+
+    private static func textHeight(_ text: String, font: NSFont, width: CGFloat) -> CGFloat {
+        let style = NSMutableParagraphStyle()
+        style.lineBreakMode = .byCharWrapping
+        style.lineHeightMultiple = 1.1
+        let r = NSAttributedString(string: text, attributes: [.font: font, .paragraphStyle: style])
+            .boundingRect(with: NSSize(width: max(10, width), height: 1000), options: [.usesLineFragmentOrigin])
+        return ceil(r.height)
+    }
+
+    /// Height of the body for a card `width` wide.
+    static func height(_ card: DetailsCard, width: CGFloat) -> CGFloat {
+        let w = width - 2 * pad
+        if card.isEmpty { return textHeight(card.title, font: Typeface.ui(12), width: w) + 12 }
+        var h: CGFloat = 2 + 34 + 12
+        for f in card.fields { h += 17 + 3 + textHeight(f.value, font: valueFont, width: w) + 7 }
+        return h - (card.fields.isEmpty ? 12 : 7) + 10
+    }
+
+    static func draw(_ card: DetailsCard, in r: NSRect, _ p: Palette) {
+        let x = r.minX + pad, w = r.width - 2 * pad
+        if card.isEmpty {
+            draw(card.title, font: Typeface.ui(12), color: p.muted, in: NSRect(x: x, y: r.minY, width: w, height: r.height))
+            return
         }
-        let subMid = barY + 10 + 7 + 8.1
-        drawLine(v.freeText, font: Typeface.mono(12), color: v.isNearlyFull ? p.miss : p.txt2, x: r.minX + 8, midY: subMid)
-        drawLine(v.totalText, font: Typeface.mono(12), color: p.txt2, x: r.maxX - 8, midY: subMid, alignRight: true)
+        let icon = NSRect(x: x, y: r.minY + 2, width: 34, height: 34)
+        switch card.icon {
+        case .item(let name, let isFolder)?: ItemIcon.draw(name: name, isFolder: isFolder, in: icon, palette: p)
+        case .stack?: Glyph.stack.draw(in: icon.insetBy(dx: 3, dy: 3), color: p.accent.ns, lineWidth: 1.6)
+        case nil: break
+        }
+        drawLine(card.title, font: nameFont, color: p.text, x: icon.maxX + 12, midY: icon.midY - 8, maxWidth: w - 46)
+        drawLine(card.subtitle, font: Typeface.ui(12), color: p.muted, x: icon.maxX + 12, midY: icon.midY + 9, maxWidth: w - 46)
+        var y = icon.maxY + 12
+        for f in card.fields {
+            drawLine(f.key.uppercased(), font: keyFont, color: p.muted, x: x, midY: y + 8.5, kern: Typeface.labelKern(12))
+            y += 17 + 3
+            let h = textHeight(f.value, font: valueFont, width: w)
+            draw(f.value, font: valueFont, color: p.text2, in: NSRect(x: x, y: y, width: w, height: h))
+            y += h + 7
+        }
+    }
+
+    private static func draw(_ text: String, font: NSFont, color: RGBA, in rect: NSRect) {
+        let style = NSMutableParagraphStyle()
+        style.lineBreakMode = .byCharWrapping
+        style.lineHeightMultiple = 1.1
+        NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: color.ns, .paragraphStyle: style])
+            .draw(with: rect, options: [.usesLineFragmentOrigin])
     }
 }
 
@@ -1246,7 +1330,7 @@ final class SideCellView: NSTableCellView {
             let label = (v.isNetwork ? "Disconnect " : "Eject ") + v.name
             let button = ChromeButton(glyph: .eject, label: label, target: self, action: #selector(ejectPressed(_:)))
             button.iconSize = 14
-            button.tone = { $0.txt2 }
+            button.tone = { $0.muted }
             button.hoverTone = { $0.accent }
             addSubview(button)
             eject = button
@@ -1257,8 +1341,8 @@ final class SideCellView: NSTableCellView {
         super.layout()
         guard let eject, let row = superview else { return }
         let r = row.bounds
-        let inner = NSRect(x: 15, y: 0, width: r.width - 30, height: r.height)
-        let frame = NSRect(x: inner.maxX - 8 - 22, y: 8 + 8.8 - 11, width: 22, height: 22)
+        let inner = NSRect(x: 10, y: 0, width: r.width - 20, height: r.height)
+        let frame = NSRect(x: inner.maxX - 6 - 22, y: NavigationPane.itemH / 2 - 11, width: 22, height: 22)
         eject.frame = convert(frame, from: row)
     }
 

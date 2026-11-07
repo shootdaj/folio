@@ -50,7 +50,7 @@ final class QuickLookBox: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard preview == nil || preview?.isHidden == true else { return }
         let p = Palette.current
-        drawLine(message, font: Typeface.ui(13), color: p.txt2, x: bounds.midX - textWidth(message, font: Typeface.ui(13)) / 2,
+        drawLine(message, font: Typeface.ui(13), color: p.text2, x: bounds.midX - textWidth(message, font: Typeface.ui(13)) / 2,
                  midY: bounds.midY, maxWidth: bounds.width - 24)
     }
 }
@@ -207,12 +207,11 @@ final class SidePaneView: NSView, NSTextFieldDelegate {
 
     override func draw(_ dirtyRect: NSRect) {
         let p = Palette.current
-        fillRounded(bounds, radius: 4, p.s1)
-        strokeRounded(bounds, radius: 4, p.line)
-        drawBrackets(bounds, color: p.bracket.ns, length: 12)
-        fillRect(NSRect(x: 1, y: Self.headerH - 1, width: bounds.width - 2, height: 1), p.line)
+        fillRect(bounds, p.side)
+        fillRect(NSRect(x: 0, y: 0, width: 1, height: bounds.height), p.line)
+        fillRect(NSRect(x: 1, y: Self.headerH - 1, width: bounds.width - 1, height: 1), p.line)
         let head = kind == .preview ? "PREVIEW" : "DETAILS"
-        drawLine(head, font: Typeface.ui(12, weight: 650, width: 116), color: p.txt2, x: 14, midY: Self.headerH / 2, kern: 0.6)
+        drawLine(head, font: Typeface.mono(12, weight: 600), color: p.muted, x: 14, midY: Self.headerH / 2, kern: Typeface.labelKern(12))
         guard kind == .details else { return }
         // The item: thumbnail or icon, name, type.
         let side = Self.iconSide
@@ -230,22 +229,22 @@ final class SidePaneView: NSView, NSTextFieldDelegate {
         }
         let nameFont = Typeface.ui(15, weight: 600)
         let ty = icon.maxY + 16
-        drawLine(summary.title, font: nameFont, color: p.txt, x: max(14, bounds.midX - textWidth(summary.title, font: nameFont) / 2),
+        drawLine(summary.title, font: nameFont, color: p.text, x: max(14, bounds.midX - textWidth(summary.title, font: nameFont) / 2),
                  midY: ty, maxWidth: bounds.width - 28)
         let sub = Typeface.ui(12)
-        drawLine(summary.subtitle, font: sub, color: p.txt2, x: max(14, bounds.midX - textWidth(summary.subtitle, font: sub) / 2),
+        drawLine(summary.subtitle, font: sub, color: p.text2, x: max(14, bounds.midX - textWidth(summary.subtitle, font: sub) / 2),
                  midY: ty + 20, maxWidth: bounds.width - 28)
         if entry != nil {
             for field in [tags, comments] where !field.isHidden {
-                drawLine(field.label.uppercased(), font: Typeface.ui(11, weight: 650, width: 116), color: p.txt2, x: 14,
+                drawLine(field.label.uppercased(), font: Typeface.ui(11, weight: 650), color: p.text2, x: 14,
                          midY: field.frame.minY - 9, kern: 0.5)
             }
             fillRect(NSRect(x: 14, y: detailsTop - 8, width: bounds.width - 28, height: 1), p.line)
         }
         var y = detailsTop
         for (key, value) in rows {
-            drawLine(key, font: Typeface.ui(12), color: p.txt3, x: 14, midY: y + Self.rowH / 2, maxWidth: 110)
-            drawLine(value, font: Typeface.mono(12), color: p.txt, x: 128, midY: y + Self.rowH / 2, maxWidth: bounds.width - 128 - 14)
+            drawLine(key, font: Typeface.ui(12), color: p.muted, x: 14, midY: y + Self.rowH / 2, maxWidth: 110)
+            drawLine(value, font: Typeface.mono(12), color: p.text, x: 128, midY: y + Self.rowH / 2, maxWidth: bounds.width - 128 - 14)
             y += Self.rowH
         }
     }
@@ -283,7 +282,7 @@ final class PaneField: NSView {
         field.drawsBackground = false
         field.focusRingType = .none
         field.font = Typeface.mono(12)
-        field.textColor = Palette.current.txt.ns
+        field.textColor = Palette.current.text.ns
         field.placeholderString = label == "Tags" ? "Add tags, separated by commas" : "Add a comment"
         field.setAccessibilityLabel(label)
         field.cell?.wraps = label != "Tags"
@@ -310,7 +309,7 @@ final class PaneField: NSView {
     override func layout() {
         super.layout()
         field.frame = bounds.insetBy(dx: 8, dy: 6)
-        field.textColor = Palette.current.txt.ns
+        field.textColor = Palette.current.text.ns
     }
 
     override func draw(_ dirtyRect: NSRect) {

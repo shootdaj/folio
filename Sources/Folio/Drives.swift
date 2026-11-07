@@ -343,15 +343,15 @@ final class DriveChartView: NSView {
         drawLine(volume.percentText, font: Typeface.mono(13, weight: 600), color: tone, x: center.x - textWidth(volume.percentText, font: Typeface.mono(13, weight: 600)) / 2, midY: center.y)
         let x: CGFloat = 112
         fillRounded(NSRect(x: x, y: 18, width: 10, height: 10), radius: 2, tone)
-        drawLine("Used  " + ByteText.storage(volume.used), font: Typeface.mono(12), color: p.txt, x: x + 18, midY: 23)
+        drawLine("Used  " + ByteText.storage(volume.used), font: Typeface.mono(12), color: p.text, x: x + 18, midY: 23)
         fillRounded(NSRect(x: x, y: 40, width: 10, height: 10), radius: 2, p.line2)
-        drawLine("Free  " + ByteText.storage(volume.free), font: Typeface.mono(12), color: p.txt, x: x + 18, midY: 45)
+        drawLine("Free  " + ByteText.storage(volume.free), font: Typeface.mono(12), color: p.text, x: x + 18, midY: 45)
         let barW = bounds.width - x - 8
         let segW = (barW - 23 * 2) / 24
         for i in 0..<24 {
             let seg = NSRect(x: x + CGFloat(i) * (segW + 2), y: 66, width: segW, height: 10)
             fillRounded(seg, radius: 1, i < volume.litSegments() ? tone : p.line2)
         }
-        drawLine(volume.totalText, font: Typeface.mono(11), color: p.txt3, x: x, midY: 90)
+        drawLine(volume.totalText, font: Typeface.mono(11), color: p.muted, x: x, midY: 90)
     }
 }

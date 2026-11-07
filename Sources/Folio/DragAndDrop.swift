@@ -77,7 +77,7 @@ protocol DropHost: AnyObject {
     func springLoad(_ folder: URL?)
 }
 
-/// D1's `.tip`, following the drag: the action and the folder ("Move to target"), like Explorer's
+/// D4's `.tip`, following the drag: the action and the folder ("Move to target"), like Explorer's
 /// drag tooltip.
 final class DropTipView: NSView {
     var text = "" { didSet { needsDisplay = true } }
@@ -94,12 +94,13 @@ final class DropTipView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         let p = Palette.current
-        fillRounded(bounds, radius: 3, p.hudBg)
-        strokeRounded(bounds.insetBy(dx: 0.5, dy: 0.5), radius: 3, p.hudLine)
-        Glyph.arrow.draw(in: NSRect(x: 7, y: bounds.midY - 6, width: 12, height: 12), color: p.hudAccent.ns)
+        // D4's `.tip`: --tip-bg (s4), a line-2 hairline, radius 8.
+        fillRounded(bounds, radius: 8, p.s4)
+        strokeRounded(bounds, radius: 8, p.line2)
+        Glyph.arrow.draw(in: NSRect(x: 7, y: bounds.midY - 6, width: 12, height: 12), color: p.accent.ns)
         let head = String(text.prefix(accentFrom)), tail = String(text.dropFirst(accentFrom))
-        let w = drawLine(head, font: font, color: p.hudTxt, x: 24, midY: bounds.midY)
-        drawLine(tail, font: Typeface.ui(12, weight: 700), color: p.hudAccent, x: 24 + w, midY: bounds.midY)
+        let w = drawLine(head, font: font, color: p.text2, x: 24, midY: bounds.midY)
+        drawLine(tail, font: Typeface.ui(12, weight: 600), color: p.text, x: 24 + w, midY: bounds.midY)
     }
 }
 

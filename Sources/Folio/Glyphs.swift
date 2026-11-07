@@ -1,17 +1,19 @@
 import AppKit
 import FolioCore
 
-/// D1's stroke icons (24-unit viewBox, 1.75 stroke, round caps), from the `I` table in the design.
+/// D4's stroke icons (24-unit viewBox, 1.75 stroke, round caps; Lucide shapes, from the `P` table).
 enum Glyph: Hashable {
     case back, forward, up, chevron, chevronDown, sort, refresh, search, close
     case sun, moon, star, pc, drive, download, desktop, docs, pics, movies
-    // Milestone 3: D1's copy window icons, and the command bar's (Lucide, like the rest of D1's set).
+    // Milestone 3: the copy window's icons, and the command bar's (Lucide, like the rest of the set).
     case copy, pause, play, check, arrow, replace, skip, both, compare, minus
     case cut, paste, rename, trash, newFolder, share, more, sortLines, view
     // Milestone 5: tabs, the navigation pane's places and Home.
     case plus, home, eject, globe, server, link, cloud, clock, mapPin, tabs
-    // Milestone 7: D1's Search options chips (cal, kind, size).
+    // Milestone 7: the Search options chips (cal, kind, size).
     case calendar, kind, size
+    // D4: the sort arrow, the copy window's alert, undo and stop, several selected, and the code folder.
+    case sortUp, alert, undo, stop, stack, code
 
     fileprivate enum Part {
         case path(String)
@@ -45,23 +47,23 @@ enum Glyph: Hashable {
             .path("M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"),
             .path("M6 16h.01M10 16h.01"),
         ]
-        case .download: [.path("M12 4v11"), .path("m7 10 5 5 5-5"), .path("M20 15v4a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-4")]
-        case .desktop: [.rect(2.5, 3.5, 19, 13, 1.5), .path("M8 20.5h8M12 16.5v4")]
+        case .download: [.path("M12 15V3"), .path("m7 10 5 5 5-5"), .path("M5 21h14")]
+        case .desktop: [.rect(2, 3, 20, 14, 2), .path("M8 21h8M12 17v4")]
         case .docs: [
-            .path("M14 2.5H6.5A1.5 1.5 0 0 0 5 4v16a1.5 1.5 0 0 0 1.5 1.5h11A1.5 1.5 0 0 0 19 20V7.5z"),
-            .path("M14 2.5v5h5M9 13h6M9 17h6"),
+            .path("M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"),
+            .path("M14 2v4a2 2 0 0 0 2 2h4"), .path("M16 13H8M16 17H8M10 9H8"),
         ]
-        case .pics: [.rect(3, 3, 18, 18, 2), .circle(9, 9, 2), .path("m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21")]
-        case .movies: [.rect(3, 3, 18, 18, 2), .path("M7 3v18M17 3v18M3 7.5h4M3 12h18M3 16.5h4M17 7.5h4M17 16.5h4")]
-        case .copy: [.rect(8, 8, 13, 13, 2), .path("M4 16a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2")]
-        case .pause: [.path("M9 5v14M15 5v14")]
+        case .pics: [.rect(3, 3, 18, 18, 2), .circle(9, 9, 2), .path("m21 15-3.09-3.09a2 2 0 0 0-2.82 0L6 21")]
+        case .movies: [.rect(2, 2, 20, 20, 2.18), .path("M7 2v20M17 2v20M2 12h20M2 7h5M2 17h5M17 17h5M17 7h5")]
+        case .copy: [.rect(8, 8, 14, 14, 2), .path("M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2")]
+        case .pause: [.rect(6, 4, 4, 16, 1), .rect(14, 4, 4, 16, 1)]
         case .play: [.path("M7 4.5v15l12-7.5z")]
         case .check: [.path("M20 6 9 17l-5-5")]
         case .arrow: [.path("M4 12h15"), .path("m13 6 6 6-6 6")]
         case .replace: [.path("M4 7h13l-3-3"), .path("M20 17H7l3 3")]
         case .skip: [.path("m6 5 9 7-9 7z"), .path("M18 5v14")]
         case .both: [.rect(3, 6, 10, 14, 1.5), .path("M8 3h10.5A1.5 1.5 0 0 1 20 4.5V16")]
-        case .compare: [.rect(3, 4, 18, 16, 1.5), .path("M12 4v16")]
+        case .compare: [.circle(18, 18, 3), .circle(6, 6, 3), .path("M13 6h3a2 2 0 0 1 2 2v7"), .path("M11 18H8a2 2 0 0 1-2-2V9")]
         case .minus: [.path("M5 12h14")]
         case .cut: [.circle(6, 6, 3), .path("M8.12 8.12 12 12"), .path("M20 4 8.12 15.88"), .circle(6, 18, 3),
                     .path("M14.8 14.8 20 20")]
@@ -90,6 +92,13 @@ enum Glyph: Hashable {
         case .calendar: [.rect(3, 5, 18, 16, 1.5), .path("M3 10h18M8 3v4M16 3v4")]
         case .kind: [.rect(4, 4, 7, 7, 1), .rect(13, 13, 7, 7, 1), .circle(16.5, 7.5, 3.5), .path("m4 20 3.5-6 3.5 6z")]
         case .size: [.path("M4 20V10M10 20V4M16 20v-7M2 20h20")]
+        case .sortUp: [.path("M12 19V5"), .path("m6 11 6-6 6 6")]
+        case .alert: [.path("m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"), .path("M12 9v4M12 17h.01")]
+        case .undo: [.path("M9 14 4 9l5-5"), .path("M4 9h10.5a5.5 5.5 0 0 1 0 11H11")]
+        case .stop: [.rect(5, 5, 14, 14, 2)]
+        case .stack: [.rect(3, 7, 14, 14, 2), .path("M7 3h12a2 2 0 0 1 2 2v12")]
+        case .code: [.path("M10 10.5 8 13l2 2.5"), .path("m14 10.5 2 2.5-2 2.5"),
+                     .path("M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z")]
         }
     }
 
@@ -163,94 +172,142 @@ extension CGContext {
     }
 }
 
-/// D1's folder and file icons, drawn in code from the design's SVG.
+/// D4's folder and file glyphs (`.fi`, a 16-unit viewBox), drawn in code from the design's SVG. Each
+/// takes its type's neon hue (folders the accent); hovered and selected rows add a soft glow.
 @MainActor
 enum ItemIcon {
     private static func path(_ d: String) -> CGPath {
         let p = CGMutablePath(); p.addSVG(d); return p
     }
-    private static let folderBack = path("M1.5 3a1 1 0 0 1 1-1h4.8l1.7 2h8.5a1 1 0 0 1 1 1v8.5a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1z")
-    private static let folderTab = path("M2.5 2h4.8l1.7 2H1.5V3a1 1 0 0 1 1-1z")
-    private static let folderFront = path("M1.5 6.2h17v7.3a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1z")
-    private static let folderSlot = path("M13.4 9.6h3")
-    private static let page = path("M3.2 1.5h5.9l3.7 3.7v9.3H3.2z")
-    private static let pageFold = path("M9.1 1.5v3.7h3.7")
-    private static let badge = CGPath(roundedRect: CGRect(x: 5, y: 9.2, width: 6, height: 2.3),
-                                      cornerWidth: 0.6, cornerHeight: 0.6, transform: nil)
-    private static let brand = path("M2 5h6l2 2.4h8V17H2z")
+    private static let folderBack = path("M1.75 3.6c0-.55.45-1 1-1h3.03c.3 0 .58.13.77.36l1.03 1.24h5.67c.55 0 1 .45 1 1v6.8c0 .55-.45 1-1 1H2.75c-.55 0-1-.45-1-1z")
+    private static let folderFront = path("M1.75 6.4c0-.55.45-1 1-1h10.5c.55 0 1 .45 1 1v5.6c0 .55-.45 1-1 1H2.75c-.55 0-1-.45-1-1z")
+    private static let folderLine = path("M3.9 7.6h2.6")
+    private static let page = path("M4 1.75h5.1l2.9 2.9v9.6H4z")
+    private static let pageFold = path("M9.1 1.75v2.9H12")
+    private static let pageLines = path("M6 8.1h4M6 10.6h2.6")
 
-    /// Folder, 18 x 15 in the list. `lit` turns the slot on the front to the accent (selected rows).
-    static func drawFolder(in rect: NSRect, palette p: Palette, lit: Bool) {
-        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
-        ctx.saveGState()
-        ctx.applyViewBox(rect, units: 20, unitsHigh: 16)
-        fillStroke(ctx, folderBack, fill: p.foldBack, stroke: p.foldLine, width: 0.9)
-        ctx.addPath(folderTab); ctx.setFillColor(p.accent.cg); ctx.fillPath()
-        fillStroke(ctx, folderFront, fill: p.foldFront, stroke: p.foldLine, width: 0.9)
-        ctx.addPath(folderSlot)
-        ctx.setStrokeColor((lit ? p.accent : p.foldLine).cg)
-        ctx.setLineWidth(1.4); ctx.setLineCap(.round); ctx.strokePath()
-        ctx.restoreGState()
+    /// The folder: its back at 40% of the hue, the front tinted 20% over the pane and outlined, a short line.
+    static func drawFolder(in rect: NSRect, hue: RGBA, palette p: Palette, glow: Bool = false) {
+        withGlow(glow ? hue : nil) { ctx in
+            ctx.applyViewBox(rect, units: 16)
+            ctx.addPath(folderBack); ctx.setFillColor(hue.withAlpha(0.40).cg); ctx.fillPath()
+            ctx.addPath(folderFront); ctx.setFillColor(hue.mixed(0.20, with: p.pane).cg); ctx.fillPath()
+            stroke(ctx, folderFront, hue, 1.1)
+            ctx.setAlpha(0.85)
+            stroke(ctx, folderLine, hue, 1.1)
+        }
     }
 
-    /// File page with a coloured badge by type, 15 x 15.
-    static func drawFile(named name: String, in rect: NSRect, palette p: Palette) {
-        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
-        ctx.saveGState()
-        ctx.applyViewBox(rect, units: 16)
-        fillStroke(ctx, page, fill: p.fileBg, stroke: p.foldLine, width: 0.9)
-        ctx.addPath(pageFold); ctx.setStrokeColor(p.foldLine.cg); ctx.setLineWidth(0.9); ctx.strokePath()
-        let tone: RGBA = switch FileTypeCategory(name: name) {
-        case .doc: p.typeDoc
-        case .code: p.typeCode
-        case .web: p.typeWeb
-        case .data: p.typeData
+    /// The accent folder (tabs, the address bar, places without a glyph). `lit` adds the glow.
+    static func drawFolder(in rect: NSRect, palette p: Palette, lit: Bool) {
+        drawFolder(in: rect, hue: p.accent, palette: p, glow: lit)
+    }
+
+    /// The page: tinted 9% of the hue, its outline and fold mixed toward muted, two lines in the hue.
+    static func drawFile(in rect: NSRect, hue: RGBA, palette p: Palette, glow: Bool = false) {
+        withGlow(glow ? hue : nil) { ctx in
+            ctx.applyViewBox(rect, units: 16)
+            let edge = hue.mixed(0.62, with: p.muted)
+            ctx.addPath(page); ctx.setFillColor(hue.mixed(0.09, with: p.pane).cg); ctx.fillPath()
+            stroke(ctx, page, edge, 1.1)
+            stroke(ctx, pageFold, edge, 1.1)
+            stroke(ctx, pageLines, hue, 1.3)
         }
-        ctx.addPath(badge); ctx.setFillColor(tone.cg); ctx.fillPath()
-        ctx.restoreGState()
+    }
+
+    /// A file in its type's hue.
+    static func drawFile(named name: String, in rect: NSRect, palette p: Palette, glow: Bool = false) {
+        drawFile(in: rect, hue: p.typeHue(name: name, isFolder: false), palette: p, glow: glow)
+    }
+
+    /// Folder or file for an item, in its hue.
+    static func draw(name: String, isFolder: Bool, in rect: NSRect, palette p: Palette, glow: Bool = false) {
+        if isFolder {
+            drawFolder(in: rect, hue: p.accent, palette: p, glow: glow)
+        } else {
+            drawFile(named: name, in: rect, palette: p, glow: glow)
+        }
     }
 
     /// Explorer's shortcut arrow on an alias or symbolic link: a small boxed arrow at the icon's corner.
     static func drawLinkBadge(in rect: NSRect, palette p: Palette) {
         fillRounded(rect, radius: max(1.5, rect.width / 6), p.s1)
-        strokeRounded(rect, radius: max(1.5, rect.width / 6), p.line3, width: max(0.75, rect.width / 12))
+        strokeRounded(rect, radius: max(1.5, rect.width / 6), p.outline, width: max(0.75, rect.width / 12))
         Glyph.arrow.draw(in: rect.insetBy(dx: rect.width * 0.12, dy: rect.height * 0.12), color: p.accent.ns,
                          lineWidth: rect.width >= 20 ? 2.2 : 3, rotation: -.pi / 4)
     }
 
-    /// The Folio mark in the title bar: an outlined folder and a lit dot, 18 x 18.
-    static func drawBrand(in rect: NSRect, palette p: Palette) {
-        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
-        ctx.saveGState()
-        ctx.applyViewBox(rect, units: 20)
-        ctx.addPath(brand); ctx.setStrokeColor(p.accent.cg); ctx.setLineWidth(1.6); ctx.strokePath()
-        ctx.addEllipse(in: CGRect(x: 14.5 - 1.8, y: 12.2 - 1.8, width: 3.6, height: 3.6))
-        ctx.setFillColor(p.accent.cg); ctx.fillPath()
-        ctx.restoreGState()
+    private static func stroke(_ ctx: CGContext, _ path: CGPath, _ color: RGBA, _ width: CGFloat) {
+        ctx.addPath(path)
+        ctx.setStrokeColor(color.cg)
+        ctx.setLineWidth(width)
+        ctx.setLineCap(.round)
+        ctx.setLineJoin(.round)
+        ctx.strokePath()
     }
 
-    private static func fillStroke(_ ctx: CGContext, _ path: CGPath, fill: RGBA, stroke: RGBA, width: CGFloat) {
-        ctx.addPath(path); ctx.setFillColor(fill.cg); ctx.fillPath()
-        ctx.addPath(path); ctx.setStrokeColor(stroke.cg); ctx.setLineWidth(width); ctx.setLineJoin(.round); ctx.strokePath()
+    /// `filter: drop-shadow(0 0 4px <hue> 55%)` around whatever `body` draws.
+    private static func withGlow(_ hue: RGBA?, _ body: (CGContext) -> Void) {
+        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+        ctx.saveGState()
+        if let hue {
+            ctx.setShadow(offset: .zero, blur: 4, color: hue.withAlpha(0.55).cg)
+            ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+        }
+        ctx.saveGState()
+        body(ctx)
+        ctx.restoreGState()
+        if hue != nil { ctx.endTransparencyLayer() }
+        ctx.restoreGState()
     }
 }
 
-/// D1's corner brackets (`.brk::before`): an L of `length` x `width` at each corner of `rect`.
+/// Draws `body` with a soft glow of `color` around it (D4's `box-shadow: 0 0 <blur> <colour>`).
 @MainActor
-func drawBrackets(_ rect: NSRect, color: NSColor, length: CGFloat, width: CGFloat = 1.5) {
-    color.setFill()
-    let r = rect
-    let bars = [
-        NSRect(x: r.minX, y: r.minY, width: length, height: width),
-        NSRect(x: r.minX, y: r.minY + width, width: width, height: length - width),
-        NSRect(x: r.maxX - length, y: r.minY, width: length, height: width),
-        NSRect(x: r.maxX - width, y: r.minY + width, width: width, height: length - width),
-        NSRect(x: r.minX, y: r.maxY - width, width: length, height: width),
-        NSRect(x: r.minX, y: r.maxY - length, width: width, height: length - width),
-        NSRect(x: r.maxX - length, y: r.maxY - width, width: length, height: width),
-        NSRect(x: r.maxX - width, y: r.maxY - length, width: width, height: length - width),
-    ]
-    for bar in bars { bar.fill(using: .sourceOver) }
+func withGlow(_ color: RGBA, blur: CGFloat, _ body: () -> Void) {
+    guard let ctx = NSGraphicsContext.current?.cgContext else { return body() }
+    ctx.saveGState()
+    ctx.setShadow(offset: .zero, blur: blur, color: color.cg)
+    ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+    body()
+    ctx.endTransparencyLayer()
+    ctx.restoreGState()
+}
+
+/// D4's cursor glow (`.os-row::before`): a radial gradient of `color` at `alpha` from `center`, fading
+/// out by 72% of `radius`, clipped to `rect`.
+@MainActor
+func drawCursorGlow(in rect: NSRect, center: NSPoint, radius: CGFloat = 380, color: RGBA, alpha: Double) {
+    guard let ctx = NSGraphicsContext.current?.cgContext,
+          let gradient = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB),
+                                    colors: [color.withAlpha(alpha).cg, color.withAlpha(0).cg] as CFArray,
+                                    locations: [0, 0.72]) else { return }
+    ctx.saveGState()
+    ctx.clip(to: rect)
+    ctx.drawRadialGradient(gradient, startCenter: center, startRadius: 0, endCenter: center, endRadius: radius, options: [])
+    ctx.restoreGState()
+}
+
+/// A left edge bar (`.os-row::after`, `.sitem.on::after`): `width` wide in `color`, glowing.
+@MainActor
+func drawEdgeBar(_ rect: NSRect, color: RGBA, glowAlpha: Double = 0.6, rounded: Bool = false) {
+    withGlow(color.withAlpha(glowAlpha), blur: 14) {
+        if rounded {
+            let path = NSBezierPath()
+            let r = min(3, rect.width)
+            path.move(to: NSPoint(x: rect.minX, y: rect.minY))
+            path.line(to: NSPoint(x: rect.maxX - r, y: rect.minY))
+            path.appendArc(withCenter: NSPoint(x: rect.maxX - r, y: rect.minY + r), radius: r, startAngle: 270, endAngle: 0)
+            path.line(to: NSPoint(x: rect.maxX, y: rect.maxY - r))
+            path.appendArc(withCenter: NSPoint(x: rect.maxX - r, y: rect.maxY - r), radius: r, startAngle: 0, endAngle: 90)
+            path.line(to: NSPoint(x: rect.minX, y: rect.maxY))
+            path.close()
+            color.ns.setFill()
+            path.fill()
+        } else {
+            fillRect(rect, color)
+        }
+    }
 }
 
 /// Fills a rect with alpha blending (NSRect.fill() alone copies and punches through).
