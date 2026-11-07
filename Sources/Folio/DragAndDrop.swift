@@ -125,7 +125,7 @@ extension BrowserWindowController: NSDraggingSource, DropHost {
     // MARK: Dragging out
 
     func list(_ list: NSView, beginDragWith event: NSEvent, rightButton: Bool) {
-        let rows = selection.rows
+        let rows = outermostSelectedRows
         guard !rows.isEmpty else { return }
         // Out of a zip: the entries are copied out to a temp folder first, and those files are dragged.
         var staged: [Int: URL] = [:]

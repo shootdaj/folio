@@ -19,6 +19,11 @@ extension BrowserWindowController: GridHost {
         chassis.pane.mode = mode
         grid.compact = ListOptions.compact
         grid.mode = mode
+        // Folders open in place show in Details only: the grid gets the top level at once (before it draws),
+        // Details gets the open folders again.
+        if arrangeKey != arrangedWith {
+            if !arrangeKey.tree, layout.depths.contains(where: { $0 > 0 }) { showTopLevelOnly() } else { rearrange(scroll: false) }
+        }
         if !mode.usesTable { grid.reloadData() }
         if focused || window?.firstResponder === window { window?.makeFirstResponder(listView) }
         window?.initialFirstResponder = listView
@@ -86,6 +91,7 @@ extension BrowserWindowController: GridHost {
 
     /// The View menu's checks and the View button's menu (the main menu's View menu is the same).
     func validateViewItem(_ item: NSMenuItem) -> Bool? {
+        if let tree = validateTreeItem(item) { return tree }
         switch item.action {
         case #selector(setViewMode(_:)):
             item.state = (item.representedObject as? String) == viewMode.rawValue ? .on : .off
@@ -204,6 +210,12 @@ extension BrowserWindowController: GridHost {
     }
 
     func listIsSelected(_ row: Int) -> Bool { selection.rows.contains(row) }
+
+    func list(_ list: NSView, toggledFolderAt row: Int, recursive: Bool) { toggleFolder(item: row, recursive: recursive) }
+
+    func listDepth(_ row: Int) -> Int { layout.depth(ofItem: row) }
+
+    func listDisclosure(_ row: Int) -> Bool? { disclosure(ofItem: row) }
 
     // MARK: Filters
 
