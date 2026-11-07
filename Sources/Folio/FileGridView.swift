@@ -564,7 +564,7 @@ final class FileGridView: NSCollectionView {
 
     private func trackDrag(from start: NSPoint, right: Bool) -> Bool {
         let types: NSEvent.EventTypeMask = right ? [.rightMouseUp, .rightMouseDragged] : [.leftMouseUp, .leftMouseDragged]
-        while let next = window?.nextEvent(matching: types) {
+        while let window, let next = MouseTracking.next(window, types, idle: nil, button: right ? 1 : 0) {
             if next.type == .leftMouseUp || next.type == .rightMouseUp { return false }
             let p = convert(next.locationInWindow, from: nil)
             if hypot(p.x - start.x, p.y - start.y) > 4 {
@@ -609,7 +609,7 @@ final class FileGridView: NSCollectionView {
         let base = adding ? IndexSet((0..<(host?.gridLayout.items.count ?? 0)).filter { listDelegate?.listIsSelected($0) == true }) : IndexSet()
         if !adding { listDelegate?.list(self, banded: IndexSet(), focus: nil) }
         if band.superview == nil { addSubview(band) }
-        while let next = window?.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
+        while let window, let next = MouseTracking.next(window, [.leftMouseDragged, .leftMouseUp], idle: nil) {
             if next.type == .leftMouseUp { break }
             autoscroll(with: next)
             let p = convert(next.locationInWindow, from: nil)

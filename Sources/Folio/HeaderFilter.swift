@@ -297,7 +297,7 @@ final class MonthCalendarView: NSView {
         dragStart = d
         dragEnd = d
         needsDisplay = true
-        while let next = window?.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
+        while let window, let next = MouseTracking.next(window, [.leftMouseDragged, .leftMouseUp], idle: nil) {
             let q = convert(next.locationInWindow, from: nil)
             if let j = index(at: q) { dragEnd = day(at: j); needsDisplay = true }
             if next.type == .leftMouseUp { break }

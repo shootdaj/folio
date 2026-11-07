@@ -133,7 +133,7 @@ final class SidebarHandle: NSView {
 
     override func mouseDown(with event: NSEvent) {
         guard let window, let host = superview else { return }
-        while let next = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
+        while let next = MouseTracking.next(window, [.leftMouseDragged, .leftMouseUp], idle: nil) {
             if next.type == .leftMouseUp { break }
             onDrag?(host.convert(next.locationInWindow, from: nil).x)
         }

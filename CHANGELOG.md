@@ -22,6 +22,13 @@ pushed; the release workflow publishes the section below with that number as the
   Pictures, Music and Movies, in that order, and leaves out any of them that does not exist. It no
   longer starts with the author's own `Anshul/Code` folder. Saved pins do not change.
 
+### Fixed
+
+- **A drag no longer sticks when Mission Control takes the mouse-up.** Dragging files, a marquee
+  selection, resizing the navigation pane or the search box, and the date filter's calendar now stop
+  when the mouse button is up, even if the release never reached Folio (Mission Control, a Space
+  switch). Before, the window stayed in the press until the next click.
+
 ## [1.0.0] - 2026-11-07
 
 The first release: all nine milestones of docs/plan/MILESTONES.md and the D4 Obsidian spotlight look,
