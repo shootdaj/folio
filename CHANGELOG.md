@@ -7,6 +7,17 @@ pushed; the release workflow publishes the section below with that number as the
 
 ## [Unreleased]
 
+### Added
+
+- **Folders open in place in Details view.** As in the Finder's list view, each folder row has a triangle.
+  A click shows the folder's items under it, indented, and a second click hides them. Option+click opens
+  or closes every level below. Right opens the selected folders, and Left closes them or goes to the
+  folder of an item inside one. View > Expand Selected Folders and Collapse All Folders do the same from
+  the menu. Each level follows the list's sort and filters, auto-refresh follows the open folders, and
+  each window remembers them per folder while Folio runs. The status bar counts the folder's own items.
+  There are no triangles in the other views, in search results, with Group by, in a zip or in the
+  Recycle Bin. The top level's icons and names do not move.
+
 ## [1.0.0] - 2026-11-07
 
 The first release: all nine milestones of docs/plan/MILESTONES.md and the D4 Obsidian spotlight look,
