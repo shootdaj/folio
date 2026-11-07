@@ -7,10 +7,10 @@ pushed; the release workflow publishes the section below with that number as the
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-11-07
+## [1.0.0] - 2026-11-07
 
-The first release: all nine milestones of docs/plan/MILESTONES.md, each driven with real keystrokes and
-clicks in the test VM (Tests/vm/m2.sh to m9.sh).
+The first release: all nine milestones of docs/plan/MILESTONES.md and the D4 Obsidian spotlight look,
+each driven with real keystrokes and clicks in the test VM (Tests/vm/m2.sh to m9.sh).
 
 ### Added
 
@@ -53,5 +53,5 @@ clicks in the test VM (Tests/vm/m2.sh to m9.sh).
 - CI on a self-hosted runner on the Mac Ultra: unit tests, the app bundle and the VM scripts M2 to M9
   on every pull request; a pushed `vX.Y.Z` tag publishes `Folio-X.Y.Z.zip` as a GitHub release.
 
-[Unreleased]: https://github.com/shootdaj/folio/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/shootdaj/folio/releases/tag/v0.1.0
+[Unreleased]: https://github.com/shootdaj/folio/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/shootdaj/folio/releases/tag/v1.0.0

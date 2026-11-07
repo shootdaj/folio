@@ -29,7 +29,7 @@ Releases zip ──► /Applications ──► make install-cli ──► BTT pr
    version on a light Mac).
 
 `/Applications/Folio.app/Contents/MacOS/Folio --version` prints the version and the commit it was built
-from, for example `Folio 0.1.0 (f12cd6f)`.
+from, for example `Folio 1.0.0 (f12cd6f)`.
 
 ## 2. Or build it yourself
 
@@ -42,8 +42,8 @@ make install                # copies it to /Applications and registers it
 ```
 
 `make app` draws the Dock icon (`folio-icon` writes build/Folio.iconset, `iconutil` turns it into
-Folio.icns) and stamps the version from the git tags (`git describe --tags --always --dirty`: 0.1.0 on the
-tag v0.1.0, 0.1.0-3-gabc1234 three commits after it) and the commit into the bundle.
+Folio.icns) and stamps the version from the git tags (`git describe --tags --always --dirty`: 1.0.0 on the
+tag v1.0.0, 1.0.0-3-gabc1234 three commits after it) and the commit into the bundle.
 
 `make install` copies build/Folio.app to /Applications (an older copy goes to the Trash first) and
 registers it with Launch Services. Quit Folio before installing a new build. Open it once from
