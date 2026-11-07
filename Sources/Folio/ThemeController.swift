@@ -30,19 +30,37 @@ struct ThemeColors {
 
     /// D4 Obsidian: every token is the Palette's fixed sRGB value.
     init(_ p: Palette) {
-        appearance = p.appearance; accentHue = p.accentHue
-        bg = p.bg.ns; s1 = p.s1.ns; s2 = p.s2.ns; s3 = p.s3.ns; s4 = p.s4.ns
-        line = p.line.ns; line2 = p.line2.ns; outline = p.outline.ns
-        text = p.text.ns; text2 = p.text2.ns; muted = p.muted.ns; faint = p.faint.ns
-        accent = p.accent.ns; onAccent = p.onAccent.ns; accentSoft = p.accentSoft.ns; markFill = p.markFill.ns
-        selectionFill = p.selectionFill.ns; selectionInactive = p.selectionFill.ns; selectedText = p.text.ns
-        ok = p.ok.ns; part = p.part.ns; miss = p.miss.ns
-        pane = p.pane.ns; chrome = p.chrome.ns; side = p.side.ns; bar = p.bar.ns
-        pop = p.pop.ns; tray = p.tray.ns
-        field = p.field.ns; headBg = p.headBg.ns; rowLine = p.rowLine.ns; well = p.well.ns
-        segBg = p.segBg.ns; thumb = p.thumb.ns; scrim = p.scrim.ns
-        glowAlpha = p.glowAlpha; glows = p.glows
-        neon = { p.hue($0).ns }
+        self.init(appearance: p.appearance, accentHue: p.accentHue, glowAlpha: p.glowAlpha, glows: p.glows,
+                  color: { p.rgba($0).ns }, neon: { p.hue($0).ns })
+    }
+
+    /// Native: every token is one of the Mac's dynamic system colours (NativeTheme's table), resolved
+    /// whenever it is drawn, so light, dark, Increase Contrast and the accent follow System Settings.
+    static func native(appearance: Appearance) -> ThemeColors {
+        ThemeColors(appearance: appearance, accentHue: Accent.defaultHue, glowAlpha: 0, glows: false,
+                    color: { system(NativeTheme.role(for: $0)) }, neon: { system(NativeTheme.role(for: $0)) })
+    }
+
+    /// An NSColor class property by name; a loud pink if the name is not one (the unit tests check them all).
+    private static func system(_ role: String) -> NSColor {
+        (NSColor.perform(Selector(role))?.takeUnretainedValue() as? NSColor) ?? .systemPink
+    }
+
+    private init(appearance: Appearance, accentHue: Int, glowAlpha: Double, glows: Bool,
+                 color c: (PaletteToken) -> NSColor, neon: @escaping (NeonHue) -> NSColor) {
+        self.appearance = appearance; self.accentHue = accentHue
+        bg = c(.bg); s1 = c(.s1); s2 = c(.s2); s3 = c(.s3); s4 = c(.s4)
+        line = c(.line); line2 = c(.line2); outline = c(.outline)
+        text = c(.text); text2 = c(.text2); muted = c(.muted); faint = c(.faint)
+        accent = c(.accent); onAccent = c(.onAccent); accentSoft = c(.accentSoft); markFill = c(.markFill)
+        selectionFill = c(.selectionFill); selectionInactive = c(.selectionInactive); selectedText = c(.selectedText)
+        ok = c(.ok); part = c(.part); miss = c(.miss)
+        pane = c(.pane); chrome = c(.chrome); side = c(.side); bar = c(.bar)
+        pop = c(.pop); tray = c(.tray)
+        field = c(.field); headBg = c(.headBg); rowLine = c(.rowLine); well = c(.well)
+        segBg = c(.segBg); thumb = c(.thumb); scrim = c(.scrim)
+        self.glowAlpha = glowAlpha; self.glows = glows
+        self.neon = neon
     }
 
     /// One of the twelve file-type hues.
@@ -104,6 +122,7 @@ final class ThemeController {
     private(set) var colors = ThemeColors(Theme.palette(.dark))
     /// A hue being dragged in the picker: drawn everywhere, saved when the drag ends.
     private var previewHue: Int?
+    private var observing = false
 
     private init() {}
 
@@ -118,6 +137,7 @@ final class ThemeController {
         case nil: NSApp.appearance = nil
         }
         refresh(force: true)
+        observeSystemColours()
     }
 
     /// The saved hue (0...359).
@@ -146,12 +166,34 @@ final class ThemeController {
     /// The system switched light and dark.
     func systemAppearanceMayHaveChanged() { refresh(force: false) }
 
+    /// Native draws with the Mac's dynamic colours: they resolve by themselves, but views redraw when
+    /// System Settings changes the accent or highlight colour, Increase Contrast or Reduce Transparency.
+    private func observeSystemColours() {
+        guard !observing else { return }
+        observing = true
+        let redraw: @Sendable (Notification) -> Void = { _ in
+            MainActor.assumeIsolated { ThemeController.shared.systemColoursChanged() }
+        }
+        NotificationCenter.default.addObserver(forName: NSColor.systemColorsDidChangeNotification, object: nil, queue: .main, using: redraw)
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+                                                          object: nil, queue: .main, using: redraw)
+        // An appearance change while no window is open has no view to report it.
+        NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { ThemeController.shared.refresh(force: false) }
+        }
+    }
+
+    private func systemColoursChanged() {
+        guard look == .native else { return }
+        refresh(force: true)
+    }
+
     private func refresh(force: Bool) {
         let systemIsDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         let next = Theme.palette(systemIsDark ? .dark : .light, hue: previewHue ?? settings.hue)
         guard force || next != palette else { return }
         palette = next
-        colors = ThemeColors(next)
+        colors = look == .native ? ThemeColors.native(appearance: next.appearance) : ThemeColors(next)
         NotificationCenter.default.post(name: Self.didChange, object: self)
     }
 }

@@ -47,11 +47,19 @@ final class LedView: NSView, ThemeAware {
         let c = tone(p)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        core.backgroundColor = c.cg
+        // A layer holds a CGColor: a dynamic (Native) colour is resolved for this view's appearance.
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            core.backgroundColor = c.cg
+            core.shadowColor = c.cg
+        }
         ring.backgroundColor = NSColor.clear.cgColor
-        core.shadowColor = c.cg
-        core.shadowOpacity = 0.8
+        core.shadowOpacity = p.glows ? 0.8 : 0
         CATransaction.commit()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        themeDidChange()
     }
 
     override func viewDidMoveToWindow() {
