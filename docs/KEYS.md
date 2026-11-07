@@ -87,6 +87,18 @@ item show only one key, or the key would take keys away from text fields).
 | NumLock + * | Open everything below | Numpad *, Option+click the arrow | Numpad * | tree |
 | Ctrl+Shift+E | Open the tree down to this folder | Ctrl+Shift+E | Control+Shift+E | View > Navigation Pane > Expand to Current Folder |
 
+## Folders open in place (Details view)
+
+Explorer has no such keys; these are the Finder's list view keys. Cmd+Left and Cmd+Right stay Back and Forward.
+
+| Explorer | Folio does | macOS sees | Anshul presses | Where |
+|---|---|---|---|---|
+| (none) | Open the selected folders in place | Right | Right | list, View > Expand Selected Folders |
+| (none) | Close the selected folders; on an item inside one, select its folder | Left | Left | list |
+| (none) | Open or close one folder | a click on its triangle | a click | list |
+| (none) | Open or close it and every folder below (8 levels, 2,000 folders) | Option+click the triangle | Cmd+click | list |
+| (none) | Close every folder | | | View > Collapse All Folders |
+
 ## Selecting
 
 | Explorer | Folio does | macOS sees | Anshul presses | Where |

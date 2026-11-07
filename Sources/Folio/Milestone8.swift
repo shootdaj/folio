@@ -112,10 +112,11 @@ extension BrowserWindowController {
         treeWatcher?.stop()
     }
 
-    /// The folders every tab shows (not Home, not inside a zip), and the tree's roots.
+    /// The folders every tab shows (not Home, not inside a zip), the shown tab's folders open in place, and
+    /// the tree's roots.
     func updateWatches() {
         let folders = tabs.tabs.map(\.history.current).filter { !NavigationHistory.isHome($0) && ZipPath.split($0) == nil }
-        folderWatcher?.watch(Set(folders.map(\.path)))
+        folderWatcher?.watch(Set(folders.map(\.path)).union(expandedFolders))
         let roots = Set(volumes.map(\.path) + [FileManager.default.homeDirectoryForCurrentUser.path])
         treeWatcher?.watch(roots: roots)
     }
@@ -123,7 +124,7 @@ extension BrowserWindowController {
     /// The shown tab's folder changed on disk: listed again, selection and scroll kept.
     private func watchedFoldersChanged(_ keys: Set<String>) {
         guard !history.isHome, !isInZip, !isSearching else { return }
-        guard keys.contains(FilePaths.folderKey(history.current)) else { return }
+        guard keys.contains(FilePaths.folderKey(history.current)) || !keys.isDisjoint(with: expandedFolders) else { return }
         ItemDecorCache.shared.clear()
         perfLog.notice("auto-refresh: \(self.history.current.path, privacy: .public) changed on disk")
         reloadContents()

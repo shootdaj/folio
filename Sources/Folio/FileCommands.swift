@@ -97,7 +97,8 @@ enum ListOptions {
 /// The milestone 3 commands of a browser window: clipboard, Copy to and Move to, Trash, delete,
 /// rename (F2, batch, Tab), New, undo and redo, the selection commands and the command bar.
 extension BrowserWindowController: FileListDelegate {
-    var selectedURLs: [URL] { selectedEntries.map(\.url) }
+    /// The selected items' URLs; an item inside another selected folder (open in place) is left to its folder.
+    var selectedURLs: [URL] { outermostSelectedRows.map { entries[$0].url } }
     private var folder: URL { history.current }
 
     // MARK: Clicks from the list
@@ -288,6 +289,7 @@ extension BrowserWindowController: FileListDelegate {
             return
         }
         let iconX = ListMetrics.rowLead + (tableView.showsCheckboxes ? NameCellView.boxShift + 8 : 0)
+            + NameCellView.contentShift(depth: layout.depth(ofItem: row))
         let textX = iconX + 16 + 9
         renamer.begin(in: tableView, tableRow: tableRow(ofItem: row), row: row, entry: entry, textX: textX)
     }
