@@ -4,8 +4,8 @@ import ImageIO
 import Testing
 @testable import FolioCore
 
-/// The Dock icon: a warm manila folder (a sheet and a blue index tab inside) on a slate tile with the
-/// Mac's continuous corners, drawn at every size an iconset needs (iconutil makes Folio.icns from them).
+/// The Dock icon: a frosted white glass folder (two sheets seen through its front) on a cyan-to-blue
+/// ground, drawn full bleed at every size an iconset needs (iconutil makes Folio.icns from them).
 @Suite struct AppIconTests {
     /// The pixel at (x, y) in 1024-unit icon coordinates, y up (as AppIcon draws).
     private func pixel(_ image: CGImage, _ x: CGFloat, _ y: CGFloat) -> (r: Int, g: Int, b: Int, a: Int) {
@@ -40,10 +40,31 @@ import Testing
         }
     }
 
-    /// macOS 26 boxes an icon in grey when it does not fill the icon shape, so the tile must be opaque
-    /// everywhere inside the shape and clear outside it.
-    @Test func theTileFillsTheContinuousCornerShapeExactly() throws {
-        let image = try #require(AppIcon.render(pixels: 256))
+    /// macOS 26 puts an icon whose picture leaves part of the square clear in a grey frame at 16 and
+    /// 32 px (tested on macOS 26.4). The picture is opaque to every edge at every size; macOS cuts its own
+    /// shape and adds the rim and the shadow.
+    @Test func everySizeIsOpaqueToTheEdges() throws {
+        for pixels in [16, 32, 64, 128, 256, 512, 1024] {
+            let image = try #require(AppIcon.render(pixels: pixels))
+            let step = AppIcon.canvas / CGFloat(pixels)
+            var clear: [CGPoint] = []
+            for i in 0..<pixels {
+                let t = (CGFloat(i) + 0.5) * step
+                for p in [CGPoint(x: t, y: step / 2), CGPoint(x: t, y: AppIcon.canvas - step / 2),
+                          CGPoint(x: step / 2, y: t), CGPoint(x: AppIcon.canvas - step / 2, y: t)]
+                where pixel(image, p.x, p.y).a != 255 {
+                    clear.append(p)
+                }
+            }
+            #expect(clear.isEmpty, "the edge is opaque at \(pixels) px; clear at \(clear.prefix(3))")
+            #expect(pixel(image, 512, 512).a == 255)
+        }
+    }
+
+    /// Outside the bundle (`swift run`) nothing masks the picture, so the Dock gets it in the tile:
+    /// opaque inside the continuous-corner shape and clear outside it.
+    @Test func theMaskedPictureFillsTheTileExactly() throws {
+        let image = try #require(AppIcon.masked(pixels: 256))
         let shape = AppIcon.tilePath()
         var inside = 0, outside = 0
         for gy in stride(from: CGFloat(4), to: 1024, by: 8) {
@@ -74,18 +95,20 @@ import Testing
         #expect(shape.contains(CGPoint(x: b.midX, y: b.midY)))
     }
 
-    @Test func aManilaFolderWithABlueTabOnASlateTile() throws {
-        for pixels in [1024, 256, 64] {
+    @Test func aWhiteGlassFolderOnABlueGround() throws {
+        for pixels in [1024, 256, 64, 32, 16] {
             let image = try #require(AppIcon.render(pixels: pixels))
-            let tile = pixel(image, 512, 890)
-            #expect(tile.a == 255 && tile.b > tile.r && tile.b > tile.g - 4, "slate tile at \(pixels): \(tile)")
-            let folder = pixel(image, 400, 430)
-            #expect(folder.r > 220 && folder.r > folder.g && folder.g > folder.b && folder.b < 200,
-                    "manila front at \(pixels): \(folder)")
+            for (x, y) in [(40.0, 40.0), (984.0, 984.0), (512.0, 990.0)] {
+                let ground = pixel(image, x, y)
+                #expect(ground.b > 200 && ground.b > ground.r + 90, "blue ground at (\(x), \(y)), \(pixels) px: \(ground)")
+            }
+            let glass = pixel(image, AppIcon.glassMark.x, AppIcon.glassMark.y)
+            #expect(glass.r > 170 && glass.g > 200 && glass.b > 230 && glass.b >= glass.r,
+                    "white glass front at \(pixels) px: \(glass)")
         }
         let large = try #require(AppIcon.render(pixels: 512))
-        let tab = pixel(large, AppIcon.tabMark.x, AppIcon.tabMark.y)
-        #expect(tab.b > tab.r + 60, "the blue index tab: \(tab)")
+        let sheet = pixel(large, AppIcon.sheetMark.x, AppIcon.sheetMark.y)
+        #expect(sheet.r > 225 && sheet.g > 225 && sheet.b > 235, "the white sheet above the glass: \(sheet)")
     }
 
     @Test func thePictureInTheRepoIsTheOneTheRendererDraws() throws {

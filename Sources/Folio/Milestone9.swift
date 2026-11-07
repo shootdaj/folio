@@ -61,12 +61,13 @@ enum SystemSettings {
     }
 }
 
-/// The Dock icon: the same picture as Folio.icns, set at launch so a build run outside the bundle has it too.
-/// It is one picture for light and dark, as the system's own icons are.
+/// The Dock icon. In the bundle macOS draws Folio.icns itself (its shape, glass rim and shadow), so nothing
+/// is set. A build run outside the bundle gets the same picture cut to the icon shape, since the Dock does
+/// not mask an image set here.
 @MainActor
 enum DockIcon {
     static func start() {
-        guard let image = AppIcon.render(pixels: 512) else { return }
+        guard Bundle.main.bundleURL.pathExtension != "app", let image = AppIcon.masked(pixels: 512) else { return }
         NSApp.applicationIconImage = NSImage(cgImage: image, size: NSSize(width: 512, height: 512))
     }
 }
