@@ -7,6 +7,12 @@ pushed; the release workflow publishes the section below with that number as the
 
 ## [Unreleased]
 
+### Changed
+
+- **Quick access starts with Explorer's set.** A fresh install pins Desktop, Downloads, Documents,
+  Pictures, Music and Movies, in that order, and leaves out any of them that does not exist. It no
+  longer starts with the author's own `Anshul/Code` folder. Saved pins do not change.
+
 ## [1.0.0] - 2026-11-07
 
 The first release: all nine milestones of docs/plan/MILESTONES.md and the D4 Obsidian spotlight look,
