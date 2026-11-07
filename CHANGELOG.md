@@ -15,7 +15,8 @@ pushed; the release workflow publishes the section below with that number as the
   tile. `make app` compiles the two pictures with actool (from Xcode) into Assets.car. Without Xcode the
   bundle has Folio.icns only, with the light icon in every style. The pictures are full bleed, so macOS
   cuts its own shape and adds its rim and shadow, and no size gets the grey frame (a tile with a clear
-  margin got one at 16 and 32 px). In the bundle the Dock draws the icon itself.
+  margin got one at 16 and 32 px). In the bundle the Dock draws the icon itself. Resources/AppIcon.png
+  and AppIcon-dark.png (from `folio-icon --png`) replace the two SVGs.
 
 ## [1.0.0] - 2026-11-07
 
