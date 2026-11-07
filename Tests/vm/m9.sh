@@ -29,6 +29,8 @@
 set -u
 
 APP="$HOME/folio/Folio.app"
+# The VM has no Full Disk Access to give: the launch alert (DiskAccessPrompt) must not hold the run.
+defaults write com.anshul.folio diskAccessDismissed -bool true
 FF="$HOME/folio/ff"
 SHOTS="$HOME/folio/shots"
 STAMP="$(date +%Y%m%d-%H%M%S)"
