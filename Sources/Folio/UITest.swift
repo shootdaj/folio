@@ -1,7 +1,7 @@
 import AppKit
 import FolioCore
 
-/// `Folio --uitest <folder|new> --shot <file> [--theme dark|light|system] [--accent <hue 0-359>]`
+/// `Folio --uitest <folder|new> --shot <file> [--theme dark|light|system] [--accent <hue 0-359>] [--look native|obsidian]`
 ///
 /// Runs inside the test VM only (docs/plan/RULES.md, rule 0). Opens one window off-screen on a test
 /// folder, waits for it to render, then from inside the app:
@@ -18,10 +18,12 @@ struct UITestConfig {
     /// Forced for this run only (the app itself follows the Mac); nil is the system's.
     var appearance: Appearance?
     var hue: Int
+    /// D4 Obsidian unless `--look native`: the VM proofs were made in D4.
+    var look: LookTheme
     var defaults: UserDefaults
 
     static let usage = "usage: Folio --uitest <folder under /private/tmp/folio-tests/ | new> --shot <file.png> "
-        + "[--theme dark|light|system] [--accent <hue 0-359>]"
+        + "[--theme dark|light|system] [--accent <hue 0-359>] [--look native|obsidian]"
 
     /// nil when `--uitest` is absent. Exits with code 2 on bad arguments.
     static func parse(_ args: [String]) -> UITestConfig? {
@@ -50,6 +52,12 @@ struct UITestConfig {
             hue = Accent.normalized(n)
         }
 
+        var look = LookTheme.obsidian
+        if let raw = value("--look") {
+            guard let l = LookTheme(rawValue: raw) else { fail("bad --look \(raw)") }
+            look = l
+        }
+
         var folder: URL
         var made = false
         if args[flag + 1] == "new" {
@@ -70,7 +78,7 @@ struct UITestConfig {
             fail("could not make a temp preferences store")
         }
         let base = shot.hasSuffix(".png") ? String(shot.dropLast(4)) : shot
-        return UITestConfig(folder: folder, madeFixture: made, shotBase: base, appearance: appearance, hue: hue, defaults: defaults)
+        return UITestConfig(folder: folder, madeFixture: made, shotBase: base, appearance: appearance, hue: hue, look: look, defaults: defaults)
     }
 }
 

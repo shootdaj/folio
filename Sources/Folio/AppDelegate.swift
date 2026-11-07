@@ -44,6 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if let uitest {
             ThemeController.shared.start(defaults: uitest.defaults, forcedAppearance: uitest.appearance)
             ThemeController.shared.hue = uitest.hue
+            ThemeController.shared.look = uitest.look
         } else {
             ThemeController.shared.start(defaults: .standard)
         }
@@ -93,6 +94,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case #selector(toggleFolderHandler(_:)): item.state = SystemSettings.foldersOpenInFolio ? .on : .off
         case #selector(toggleLaunchAtLogin(_:)): item.state = SystemSettings.launchesAtLogin ? .on : .off
         case #selector(toggleKeepRunning(_:)): item.state = ListOptions.folder.keepRunning ? .on : .off
+        case #selector(setLookTheme(_:)): item.state = item.representedObject as? String == ThemeController.shared.look.rawValue ? .on : .off
         default: break
         }
         return true
@@ -349,6 +351,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 controller.restoreTree(saved.expandedFolders ?? [])
             }
             return !windows.isEmpty
+        }
+    }
+
+    // MARK: Theme
+
+    /// View > Theme: saves the look and opens each browser window again with the same tabs, frame and
+    /// open tree folders, since a look also changes how views are built (the sidebar, the list's style).
+    @objc func setLookTheme(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let look = LookTheme(rawValue: raw),
+              look != ThemeController.shared.look else { return }
+        ThemeController.shared.look = look
+        rebuildWindows()
+    }
+
+    /// Back to front, so the front window ends up in front again.
+    func rebuildWindows() {
+        let ordered = NSApp.orderedWindows.compactMap { $0.windowController as? BrowserWindowController }
+            .filter { c in windows.contains { $0 === c } }
+        let rest = windows.filter { c in !ordered.contains { $0 === c } }
+        for old in (ordered + rest).reversed() {
+            guard let saved = old.windowSession() else { continue }
+            let tabs = saved.tabs.map { $0.tab(exists: { _ in true }) }
+            let f = saved.frame
+            let controller = openWindow(with: tabs, active: saved.clampedActive, near: nil, size: nil,
+                                        frame: NSRect(x: f.x, y: f.y, width: f.width, height: f.height))
+            controller.restoreTree(saved.expandedFolders ?? [])
+            old.isBeingRebuilt = true
+            old.window?.close()
         }
     }
 

@@ -188,6 +188,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     var statusMessage: String?
     /// Quick access pins, shared by every window through the defaults.
     var pins: PinStore
+    /// View > Theme closes this window after opening its copy in the new look.
+    var isBeingRebuilt = false
     /// The drag badge ("Move to target") and the folder a drag is hovering to spring open.
     let dropTip = DropTipView()
     var springTarget: URL?
@@ -1372,8 +1374,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     func windowWillClose(_ notification: Notification) {
         dropdown.close()
         renamer.end()
-        // Cmd+Shift+T can bring back the tabs of a closed window too.
-        if !tabs.isEmpty, let app = NSApp.delegate as? AppDelegate {
+        // Cmd+Shift+T can bring back the tabs of a closed window too (not when View > Theme rebuilt it).
+        if !tabs.isEmpty, !isBeingRebuilt, let app = NSApp.delegate as? AppDelegate {
             stashActiveTab()
             for (i, tab) in tabs.tabs.enumerated() { app.closedTabs.push(tab, index: i) }
         }

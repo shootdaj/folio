@@ -108,6 +108,10 @@ enum MainMenu {
             item("Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control]),
         ] + fullScreenF11() + [
             .separator(),
+            // Native (the Mac's own styles) or D4 Obsidian; both follow the Mac's light or dark setting.
+            submenu("Theme", LookTheme.allCases.map {
+                choice($0.title, #selector(AppDelegate.setLookTheme(_:)), $0.rawValue)
+            }),
             // Explorer's See more > Options (Folder Options).
             item("Options...", #selector(BrowserWindowController.showFolderOptions(_:)), ",", [.command, .option]),
         ])

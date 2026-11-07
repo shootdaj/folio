@@ -33,6 +33,7 @@ final class ThemeController {
     static let didChange = Notification.Name("FolioThemeDidChange")
 
     private var settings = AccentSettings(defaults: .standard)
+    private var lookSettings = LookSettings(defaults: .standard)
     private(set) var palette = Theme.palette(.dark)
     /// A hue being dragged in the picker: drawn everywhere, saved when the drag ends.
     private var previewHue: Int?
@@ -42,6 +43,7 @@ final class ThemeController {
     /// Called once at launch, before any window. `defaults` is a temp store under `--uitest`.
     func start(defaults: UserDefaults, forcedAppearance: Appearance? = nil) {
         settings = AccentSettings(defaults: defaults)
+        lookSettings = LookSettings(defaults: defaults)
         settings.clearRetiredKeys()
         switch forcedAppearance {
         case .dark?: NSApp.appearance = NSAppearance(named: .darkAqua)
@@ -55,6 +57,17 @@ final class ThemeController {
     var hue: Int {
         get { previewHue ?? settings.hue }
         set { previewHue = nil; settings.hue = newValue; refresh(force: false) }
+    }
+
+    /// View > Theme (UserDefaults key `lookTheme`). Setting it saves it and redraws; the AppDelegate
+    /// then opens each browser window again, since a look also changes how views are built.
+    var look: LookTheme {
+        get { lookSettings.look }
+        set {
+            guard newValue != lookSettings.look else { return }
+            lookSettings.look = newValue
+            refresh(force: true)
+        }
     }
 
     /// Live preview while the hue slider moves: every window recolours, nothing is saved yet.
