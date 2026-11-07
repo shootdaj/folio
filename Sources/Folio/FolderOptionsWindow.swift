@@ -28,10 +28,14 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
         c.select(tab)
         c.showWindow(nil)
         c.window?.makeKeyAndOrderFront(nil)
+        c.searchBox.focus()
     }
 
     private var draft = ListOptions.folder
     private var tab = FolderOptions.Tab.general
+    /// What the search box holds. While it is not empty, the body lists the matching settings of every tab.
+    private var query = ""
+    private let searchBox = SearchBoxView(frame: .zero)
     private let header = OptionsHeader()
     private var tabButtons: [FolderOptions.Tab: SegmentButton] = [:]
     private let body = FlippedView()
@@ -68,6 +72,17 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
             tabButtons[t] = b
             content.addSubview(b)
         }
+        searchBox.folderName = "settings"
+        searchBox.onChange = { [weak self] text in self?.search(text) }
+        // Esc clears the box first; Esc in an empty box closes the window, as Esc does everywhere else in it.
+        searchBox.onClear = { [weak self] in
+            guard let self else { return }
+            if self.query.isEmpty { self.window?.performClose(nil) } else { self.search("") }
+        }
+        // Return is OK, as in the rest of the dialog, but not while results show.
+        searchBox.onEnter = { [weak self] text in if text.isEmpty { self?.commit(close: true) } }
+        content.addSubview(searchBox)
+        window.onFind = { [weak self] in self?.searchBox.focus() }
         content.addSubview(body)
         scroll.drawsBackground = false
         scroll.contentView.drawsBackground = false
@@ -88,8 +103,19 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
+    /// A tab shows its own settings again: the search box empties.
     private func select(_ t: FolderOptions.Tab) {
         tab = t
+        query = ""
+        searchBox.text = ""
+        build()
+    }
+
+    private func search(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        guard trimmed != query else { return }
+        query = trimmed
+        if searchBox.text != text { searchBox.text = text }
         build()
     }
 
@@ -107,20 +133,28 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
         var x: CGFloat = 24
         for t in FolderOptions.Tab.allCases {
             guard let b = tabButtons[t] else { continue }
-            b.isOn = t == tab
+            // While results show, no tab is on: they come from all three.
+            b.isOn = query.isEmpty && t == tab
             let bw = b.fit() + 16
             b.frame = NSRect(x: x, y: 58, width: bw, height: 34)
             x += bw - 1
         }
+        searchBox.frame = NSRect(x: w - 24 - 300, y: 56, width: 300, height: 38)
         body.frame = NSRect(x: 18, y: 106, width: w - 36, height: h - 106 - 72)
-        switch tab {
-        case .general: buildGeneral()
-        case .view: buildView()
-        case .search: buildSearch()
+        if !query.isEmpty {
+            buildResults()
+        } else {
+            switch tab {
+            case .general: buildGeneral()
+            case .view: buildView()
+            case .search: buildSearch()
+            }
         }
         let y = h - 24 - 40
         let rw = restore.fit()
         restore.frame = NSRect(x: 24, y: y, width: rw, height: 40)
+        // Restore Defaults works on one tab; the results come from all three.
+        restore.isEnabled = query.isEmpty
         var right = w - 24
         for b in [apply, cancel, ok] {
             let bw = b.fit(minimum: 96)
@@ -174,51 +208,72 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
         y += height + 8
     }
 
+    /// One control for an entry of the settings list: its check box or radio, wired to the draft, or one
+    /// of the boxes that change macOS at once. `width` is the line's width (the Clear row fills it).
+    private func view(for e: FolderOptions.Entry, width: CGFloat) -> NSView {
+        switch e.control {
+        case .check(let s): return check(e.title, s, note: e.note)
+        case .radio(let s):
+            let r = radio(e.title, s)
+            r.toolTip = e.note
+            return r
+        case .unavailable: return check(e.title, nil)
+        case .openFoldersInFolio:
+            let box = OSCheck(e.title)
+            box.toolTip = e.note
+            box.onToggle = { [weak self] on in self?.setFolderHandler(on) }
+            folderHandlerBox = box
+            return box
+        case .revealInFolio:
+            let box = OSCheck(e.title)
+            box.toolTip = e.note
+            box.onToggle = { [weak self] on in self?.setReveals(on) }
+            revealBox = box
+            return box
+        case .launchAtLogin:
+            let box = OSCheck(e.title)
+            box.toolTip = e.note
+            box.onToggle = { [weak self] on in self?.setLoginItem(on) }
+            loginItemBox = box
+            return box
+        case .clearHistory:
+            let clear = OSButton("Clear", glyph: .trash)
+            clear.setAccessibilityLabel("Clear Folio history")
+            clear.onPress = { [weak self] in self?.clearHistory() }
+            let label = LabelView(e.title, font: Typeface.mono(12), color: { $0.text2 })
+            let row = FlowView()
+            let clearW = clear.fit(minimum: 96)
+            row.add(label, width: width - clearW - 10)
+            row.add(clear, width: clearW)
+            return row
+        }
+    }
+
+    /// The entries in their groups, in the list's order.
+    private func groups(_ entries: [FolderOptions.Entry]) -> [(String, [FolderOptions.Entry])] {
+        var out: [(String, [FolderOptions.Entry])] = []
+        for e in entries {
+            if out.last?.0 == e.group { out[out.count - 1].1.append(e) } else { out.append((e.group, [e])) }
+        }
+        return out
+    }
+
     private func buildGeneral() {
-        var y: CGFloat = 0
-        group("Open Folio to", at: &y, column: 0, rows: [(radio("Home", .openToHome), 0), (radio("This PC (the startup disk)", .openToThisPC), 0)])
-        group("Browse folders", at: &y, column: 0, rows: [(radio("Open each folder in the same window", .sameWindow), 0),
-                                                          (radio("Open each folder in its own window", .ownWindow), 0)])
-        group("Click items as follows", at: &y, column: 0, rows: [
-            (radio("Single-click to open an item (point to select)", .singleClick), 0),
-            (radio("Underline icon titles consistent with my browser", .underlineAlways), 22),
-            (radio("Underline icon titles only when I point at them", .underlineHover), 22),
-            (radio("Double-click to open an item (single-click to select)", .doubleClick), 0),
-        ])
-        let clear = OSButton("Clear", glyph: .trash)
-        clear.setAccessibilityLabel("Clear Folio history")
-        clear.onPress = { [weak self] in self?.clearHistory() }
-        let label = LabelView("Clear recent files, folders, addresses", font: Typeface.mono(12), color: { $0.text2 })
-        let clearRow = FlowView()
-        let clearW = clear.fit(minimum: 96)
-        clearRow.add(label, width: (body.bounds.width - 12) / 2 - 28 - clearW - 10)
-        clearRow.add(clear, width: clearW)
-        var right: CGFloat = 0
-        group("Privacy", at: &right, column: 1, rows: [(check("Show recently used files", .showRecentFiles), 0),
-                                                       (check("Show frequently used folders", .showFrequentFolders), 0),
-                                                       (clearRow, 0)])
-        // Milestone 9. The first two and the last change macOS at once and show what it reports; the rest wait for OK.
-        let handler = OSCheck("Open folders in Folio instead of Finder")
-        handler.toolTip = "Asks macOS to open folders and drives in Folio, then says what macOS kept"
-        handler.onToggle = { [weak self] on in self?.setFolderHandler(on) }
-        folderHandlerBox = handler
-        let reveal = OSCheck("Reveal in Folio instead of Finder")
-        reveal.toolTip = "\"Reveal in Finder\" and \"Show in Finder\" in other apps show the item in Folio (the NSFileViewer setting)"
-        reveal.onToggle = { [weak self] on in self?.setReveals(on) }
-        revealBox = reveal
-        let login = OSCheck("Launch Folio at login")
-        login.toolTip = "Adds Folio to your login items (System Settings > General > Login Items)"
-        login.onToggle = { [weak self] on in self?.setLoginItem(on) }
-        loginItemBox = login
-        group("Folio and macOS", at: &right, column: 1, rows: [
-            (handler, 0),
-            (reveal, 0),
-            (check("Open external folder links in a new tab", .externalFoldersInNewTab,
-                   note: "Folders from ff and other apps open as a tab in the front window"), 0),
-            (check("Reopen windows and tabs on relaunch", .reopenWindows), 0),
-            (check("Keep running when the last window closes", .keepRunning, note: "Cmd+Q still quits"), 0),
-            (login, 0),
-        ])
+        var left: CGFloat = 0, right: CGFloat = 0
+        let lineW = (body.bounds.width - 12) / 2 - 28
+        // Milestone 9's Folio and macOS: the folder, reveal and login boxes change macOS at once and show
+        // what it reports; the rest wait for OK.
+        for (name, entries) in groups(FolderOptions.generalEntries) {
+            let rows = entries.map { e -> (NSView, CGFloat) in
+                let underline = e.control == .radio(.underlineAlways) || e.control == .radio(.underlineHover)
+                return (view(for: e, width: lineW), underline ? 22 : 0)
+            }
+            if ["Privacy", "Folio and macOS"].contains(name) {
+                group(name, at: &right, column: 1, rows: rows)
+            } else {
+                group(name, at: &left, column: 0, rows: rows)
+            }
+        }
     }
 
     private func setFolderHandler(_ on: Bool) {
@@ -245,6 +300,7 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
         advanced.frame = NSRect(x: 0, y: y, width: body.bounds.width, height: body.bounds.height - y)
         body.addSubview(advanced)
         scroll.frame = NSRect(x: 1, y: FormGroupView.headH, width: advanced.bounds.width - 2, height: advanced.bounds.height - FormGroupView.headH - 4)
+        scroll.setAccessibilityLabel("Advanced settings")
         advanced.addSubview(scroll)
         var rows: [(NSView, CGFloat, Bool)] = []
         for row in FolderOptions.viewRows {
@@ -264,15 +320,36 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
 
     private func buildSearch() {
         var y: CGFloat = 0
-        group("How to search", at: &y, rows: [
-            (check("Don't use the index when searching in file folders for system files (searches might take longer)", .dontUseIndex,
-                   note: "Spotlight is left out; the live walk covers everything"), 0),
-        ])
-        group("When searching non-indexed locations", at: &y, rows: [
-            (check("Include system directories", .includeSystemDirectories), 0),
-            (check("Include compressed files (ZIP)", .includeCompressedFiles, note: "Looks inside zips, as Search options > Zipped folders"), 0),
-            (check("Always search file names and contents (this might take several minutes)", .alwaysSearchContents), 0),
-        ])
+        for (name, entries) in groups(FolderOptions.searchEntries) {
+            group(name, at: &y, rows: entries.map { (view(for: $0, width: body.bounds.width - 28), 0) })
+        }
+    }
+
+    /// The search box's results: every matching setting of the three tabs, as live controls, each with the
+    /// tab and group it lives in. A change waits for OK or Apply, as on the tabs.
+    private func buildResults() {
+        let found = FolderOptions.search(query)
+        let title = found.isEmpty ? "No settings match" : found.count == 1 ? "1 setting" : "\(found.count) settings"
+        let box = FormGroupView(title: title)
+        box.frame = body.bounds
+        body.addSubview(box)
+        guard !found.isEmpty else {
+            let hint = LabelView("No setting matches \u{201C}\(query)\u{201D}. Try other words, such as hidden, Finder or zip.",
+                                 font: Typeface.ui(13), color: { $0.text2 })
+            hint.frame = NSRect(x: 14, y: FormGroupView.headH + 2, width: box.bounds.width - 28, height: 20)
+            box.addSubview(hint)
+            return
+        }
+        scroll.frame = NSRect(x: 1, y: FormGroupView.headH, width: box.bounds.width - 2, height: box.bounds.height - FormGroupView.headH - 4)
+        scroll.setAccessibilityLabel("Matching settings")
+        box.addSubview(scroll)
+        let placeW: CGFloat = 270
+        let lineW = scroll.bounds.width - 28 - placeW - 16
+        let rows = found.map { e -> (NSView, NSView) in
+            (view(for: e, width: lineW), LabelView(e.place, font: Typeface.ui(12), color: { $0.muted }))
+        }
+        list.placeResults(rows, width: scroll.bounds.width, placeWidth: placeW)
+        list.scroll(.zero)
     }
 
     // MARK: State
@@ -329,10 +406,19 @@ final class FlippedView: NSView {
     override var isFlipped: Bool { true }
 }
 
-/// Esc cancels and Return is OK, as in Explorer's dialog.
+/// Esc cancels and Return is OK, as in Explorer's dialog. Cmd+F goes to the search box.
 final class OptionsWindow: NSWindow {
     var onReturn: (() -> Void)?
+    var onFind: (() -> Void)?
     override func cancelOperation(_ sender: Any?) { performClose(sender) }
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+           event.charactersIgnoringModifiers?.lowercased() == "f" {
+            onFind?()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
     override func keyDown(with event: NSEvent) {
         if event.keyCode == 36 || event.keyCode == 76 { onReturn?(); return }
         super.keyDown(with: event)
@@ -390,16 +476,38 @@ final class OptionsListView: NSView {
         }
         frame = NSRect(x: 0, y: 0, width: width, height: y + 6)
     }
+
+    /// The search results: a control on the left, and where it lives (its tab and group) on the right.
+    func placeResults(_ rows: [(NSView, NSView)], width: CGFloat, placeWidth: CGFloat) {
+        subviews.forEach { $0.removeFromSuperview() }
+        let controlW = width - 28 - placeWidth - 16
+        var y: CGFloat = 4
+        for (view, place) in rows {
+            let h: CGFloat = view is OSButton || view is FlowView ? 38 : Self.rowH
+            let rowH: CGFloat = h > Self.rowH ? 34 : 20
+            let fit = (view as? OSCheck)?.fit() ?? (view as? OSRadio)?.fit() ?? controlW
+            view.frame = NSRect(x: 14, y: y + (h - rowH) / 2, width: min(fit, controlW), height: rowH)
+            place.frame = NSRect(x: width - 14 - placeWidth, y: y + (h - 20) / 2, width: placeWidth, height: 20)
+            addSubview(view)
+            addSubview(place)
+            y += h
+        }
+        frame = NSRect(x: 0, y: 0, width: width, height: y + 6)
+    }
 }
 
-/// A radio in D4's language: a 14 pt ring (outline), the accent ring and dot when chosen, a Geist label. An NSButton of the
-/// radio type, so accessibility sees a radio button.
+/// A radio in D4's language: a 14 pt ring (outline), the accent ring and dot when chosen, a Geist label.
+///
+/// Not of AppKit's radio type: AppKit makes one group of every radio with the same superview and action,
+/// and turning one on turns the others off. Advanced settings has two groups in one view (hidden items,
+/// typing), so the typing radio turned "Show hidden files" off again. The window keeps each group's
+/// choice itself. Accessibility still sees a radio button, with its value.
 final class OSRadio: NSButton {
     var onPick: (() -> Void)?
 
     init(_ title: String) {
         super.init(frame: NSRect(x: 0, y: 0, width: 200, height: 20))
-        setButtonType(.radio)
+        setButtonType(.onOff)
         self.title = title
         setAccessibilityLabel(title)
         isBordered = false
@@ -416,6 +524,10 @@ final class OSRadio: NSButton {
         set { state = newValue ? .on : .off; needsDisplay = true }
     }
 
+    override func accessibilityRole() -> NSAccessibility.Role? { .radioButton }
+    override func accessibilityValue() -> Any? { NSNumber(value: isSelected ? 1 : 0) }
+
+    /// A click on a chosen radio leaves it on, as a radio does (the on-off type would turn it off).
     @objc private func picked(_ sender: Any?) {
         isSelected = true
         onPick?()

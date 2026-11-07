@@ -83,6 +83,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc func openFullDiskAccess(_ sender: Any?) { DiskAccessPrompt.openSettings() }
 
+    /// Folio > Settings... (Cmd+,, the Mac's key for an app's settings): Folder Options, with the search
+    /// box ready. It works with no window open too.
+    @objc func showSettings(_ sender: Any?) {
+        FolderOptionsWindowController.show(near: NSApp.mainWindow ?? NSApp.keyWindow)
+    }
+
     @objc private func viewChanged(_ note: Notification) { scheduleSessionSave() }
 
     /// Folder Options > Keep running when the last window closes (on: Explorer stays alive; Cmd+Q quits).

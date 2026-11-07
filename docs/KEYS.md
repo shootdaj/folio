@@ -78,6 +78,8 @@ item show only one key, or the key would take keys away from text fields).
 | | Hidden items | Cmd+Shift+. | Fn+Shift+. | View > Show > Hidden Items |
 | Alt, F10 | Access keys on the command bar | Option tapped alone | Cmd tapped alone | window |
 | | Folder Options | Cmd+Option+, | Cmd+Option+, | View > Options... |
+| | Settings: Folder Options, with the search box ready | Cmd+, | Option+, | Folio > Settings... |
+| | Search settings (in Folder Options) | Cmd+F | Fn+F | window |
 
 ## The navigation pane
 

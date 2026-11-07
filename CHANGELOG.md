@@ -9,6 +9,13 @@ pushed; the release workflow publishes the section below with that number as the
 
 ### Added
 
+- **Search settings.** Folder Options has a "Search settings" box at the right of its tabs. Typing
+  lists the matching settings of General, View and Search together, each with its tab and group, and
+  each works in the list. A word matches at the start of a word in the title, the group, the tooltip or
+  other names for the setting ("dot files" finds the hidden items). Esc empties the box, and a click
+  on a tab shows that tab again. Cmd+F goes to the box. Folio > **Settings...** (Cmd+,) opens Folder
+  Options with the box ready, also with no window open.
+
 - **Reveal in Folio instead of Finder.** A new box in the Folio menu and in View > Options... >
   General > Folio and macOS. It sets the `NSFileViewer` default to Folio, so "Reveal in Finder" and
   "Show in Finder" in other apps show the item in Folio. A revealed folder shows selected in its parent,
@@ -60,6 +67,12 @@ pushed; the release workflow publishes the section below with that number as the
   longer starts with the author's own `Anshul/Code` folder. Saved pins do not change.
 
 ### Fixed
+
+- **"Show hidden files, folders and drives" can be chosen in Folder Options.** AppKit made one radio
+  group of every radio in a view, so View > Advanced settings had one group, not two. "Select the typed
+  item in the view" then turned the hidden-files radio off again at once, and neither hidden-files radio
+  showed as chosen. General's "Click items as follows" had the same fault for its two pairs. Each group
+  now keeps its own choice. View > Show > Hidden Items (Cmd+Shift+.) was not affected.
 
 - **Open Folders in Folio says why macOS 26 keeps folders on Finder.** macOS 26 protects the default
   app for folders (`public.folder`) and refuses it with error -50 for every app. Folio now says that
