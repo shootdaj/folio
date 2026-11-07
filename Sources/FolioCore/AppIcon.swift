@@ -1,5 +1,5 @@
+import Accelerate
 import CoreGraphics
-import CoreImage
 import Foundation
 import ImageIO
 
@@ -97,8 +97,18 @@ public enum AppIcon {
 
     // MARK: Drawing
 
+    /// Core Graphics' shadow blur gives slightly different pixels when two renders run at once (tested:
+    /// up to 119 levels on 16 threads), and the picture kept in the repo must be the one the renderer draws.
+    private static let renderLock = NSLock()
+
     /// The full-bleed picture at `pixels` square: what the iconset holds.
     public static func render(pixels: Int) -> CGImage? {
+        renderLock.lock()
+        defer { renderLock.unlock() }
+        return draw(pixels: pixels)
+    }
+
+    private static func draw(pixels: Int) -> CGImage? {
         guard pixels > 0, let cs = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
         func newContext() -> CGContext? {
             CGContext(data: nil, width: pixels, height: pixels, bitsPerComponent: 8, bytesPerRow: 0, space: cs,
@@ -240,22 +250,13 @@ public enum AppIcon {
         // The frost: the scene blurred and lightened, seen through the glass.
         if let behind = newContext() {
             scene(behind)
-            if let sceneImage = behind.makeImage() {
-                let image = CIImage(cgImage: sceneImage)
-                let frosted = image.clampedToExtent()
-                    .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: 30 * s])
-                    .applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 1.15, kCIInputBrightnessKey: 0.06,
-                                                                     kCIInputContrastKey: 0.92])
-                    .cropped(to: image.extent)
-                let ci = CIContext(options: [.workingColorSpace: cs, .outputColorSpace: cs])
-                if let frost = ci.createCGImage(frosted, from: image.extent, format: .RGBA8, colorSpace: cs) {
-                    ctx.saveGState()
-                    ctx.addPath(front)
-                    ctx.clip()
-                    ctx.concatenate(ctx.ctm.inverted())
-                    ctx.draw(frost, in: CGRect(x: 0, y: 0, width: pixels, height: pixels))
-                    ctx.restoreGState()
-                }
+            if let frost = frosted(behind, radius: 30 * s) {
+                ctx.saveGState()
+                ctx.addPath(front)
+                ctx.clip()
+                ctx.concatenate(ctx.ctm.inverted())
+                ctx.draw(frost, in: CGRect(x: 0, y: 0, width: pixels, height: pixels))
+                ctx.restoreGState()
             }
         }
         // The glass's tint: warm milky white at the top, cooler and clearer toward the foot.
@@ -289,6 +290,44 @@ public enum AppIcon {
         ctx.restoreGState()
         ctx.restoreGState()
         return ctx.makeImage()
+    }
+
+    /// The opaque picture in `ctx` blurred by about `radius` pixels (three box passes, edges extended),
+    /// a little more saturated, lighter and softer: frosted glass. Plain arithmetic on the CPU, so every
+    /// render is the same to the bit, which the picture kept in the repo relies on.
+    static func frosted(_ ctx: CGContext, radius: CGFloat) -> CGImage? {
+        guard let data = ctx.data else { return nil }
+        let width = ctx.width, height = ctx.height, rowBytes = ctx.bytesPerRow
+        var a = vImage_Buffer(data: data, height: vImagePixelCount(height), width: vImagePixelCount(width), rowBytes: rowBytes)
+        guard let scratch = malloc(rowBytes * height) else { return nil }
+        defer { free(scratch) }
+        var b = vImage_Buffer(data: scratch, height: a.height, width: a.width, rowBytes: rowBytes)
+        let box = UInt32(max(1, Int((radius * 2).rounded()) | 1))
+        for i in 0..<3 {
+            let flags = vImage_Flags(kvImageEdgeExtend)
+            if i % 2 == 0 {
+                vImageBoxConvolve_ARGB8888(&a, &b, nil, 0, 0, box, box, nil, flags)
+            } else {
+                vImageBoxConvolve_ARGB8888(&b, &a, nil, 0, 0, box, box, nil, flags)
+            }
+        }
+        // After three passes the result is in `b`. Saturation 1.15, brightness +0.06, contrast 0.92.
+        let px = scratch.assumingMemoryBound(to: UInt8.self)
+        for y in 0..<height {
+            for x in 0..<width {
+                let o = y * rowBytes + x * 4
+                let r = Float(px[o]) / 255, g = Float(px[o + 1]) / 255, bl = Float(px[o + 2]) / 255
+                let luma = 0.2125 * r + 0.7154 * g + 0.0721 * bl
+                for (k, c) in [r, g, bl].enumerated() {
+                    let v = ((luma + (c - luma) * 1.15 + 0.06) - 0.5) * 0.92 + 0.5
+                    px[o + k] = UInt8(max(0, min(255, (v * 255).rounded())))
+                }
+            }
+        }
+        guard let cs = CGColorSpace(name: CGColorSpace.sRGB),
+              let out = CGContext(data: scratch, width: width, height: height, bitsPerComponent: 8, bytesPerRow: rowBytes,
+                                  space: cs, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        return out.makeImage()
     }
 
     /// The picture shrunk into the 824 tile and cut to its continuous corners, clear outside: the Dock
