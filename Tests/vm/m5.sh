@@ -439,7 +439,8 @@ echo "setup: $WORK with alpha/beta/gamma, delta ($REPORT), epsilon, notes.txt"
 
 quit_folio
 clean_defaults
-defaults write com.anshul.folio theme dark
+# Folio follows the Mac's light or dark setting (it has no theme of its own): the shots are in dark.
+osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true' >/dev/null 2>&1
 for v in "$SCRATCH" /Volumes/ScratchRenamed; do [ -d "$v" ] && hdiutil detach "$v" -force >/dev/null 2>&1; done
 detach_scratch
 mkdir -p /private/tmp/folio-tests
@@ -813,8 +814,9 @@ if wait_tabs "$win" "$win=0|$win=0|$win=1" 6; then
         # The new window is in front: its one tab goes back onto the first window's strip.
         newfrom=$(osascript -e 'tell application "System Events" to tell process "Folio" to get position of window 1' 2>/dev/null | tr -d ' ')
         nx=${newfrom%,*}; ny=${newfrom#*,}
-        # Dropped past the first window's last tab: it goes on the end and is shown.
-        echo "  $("$MOUSE" drag $((nx + 90)) $((ny + 62)) $((ox + 360)) $((oy + 62)) --hold 0.6)"
+        # Dropped past the first window's last tab: it goes on the end and is shown. The tabs sit in the
+        # 44 pt title bar (centre 26 pt down), starting 88 pt in, after the traffic lights.
+        echo "  $("$MOUSE" drag $((nx + 128)) $((ny + 26)) $((ox + 360)) $((oy + 26)) --hold 0.6)"
         if wait_windows 2 6 && wait_tabs "$win" "$win=0|$win=0|$win=1" 6; then
             sleep 1
             f=$(shot m5-16-merged)

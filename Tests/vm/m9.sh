@@ -1,7 +1,8 @@
 #!/bin/bash
 # Milestone 9 GUI check: ff launches Folio on a folder, --reveal selects a file, -t opens a second tab,
 # --search runs a search; two windows with tabs, a sort by Size, a selection, a folded sidebar section, an
-# opened tree folder and the amber accent all come back after quit and relaunch; a garbage session file is
+# opened tree folder and the orange accent (hue 55, picked in the title bar's accent popover) all come back
+# after quit and relaunch; a garbage session file is
 # moved aside and the app starts on Home; Open folders in Folio instead of Finder reports what macOS kept,
 # then `open <folder>` from the shell shows which app macOS used; the Dock icon; Keep running when the last
 # window closes; Launch at login; `Folio --version`; ff's mistakes.
@@ -15,7 +16,7 @@
 #   m9-3-new-tab.png          ff -t other: a second tab, shown
 #   m9-4-search.png           ff --search "bert" (run in work): Search Results in work: bert-notes.txt, Bertie.md
 #   m9-5-before-quit.png      two windows: [search, other sorted by Size, mid.bin selected] and
-#                             [docs, work with the tree open at docs], Network folded, accent amber
+#                             [docs, work with the tree open at docs], Network folded, accent orange (55)
 #   m9-6-restored.png         quit, open -b com.anshul.folio: the front window as it was
 #   m9-6b-restored-other.png  the other window raised: its tabs, sort and selection
 #   m9-7-corrupt-home.png     `echo garbage > session.json`, relaunch: Home, no crash, the file moved aside
@@ -451,6 +452,32 @@ end run
 OSA
 }
 
+# ax_find_any <AXRole> <description>: "x y" of the first match in any Folio window (the accent popover
+# hangs off the window it belongs to).
+ax_find_any() {
+    local w pt
+    while read -r w; do
+        [ -n "$w" ] || continue
+        pt=$(ax_find "$1" "$2" "$w")
+        [ -n "$pt" ] && { echo "$pt"; return 0; }
+    done < <(window_names)
+    osascript - "$1" "$2" 2>/dev/null <<'OSA'
+on run argv
+    tell application "System Events" to tell process "Folio"
+        repeat with w in windows
+            try
+                set e to (first UI element of (entire contents of w) whose role is (item 1 of argv) and description is (item 2 of argv))
+                set {px, py} to position of e
+                set {sx, sy} to size of e
+                return ((px + (sx div 2)) as text) & " " & ((py + (sy div 2)) as text)
+            end try
+        end repeat
+    end tell
+    return ""
+end run
+OSA
+}
+
 click_at() {
     local pt="$1"
     shift
@@ -461,7 +488,7 @@ click_at() {
 # The keys milestones 2 to 9 keep in the app's defaults, so each run starts from Explorer's defaults.
 clean_defaults() {
     for k in session quickAccessPins navPaneCollapsed homeCollapsed favorites recentFiles addressHistory \
-             navPaneExpandToCurrent navPaneShown navPaneWidth showHiddenItems trashOrigins accent \
+             navPaneExpandToCurrent navPaneShown navPaneWidth showHiddenItems trashOrigins accent accentHue \
              defaultView detailsColumns showFileExtensions showThumbnails compactView sidePane itemCheckBoxes \
              searchFileContents searchSystemFiles searchRecentDropdown recentSearches searchBoxWidth \
              openFolioTo browseFoldersOwnWindow singleClickOpen singleClickUnderline showRecentFiles showFrequentFolders \
@@ -537,7 +564,8 @@ quit_folio
 clean_defaults
 clear_session
 clear_banners
-defaults write com.anshul.folio theme dark
+# Folio follows the Mac's light or dark setting (it has no theme of its own): the shots are in dark.
+osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true' >/dev/null 2>&1
 "$LSREGISTER" -f "$APP"
 echo "  Launch Services: $("$LSREGISTER" -dump 2>/dev/null | grep -c 'path: *.*Folio.app') Folio.app path(s) known; folders open with $("$LSH" get public.folder)"
 echo "  ff: $(ls -l "$FF" | awk '{print $1, $5}') $FF"
@@ -642,18 +670,23 @@ tree_b=$(tree_rows work)
 # Network folds.
 click_at "$(tree_point work Network)"
 sleep 0.8
-menu_bar View Accent Amber
+# The accent: the title bar's swatch opens its popover; the Orange preset; Esc closes it.
+click_at "$(ax_find AXButton "Accent colour" work)"
 sleep 1
+click_at "$(ax_find_any AXRadioButton Orange)"
+sleep 0.6
+keys 'key code 53'
+sleep 0.6
 click_at "$(list_point work alpha.txt)"
 sleep 0.8
 tabs_b=$(tabs work)
 collapsed=$(defaults read com.anshul.folio navPaneCollapsed 2>/dev/null | tr -d ' \n()"')
-accent=$(defaults read com.anshul.folio accent 2>/dev/null)
+accent=$(defaults read com.anshul.folio accentHue 2>/dev/null)
 echo "  window B (work): tabs [$tabs_b], tree [$tree_b], folded [$collapsed], accent [$accent]"
 f=$(shot m9-5-before-quit)
 if [ "$(window_count)" -eq 2 ] && [ "$tabs_b" = "docs=0|work=1" ] && [ "$sel_a" = "mid.bin" ] \
    && [ "$order_a" != "zz-folder huge.bin mid.bin tiny.txt" ] && echo "$tree_b" | grep -q "|deep" \
-   && echo "$collapsed" | grep -q network && [ "$accent" = "amber" ]; then
+   && echo "$collapsed" | grep -q network && [ "$accent" = "55" ]; then
     pass 5 before-quit "A: other by Size [$order_a] with [$sel_a] selected; B: [$tabs_b], tree open at docs (deep shows), Network folded, amber; $f"
 else
     fail 5 before-quit "windows [$(names_now)], A [$order_a] sel [$sel_a], B [$tabs_b] tree [$tree_b] folded [$collapsed] accent [$accent]; ${f:-none}"
@@ -672,7 +705,7 @@ if wait_windows 2 20 && wait_window work 5 && wait_window other 5; then
     order_a2=$(rows_line other); sel_a2=$(selected_rows other)
     tree_b2=$(tree_rows work)
     collapsed2=$(defaults read com.anshul.folio navPaneCollapsed 2>/dev/null | tr -d ' \n()"')
-    accent2=$(defaults read com.anshul.folio accent 2>/dev/null)
+    accent2=$(defaults read com.anshul.folio accentHue 2>/dev/null)
     tree_point work deep >/dev/null   # scrolls the tree so docs and deep are in the shot
     sleep 0.6
     f=$(shot m9-6-restored)
@@ -687,7 +720,7 @@ if wait_windows 2 20 && wait_window work 5 && wait_window other 5; then
     [ "$sel_a2" = "mid.bin" ] || problems="$problems A selection [$sel_a2];"
     echo "$tree_b2" | grep -q "|deep" || problems="$problems tree [$tree_b2];"
     echo "$tree_b2" | grep -q "Connect to server" && problems="$problems Network open;"
-    [ "$accent2" = "amber" ] || problems="$problems accent [$accent2];"
+    [ "$accent2" = "55" ] || problems="$problems accent [$accent2];"
     if [ -z "$problems" ]; then
         pass 6 restored "2 windows: A [$tabs_a2] sorted [$order_a2] selected [$sel_a2]; B [$tabs_b2], tree open at docs, Network folded [$collapsed2], accent $accent2; $f $f2"
     else
