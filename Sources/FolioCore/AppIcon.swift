@@ -2,162 +2,261 @@ import CoreGraphics
 import Foundation
 import ImageIO
 
-/// Folio's app icon in D1's language: the near-black rounded square with the sidebar's blueprint grid,
-/// the accent corner brackets of a selected item, and D1's folder (its tab in the accent) with a
-/// phosphor light glowing on its front. Dark is the Dock icon; light is drawn for a light Mac. One set
-/// of numbers drives both the CoreGraphics drawing (the iconset `make app` turns into Folio.icns) and
-/// the SVG in Resources/.
+/// Folio's app icon: a warm manila folder, a sheet and a blue index tab inside it, on a cool slate tile
+/// with the Mac's continuous corners, lit from the top like the system's own icons. macOS 26 shows an
+/// icon file as it is only when it fills the icon shape, so the tile is opaque to its edge. One set of
+/// numbers drives the iconset `make app` turns into Folio.icns and Resources/AppIcon.png.
 public enum AppIcon {
     public static let canvas: CGFloat = 1024
-    /// macOS's icon grid: an 824 pt rounded square inside the 1024 pt canvas.
+    /// macOS's icon grid: an 824 pt tile inside the 1024 pt canvas.
     static let base = CGRect(x: 100, y: 100, width: 824, height: 824)
+    /// The corner radius of the continuous corners (a corner bends over 1.53 radii, as the system's does).
     static let radius: CGFloat = 185
-    /// D1's folder (viewBox 0 0 20 16), 26 times its size, centred a little low.
-    static let folderOrigin = CGPoint(x: 252, y: 315.5)
-    static let folderScale: CGFloat = 26
-    static let backPath = "M1.5 3a1 1 0 0 1 1-1h4.8l1.7 2h8.5a1 1 0 0 1 1 1v8.5a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1z"
-    static let tabPath = "M2.5 2h4.8l1.7 2H1.5V3a1 1 0 0 1 1-1z"
-    static let frontPath = "M1.5 6.2h17v7.3a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1z"
-    static let folderStroke: CGFloat = 0.5
-    /// The phosphor light on the folder's front (where D1's folder has its line), in folder units.
-    static let light = CGPoint(x: 14.9, y: 10.35)
-    static let lightR: CGFloat = 1.05
-    static let ringR: CGFloat = 1.7
-    /// The brackets around the folder, as D1 marks a selected item.
-    static let bracketBox = CGRect(x: 243, y: 320, width: 538, height: 420)
-    static let bracketArm: CGFloat = 70
-    static let bracketWidth: CGFloat = 12
-    static let glowBlur: CGFloat = 40
+    /// The folder is drawn in its own units and shrunk to 0.9 about this point, which leaves the tile a margin.
+    static let folderCentre = CGPoint(x: 512, y: 500)
+    static let folderScale: CGFloat = 0.9
+    /// A point in the middle of the index tab's visible part (icon units, y up), for the tests.
+    static let tabMark = CGPoint(x: 681, y: 634)
 
     /// The iconset iconutil wants: file name and pixel size.
     public static let iconset: [(name: String, pixels: Int, scale: Int)] = [16, 32, 128, 256, 512].flatMap { pt in
         [("icon_\(pt)x\(pt).png", pt, 1), ("icon_\(pt)x\(pt)@2x.png", pt * 2, 2)]
     }
 
-    struct Colors {
-        var top, bottom, hairline, gridMinor, gridMajor, bracket, accent, back, front, line: RGBA
-        var glows: Bool
+    // MARK: Shapes (icon units, y up)
+
+    /// The tile: the 824 square with continuous corners (the cubic approximation of the system's squircle).
+    static func tilePath() -> CGPath {
+        let r = radius, b = base
+        let p = CGMutablePath()
+        // One corner as offsets from that corner, from along the first edge round to along the second.
+        let corner: [(CGFloat, CGFloat)] = [
+            (1.528665, 0), (1.088493, 0), (0.868407, 0.0220851), (0.631494, 0.0749114),
+            (0.372824, 0.169059), (0.169059, 0.372824), (0.0749114, 0.631494),
+            (0.0220851, 0.868407), (0, 1.088493), (0, 1.528665),
+        ]
+        // Each corner: its point, and the directions of the edge coming in (u) and the edge going out (v).
+        let corners: [(CGPoint, CGVector, CGVector)] = [
+            (CGPoint(x: b.maxX, y: b.minY), CGVector(dx: -1, dy: 0), CGVector(dx: 0, dy: 1)),
+            (CGPoint(x: b.maxX, y: b.maxY), CGVector(dx: 0, dy: -1), CGVector(dx: -1, dy: 0)),
+            (CGPoint(x: b.minX, y: b.maxY), CGVector(dx: 1, dy: 0), CGVector(dx: 0, dy: -1)),
+            (CGPoint(x: b.minX, y: b.minY), CGVector(dx: 0, dy: 1), CGVector(dx: 1, dy: 0)),
+        ]
+        for (i, (c, u, v)) in corners.enumerated() {
+            let pts = corner.map { CGPoint(x: c.x + (u.dx * $0.0 + v.dx * $0.1) * r, y: c.y + (u.dy * $0.0 + v.dy * $0.1) * r) }
+            if i == 0 { p.move(to: pts[0]) } else { p.addLine(to: pts[0]) }
+            p.addCurve(to: pts[3], control1: pts[1], control2: pts[2])
+            p.addCurve(to: pts[6], control1: pts[4], control2: pts[5])
+            p.addCurve(to: pts[9], control1: pts[7], control2: pts[8])
+        }
+        p.closeSubpath()
+        return p
     }
 
-    /// The icon keeps the Control room colours it was drawn in (its own numbers, not the app's theme).
-    static func colors(_ appearance: Appearance) -> Colors {
-        let dark = appearance == .dark
-        let accent = RGBA(hex: dark ? 0x9BFF57 : 0x2F7D1E)
-        return Colors(top: RGBA(hex: dark ? 0x161A20 : 0xFFFFFF), bottom: RGBA(hex: dark ? 0x0C0E11 : 0xF4F6F8),
-                      hairline: dark ? RGBA(201, 209, 219, 0.10) : RGBA(28, 44, 62, 0.11),
-                      gridMinor: accent.withAlpha(dark ? 0.05 : 0.06), gridMajor: accent.withAlpha(dark ? 0.11 : 0.12),
-                      bracket: accent.withAlpha(0.70), accent: accent,
-                      back: RGBA(hex: dark ? 0x262C35 : 0xD2DAE2), front: RGBA(hex: dark ? 0x343C48 : 0xE6ECF1),
-                      line: RGBA(hex: dark ? 0x5F6B79 : 0x7A8796), glows: dark)
+    /// A rectangle with one radius for its top corners and one for its bottom corners.
+    static func panel(_ r: CGRect, top: CGFloat, bottom: CGFloat) -> CGPath {
+        let p = CGMutablePath()
+        p.move(to: CGPoint(x: r.minX + bottom, y: r.minY))
+        p.addLine(to: CGPoint(x: r.maxX - bottom, y: r.minY))
+        p.addQuadCurve(to: CGPoint(x: r.maxX, y: r.minY + bottom), control: CGPoint(x: r.maxX, y: r.minY))
+        p.addLine(to: CGPoint(x: r.maxX, y: r.maxY - top))
+        p.addQuadCurve(to: CGPoint(x: r.maxX - top, y: r.maxY), control: CGPoint(x: r.maxX, y: r.maxY))
+        p.addLine(to: CGPoint(x: r.minX + top, y: r.maxY))
+        p.addQuadCurve(to: CGPoint(x: r.minX, y: r.maxY - top), control: CGPoint(x: r.minX, y: r.maxY))
+        p.addLine(to: CGPoint(x: r.minX, y: r.minY + bottom))
+        p.addQuadCurve(to: CGPoint(x: r.minX + bottom, y: r.minY), control: CGPoint(x: r.minX, y: r.minY))
+        p.closeSubpath()
+        return p
     }
 
-    /// The light's centre at a pixel size, from the top left.
-    public static func lightCentre(pixels: Int) -> (Int, Int) {
-        let s = CGFloat(pixels) / canvas
-        let x = (folderOrigin.x + light.x * folderScale) * s, y = (folderOrigin.y + light.y * folderScale) * s
-        return (Int(x.rounded()), Int(y.rounded()))
+    /// The folder's back with its tab on the left and a sloped shoulder (folder units).
+    static func backPath() -> CGPath {
+        let l: CGFloat = 168, r: CGFloat = 856, bot: CGFloat = 250, top: CGFloat = 702, tabTop: CGFloat = 796, tabR: CGFloat = 470
+        let p = CGMutablePath()
+        p.move(to: CGPoint(x: l + 40, y: bot))
+        p.addLine(to: CGPoint(x: r - 40, y: bot))
+        p.addQuadCurve(to: CGPoint(x: r, y: bot + 40), control: CGPoint(x: r, y: bot))
+        p.addLine(to: CGPoint(x: r, y: top - 36))
+        p.addQuadCurve(to: CGPoint(x: r - 36, y: top), control: CGPoint(x: r, y: top))
+        p.addLine(to: CGPoint(x: tabR + 60, y: top))
+        p.addCurve(to: CGPoint(x: tabR, y: tabTop - 16), control1: CGPoint(x: tabR + 30, y: top), control2: CGPoint(x: tabR + 22, y: tabTop - 8))
+        p.addQuadCurve(to: CGPoint(x: tabR - 36, y: tabTop), control: CGPoint(x: tabR - 8, y: tabTop))
+        p.addLine(to: CGPoint(x: l + 44, y: tabTop))
+        p.addQuadCurve(to: CGPoint(x: l, y: tabTop - 44), control: CGPoint(x: l, y: tabTop))
+        p.addLine(to: CGPoint(x: l, y: bot + 40))
+        p.addQuadCurve(to: CGPoint(x: l + 40, y: bot), control: CGPoint(x: l, y: bot))
+        p.closeSubpath()
+        return p
     }
+
+    static let frontRect = CGRect(x: 146, y: 196, width: 732, height: 424)
+    static let sheetRect = CGRect(x: 218, y: 400, width: 590, height: 340)
+    static let tabRect = CGRect(x: 612, y: 560, width: 176, height: 118)
 
     // MARK: Drawing
 
-    public static func render(pixels: Int, appearance: Appearance) -> CGImage? {
+    public static func render(pixels: Int) -> CGImage? {
         guard pixels > 0, let cs = CGColorSpace(name: CGColorSpace.sRGB),
               let ctx = CGContext(data: nil, width: pixels, height: pixels, bitsPerComponent: 8, bytesPerRow: 0, space: cs,
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         let s = CGFloat(pixels) / canvas
-        let c = colors(appearance)
-        ctx.interpolationQuality = .high
-        ctx.setShouldAntialias(true)
-        // SVG coordinates: 1024 units, y down.
+        // The fine detail (paper sheen, crease, inner rims) is left out where it would only blur.
+        let detailed = pixels >= 64
         ctx.scaleBy(x: s, y: s)
-        ctx.translateBy(x: 0, y: canvas)
-        ctx.scaleBy(x: 1, y: -1)
+        ctx.setAllowsAntialiasing(true)
+        ctx.interpolationQuality = .high
 
-        let square = CGPath(roundedRect: base, cornerWidth: radius, cornerHeight: radius, transform: nil)
+        func color(_ hex: UInt32, _ a: CGFloat = 1) -> CGColor {
+            CGColor(srgbRed: CGFloat((hex >> 16) & 255) / 255, green: CGFloat((hex >> 8) & 255) / 255,
+                    blue: CGFloat(hex & 255) / 255, alpha: a)
+        }
+        func gradient(_ stops: [(CGFloat, CGColor)]) -> CGGradient {
+            CGGradient(colorsSpace: cs, colors: stops.map(\.1) as CFArray, locations: stops.map(\.0))!
+        }
+        func shadow(_ dy: CGFloat, _ blur: CGFloat, _ a: CGFloat) {
+            ctx.setShadow(offset: CGSize(width: 0, height: -dy * s), blur: blur * s, color: color(0x0A1220, a))
+        }
+        func fill(_ path: CGPath, _ g: CGGradient, from: CGPoint, to: CGPoint) {
+            ctx.saveGState()
+            ctx.addPath(path)
+            ctx.clip()
+            ctx.drawLinearGradient(g, start: from, end: to, options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
+            ctx.restoreGState()
+        }
+
+        let tile = tilePath()
         ctx.saveGState()
-        ctx.addPath(square)
+        ctx.addPath(tile)
         ctx.clip()
-        if let gradient = CGGradient(colorsSpace: cs, colors: [cg(c.top), cg(c.bottom)] as CFArray, locations: [0, 1]) {
-            ctx.drawLinearGradient(gradient, start: CGPoint(x: 0, y: base.minY), end: CGPoint(x: 0, y: base.maxY), options: [])
-        }
-        if pixels >= 64 {
-            for (step, color) in [(CGFloat(32), c.gridMinor), (CGFloat(128), c.gridMajor)] {
-                ctx.setFillColor(cg(color))
-                var v = base.minX + step
-                while v < base.maxX {
-                    ctx.fill(CGRect(x: v - 1, y: base.minY, width: 2, height: base.height))
-                    ctx.fill(CGRect(x: base.minX, y: v - 1, width: base.width, height: 2))
-                    v += step
-                }
-            }
-        }
-        ctx.restoreGState()
-        ctx.addPath(CGPath(roundedRect: base.insetBy(dx: 2, dy: 2), cornerWidth: radius - 2, cornerHeight: radius - 2, transform: nil))
-        ctx.setStrokeColor(cg(c.hairline))
-        ctx.setLineWidth(4)
-        ctx.strokePath()
 
-        if pixels >= 32 {
-            ctx.setFillColor(cg(c.bracket))
-            for r in bracketRects() { ctx.fill(r) }
-        }
+        // The tile: slate blue, lighter at the top, a soft glow up top and a little shade at the foot.
+        ctx.drawLinearGradient(gradient([(0, color(0x9DB2C9)), (0.5, color(0x6B819C)), (1, color(0x3F5069))]),
+                               start: CGPoint(x: 512, y: base.maxY), end: CGPoint(x: 512, y: base.minY), options: [])
+        ctx.drawRadialGradient(gradient([(0, color(0xFFFFFF, 0.28)), (1, color(0xFFFFFF, 0))]),
+                               startCenter: CGPoint(x: 460, y: 960), startRadius: 0,
+                               endCenter: CGPoint(x: 460, y: 960), endRadius: 560, options: [])
+        fill(CGPath(rect: base, transform: nil), gradient([(0, color(0x0B1626, 0.30)), (1, color(0x0B1626, 0))]),
+             from: CGPoint(x: 0, y: base.minY), to: CGPoint(x: 0, y: 330))
 
-        let t = CGAffineTransform(translationX: folderOrigin.x, y: folderOrigin.y).scaledBy(x: folderScale, y: folderScale)
-        func shape(_ d: String) -> CGPath { cgPath(d, transform: t) }
-        let stroke = max(folderStroke * folderScale, 1 / s)
-        ctx.addPath(shape(backPath))
-        ctx.setFillColor(cg(c.back))
-        ctx.setStrokeColor(cg(c.line))
-        ctx.setLineWidth(stroke)
-        ctx.drawPath(using: .fillStroke)
         ctx.saveGState()
-        if c.glows { ctx.setShadow(offset: .zero, blur: glowBlur * s, color: cg(c.accent.withAlpha(0.62))) }
-        ctx.addPath(shape(tabPath))
-        ctx.setFillColor(cg(c.accent))
+        ctx.translateBy(x: folderCentre.x, y: folderCentre.y)
+        ctx.scaleBy(x: folderScale, y: folderScale)
+        ctx.translateBy(x: -folderCentre.x, y: -folderCentre.y)
+
+        // The folder's back, darker amber, casting a shadow on the tile.
+        let back = backPath()
+        ctx.saveGState()
+        shadow(16, 34, 0.40)
+        ctx.addPath(back)
+        ctx.setFillColor(color(0xC98A2B))
         ctx.fillPath()
         ctx.restoreGState()
-        ctx.addPath(shape(frontPath))
-        ctx.setFillColor(cg(c.front))
-        ctx.setStrokeColor(cg(c.line))
-        ctx.setLineWidth(stroke)
-        ctx.drawPath(using: .fillStroke)
-
-        let centre = light.applying(t)
-        let ring = ringR * folderScale, dot = lightR * folderScale
-        ctx.setFillColor(cg(c.accent.withAlpha(0.18)))
-        ctx.fillEllipse(in: CGRect(x: centre.x - ring, y: centre.y - ring, width: ring * 2, height: ring * 2))
+        fill(back, gradient([(0, color(0xE7AE4A)), (1, color(0xB97A22))]), from: CGPoint(x: 0, y: 796), to: CGPoint(x: 0, y: 250))
         ctx.saveGState()
-        if c.glows { ctx.setShadow(offset: .zero, blur: glowBlur * s, color: cg(c.accent.withAlpha(0.62))) }
-        ctx.setFillColor(cg(c.accent))
-        ctx.fillEllipse(in: CGRect(x: centre.x - dot, y: centre.y - dot, width: dot * 2, height: dot * 2))
+        ctx.addPath(back)
+        ctx.clip()
+        ctx.setStrokeColor(color(0xFFF1C9, 0.55))
+        ctx.setLineWidth(5)
+        ctx.addPath(back)
+        ctx.strokePath()
+        fill(CGPath(rect: CGRect(x: 168, y: 560, width: 700, height: 150), transform: nil),
+             gradient([(0, color(0x6E4308, 0)), (1, color(0x6E4308, 0.35))]), from: CGPoint(x: 0, y: 560), to: CGPoint(x: 0, y: 700))
+        ctx.restoreGState()
+
+        // A sheet of paper standing in it, turned a little.
+        ctx.saveGState()
+        ctx.translateBy(x: 512, y: 660)
+        ctx.rotate(by: -0.03)
+        ctx.translateBy(x: -512, y: -660)
+        let sheet = panel(sheetRect, top: 18, bottom: 0)
+        ctx.saveGState()
+        shadow(6, 14, 0.30)
+        ctx.addPath(sheet)
+        ctx.setFillColor(color(0xFBF8F0))
+        ctx.fillPath()
+        ctx.restoreGState()
+        fill(sheet, gradient([(0, color(0xFFFFFF)), (1, color(0xE9E4D6))]), from: CGPoint(x: 0, y: 740), to: CGPoint(x: 0, y: 400))
+        ctx.restoreGState()
+
+        // The blue index tab behind the front's edge, on the right.
+        let tab = panel(tabRect, top: 26, bottom: 0)
+        ctx.saveGState()
+        shadow(5, 12, 0.35)
+        ctx.addPath(tab)
+        ctx.setFillColor(color(0x2F7BEF))
+        ctx.fillPath()
+        ctx.restoreGState()
+        fill(tab, gradient([(0, color(0x6FB0FF)), (1, color(0x1F63D6))]), from: CGPoint(x: 0, y: 678), to: CGPoint(x: 0, y: 560))
+        if detailed {
+            ctx.saveGState()
+            ctx.addPath(tab)
+            ctx.clip()
+            ctx.setStrokeColor(color(0xFFFFFF, 0.5))
+            ctx.setLineWidth(3)
+            ctx.addPath(tab)
+            ctx.strokePath()
+            ctx.restoreGState()
+        }
+
+        // The manila front, top-lit, with a lit top edge.
+        let front = panel(frontRect, top: 44, bottom: 50)
+        ctx.saveGState()
+        shadow(-14, 36, 0.45)
+        ctx.addPath(front)
+        ctx.setFillColor(color(0xF3C466))
+        ctx.fillPath()
+        ctx.restoreGState()
+        fill(front, gradient([(0, color(0xFFEBB8)), (0.45, color(0xF9D27E)), (1, color(0xEBA93A))]),
+             from: CGPoint(x: 0, y: frontRect.maxY), to: CGPoint(x: 0, y: frontRect.minY))
+        ctx.saveGState()
+        ctx.addPath(front)
+        ctx.clip()
+        if detailed {
+            // A faint diagonal sheen for paper, and a soft crease.
+            ctx.drawLinearGradient(gradient([(0, color(0xFFFFFF, 0)), (0.35, color(0xFFFFFF, 0.16)), (0.7, color(0xFFFFFF, 0)),
+                                             (1, color(0x8A5A10, 0.10))]),
+                                   start: CGPoint(x: frontRect.minX, y: frontRect.maxY), end: CGPoint(x: frontRect.maxX, y: frontRect.minY), options: [])
+            ctx.setFillColor(color(0xA66D12, 0.20))
+            ctx.fill(CGRect(x: frontRect.minX, y: 316, width: frontRect.width, height: 8))
+            ctx.setFillColor(color(0xFFF4D2, 0.45))
+            ctx.fill(CGRect(x: frontRect.minX, y: 308, width: frontRect.width, height: 6))
+        }
+        fill(CGPath(rect: CGRect(x: frontRect.minX, y: frontRect.minY, width: frontRect.width, height: 70), transform: nil),
+             gradient([(0, color(0x8A5208, 0.30)), (1, color(0x8A5208, 0))]),
+             from: CGPoint(x: 0, y: frontRect.minY), to: CGPoint(x: 0, y: frontRect.minY + 70))
+        ctx.setStrokeColor(color(0xFFFFFF, 0.85))
+        ctx.setLineWidth(7)
+        ctx.addPath(front)
+        ctx.strokePath()
+        ctx.restoreGState()
+        if detailed {
+            ctx.saveGState()
+            ctx.addPath(front)
+            ctx.clip()
+            ctx.setStrokeColor(color(0xB87818, 0.35))
+            ctx.setLineWidth(4)
+            ctx.translateBy(x: 0, y: -4)
+            ctx.addPath(front)
+            ctx.strokePath()
+            ctx.restoreGState()
+        }
+        ctx.restoreGState()
+
+        // The tile's rim: light along the top, a little dark along the foot.
+        ctx.setLineWidth(6)
+        ctx.addPath(tile)
+        ctx.replacePathWithStrokedPath()
+        if let rim = ctx.path {
+            ctx.beginPath()
+            ctx.saveGState()
+            ctx.addPath(rim)
+            ctx.clip()
+            ctx.drawLinearGradient(gradient([(0, color(0xFFFFFF, 0.55)), (0.35, color(0xFFFFFF, 0.08)), (1, color(0x000000, 0.25))]),
+                                   start: CGPoint(x: 0, y: base.maxY), end: CGPoint(x: 0, y: base.minY), options: [])
+            ctx.restoreGState()
+        }
         ctx.restoreGState()
         return ctx.makeImage()
-    }
-
-    /// The eight bars of the four corner brackets.
-    static func bracketRects() -> [CGRect] {
-        let b = bracketBox, a = bracketArm, w = bracketWidth
-        return [
-            CGRect(x: b.minX, y: b.minY, width: a, height: w), CGRect(x: b.minX, y: b.minY, width: w, height: a),
-            CGRect(x: b.maxX - a, y: b.minY, width: a, height: w), CGRect(x: b.maxX - w, y: b.minY, width: w, height: a),
-            CGRect(x: b.minX, y: b.maxY - w, width: a, height: w), CGRect(x: b.minX, y: b.maxY - a, width: w, height: a),
-            CGRect(x: b.maxX - a, y: b.maxY - w, width: a, height: w), CGRect(x: b.maxX - w, y: b.maxY - a, width: w, height: a),
-        ]
-    }
-
-    private static func cg(_ c: RGBA) -> CGColor { CGColor(srgbRed: c.r, green: c.g, blue: c.b, alpha: c.a) }
-
-    private static func cgPath(_ d: String, transform t: CGAffineTransform) -> CGPath {
-        let path = CGMutablePath()
-        for e in SVGPath.parse(d) {
-            switch e {
-            case .move(let p): path.move(to: p, transform: t)
-            case .line(let p): path.addLine(to: p, transform: t)
-            case .curve(let a, let b, let p): path.addCurve(to: p, control1: a, control2: b, transform: t)
-            case .close: path.closeSubpath()
-            }
-        }
-        return path
     }
 
     // MARK: Files
@@ -166,79 +265,25 @@ public enum AppIcon {
         public let description: String
     }
 
-    /// Writes the ten PNGs of Folio.iconset (the dark icon) into `dir`; returns them.
-    @discardableResult
-    public static func writeIconset(to dir: URL, appearance: Appearance = .dark) throws -> [URL] {
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return try iconset.map { entry in
-            guard let image = render(pixels: entry.pixels, appearance: appearance) else {
-                throw WriteError(description: "could not draw \(entry.name)")
-            }
-            let url = dir.appendingPathComponent(entry.name)
-            guard let dest = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil) else {
-                throw WriteError(description: "could not write \(url.path)")
-            }
-            let dpi = Double(72 * entry.scale)
-            CGImageDestinationAddImage(dest, image, [kCGImagePropertyDPIWidth: dpi, kCGImagePropertyDPIHeight: dpi] as CFDictionary)
-            guard CGImageDestinationFinalize(dest) else { throw WriteError(description: "could not finish \(url.path)") }
-            return url
+    /// Writes the icon at `pixels` as a PNG marked with the DPI of `scale`.
+    public static func writePNG(to url: URL, pixels: Int, scale: Int = 1) throws {
+        guard let image = render(pixels: pixels) else { throw WriteError(description: "could not draw \(url.lastPathComponent)") }
+        guard let dest = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil) else {
+            throw WriteError(description: "could not write \(url.path)")
         }
+        let dpi = Double(72 * scale)
+        CGImageDestinationAddImage(dest, image, [kCGImagePropertyDPIWidth: dpi, kCGImagePropertyDPIHeight: dpi] as CFDictionary)
+        guard CGImageDestinationFinalize(dest) else { throw WriteError(description: "could not finish \(url.path)") }
     }
 
-    // MARK: SVG
-
-    /// The same icon as SVG (Resources/AppIcon.svg and AppIcon-light.svg).
-    public static func svg(_ appearance: Appearance) -> String {
-        let c = colors(appearance)
-        func n(_ v: CGFloat) -> String {
-            let r = (v * 100).rounded() / 100
-            return r == r.rounded() ? String(Int(r)) : String(format: "%.2f", Double(r)).replacingOccurrences(of: #"0+$"#, with: "", options: .regularExpression)
+    /// Writes the ten PNGs of Folio.iconset into `dir`; returns them.
+    @discardableResult
+    public static func writeIconset(to dir: URL) throws -> [URL] {
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return try iconset.map { entry in
+            let url = dir.appendingPathComponent(entry.name)
+            try writePNG(to: url, pixels: entry.pixels, scale: entry.scale)
+            return url
         }
-        func fill(_ color: RGBA) -> String {
-            color.a == 1 ? "fill=\"\(color.hex)\"" : "fill=\"\(color.hex)\" fill-opacity=\"\(n(CGFloat(color.a)))\""
-        }
-        var lines: [String] = []
-        lines.append("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1024 1024\" width=\"1024\" height=\"1024\">")
-        lines.append("  <title>Folio</title>")
-        lines.append("  <defs>")
-        lines.append("    <linearGradient id=\"bg\" x1=\"0\" y1=\"\(n(base.minY))\" x2=\"0\" y2=\"\(n(base.maxY))\" gradientUnits=\"userSpaceOnUse\">")
-        lines.append("      <stop offset=\"0\" stop-color=\"\(c.top.hex)\"/><stop offset=\"1\" stop-color=\"\(c.bottom.hex)\"/>")
-        lines.append("    </linearGradient>")
-        lines.append("    <clipPath id=\"sq\"><rect x=\"\(n(base.minX))\" y=\"\(n(base.minY))\" width=\"\(n(base.width))\" height=\"\(n(base.height))\" rx=\"\(n(radius))\"/></clipPath>")
-        if c.glows {
-            lines.append("    <filter id=\"glow\" x=\"-60%\" y=\"-60%\" width=\"220%\" height=\"220%\">")
-            lines.append("      <feGaussianBlur in=\"SourceGraphic\" stdDeviation=\"\(n(glowBlur / 2 / folderScale))\" result=\"b\"/>")
-            lines.append("      <feComponentTransfer in=\"b\" result=\"g\"><feFuncA type=\"linear\" slope=\"0.62\"/></feComponentTransfer>")
-            lines.append("      <feMerge><feMergeNode in=\"g\"/><feMergeNode in=\"SourceGraphic\"/></feMerge>")
-            lines.append("    </filter>")
-        }
-        lines.append("  </defs>")
-        lines.append("  <rect x=\"\(n(base.minX))\" y=\"\(n(base.minY))\" width=\"\(n(base.width))\" height=\"\(n(base.height))\" rx=\"\(n(radius))\" fill=\"url(#bg)\"/>")
-        lines.append("  <g clip-path=\"url(#sq)\">")
-        for (step, color) in [(CGFloat(32), c.gridMinor), (CGFloat(128), c.gridMajor)] {
-            var v = base.minX + step
-            var rects: [String] = []
-            while v < base.maxX {
-                rects.append("<rect x=\"\(n(v - 1))\" y=\"\(n(base.minY))\" width=\"2\" height=\"\(n(base.height))\"/>")
-                rects.append("<rect x=\"\(n(base.minX))\" y=\"\(n(v - 1))\" width=\"\(n(base.width))\" height=\"2\"/>")
-                v += step
-            }
-            lines.append("    <g \(fill(color))>" + rects.joined() + "</g>")
-        }
-        lines.append("  </g>")
-        let inner = base.insetBy(dx: 2, dy: 2)
-        lines.append("  <rect x=\"\(n(inner.minX))\" y=\"\(n(inner.minY))\" width=\"\(n(inner.width))\" height=\"\(n(inner.height))\" rx=\"\(n(radius - 2))\" fill=\"none\" stroke=\"\(c.hairline.hex)\" stroke-opacity=\"\(n(CGFloat(c.hairline.a)))\" stroke-width=\"4\"/>")
-        lines.append("  <g \(fill(c.bracket))>" + bracketRects().map {
-            "<rect x=\"\(n($0.minX))\" y=\"\(n($0.minY))\" width=\"\(n($0.width))\" height=\"\(n($0.height))\"/>"
-        }.joined() + "</g>")
-        lines.append("  <g transform=\"translate(\(n(folderOrigin.x)) \(n(folderOrigin.y))) scale(\(n(folderScale)))\" stroke-linejoin=\"round\">")
-        lines.append("    <path d=\"\(backPath)\" fill=\"\(c.back.hex)\" stroke=\"\(c.line.hex)\" stroke-width=\"\(n(folderStroke))\"/>")
-        lines.append("    <path d=\"\(tabPath)\" fill=\"\(c.accent.hex)\"" + (c.glows ? " filter=\"url(#glow)\"" : "") + "/>")
-        lines.append("    <path d=\"\(frontPath)\" fill=\"\(c.front.hex)\" stroke=\"\(c.line.hex)\" stroke-width=\"\(n(folderStroke))\"/>")
-        lines.append("    <circle cx=\"\(n(light.x))\" cy=\"\(n(light.y))\" r=\"\(n(ringR))\" fill=\"\(c.accent.hex)\" fill-opacity=\"0.18\"/>")
-        lines.append("    <circle cx=\"\(n(light.x))\" cy=\"\(n(light.y))\" r=\"\(n(lightR))\" fill=\"\(c.accent.hex)\"" + (c.glows ? " filter=\"url(#glow)\"" : "") + "/>")
-        lines.append("  </g>")
-        lines.append("</svg>")
-        return lines.joined(separator: "\n") + "\n"
     }
 }

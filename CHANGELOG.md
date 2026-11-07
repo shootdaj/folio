@@ -7,6 +7,14 @@ pushed; the release workflow publishes the section below with that number as the
 
 ## [Unreleased]
 
+### Changed
+
+- **The app icon is a manila folder.** A warm manila folder with a sheet and a blue index tab, on a slate
+  tile with the Mac's continuous corners and top light, replaces the D1 grid icon. It fills the whole icon
+  shape, so macOS 26 shows it as drawn (no grey box). It is one picture for light and dark, as the
+  system's icons are, so the Dock no longer swaps it. Resources/AppIcon.png (from `folio-icon --png`)
+  replaces the two SVGs.
+
 ## [1.0.0] - 2026-11-07
 
 The first release: all nine milestones of docs/plan/MILESTONES.md and the D4 Obsidian spotlight look,

@@ -4,16 +4,18 @@ import ImageIO
 import Testing
 @testable import FolioCore
 
-/// The Dock icon: D1's folder with its phosphor light on the near-black square, drawn at every size an
-/// iconset needs (iconutil makes Folio.icns from them), in dark and light.
+/// The Dock icon: a warm manila folder (a sheet and a blue index tab inside) on a slate tile with the
+/// Mac's continuous corners, drawn at every size an iconset needs (iconutil makes Folio.icns from them).
 @Suite struct AppIconTests {
-    private func pixel(_ image: CGImage, _ x: Int, _ y: Int) -> (r: Int, g: Int, b: Int, a: Int) {
+    /// The pixel at (x, y) in 1024-unit icon coordinates, y up (as AppIcon draws).
+    private func pixel(_ image: CGImage, _ x: CGFloat, _ y: CGFloat) -> (r: Int, g: Int, b: Int, a: Int) {
+        let s = CGFloat(image.width) / AppIcon.canvas
         var data = [UInt8](repeating: 0, count: 4)
         let cs = CGColorSpace(name: CGColorSpace.sRGB)!
         let ctx = CGContext(data: &data, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4, space: cs,
                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        // (x, y) from the top left, as in the SVG.
-        ctx.draw(image, in: CGRect(x: -CGFloat(x), y: -CGFloat(image.height - 1 - y), width: CGFloat(image.width), height: CGFloat(image.height)))
+        let px = (x * s).rounded(.down), py = (y * s).rounded(.down)
+        ctx.draw(image, in: CGRect(x: -px, y: -py, width: CGFloat(image.width), height: CGFloat(image.height)))
         return (Int(data[0]), Int(data[1]), Int(data[2]), Int(data[3]))
     }
 
@@ -38,34 +40,68 @@ import Testing
         }
     }
 
-    @Test func darkIsTheNearBlackSquareWithAGreenLightLightIsPale() throws {
-        let dark = try #require(AppIcon.render(pixels: 256, appearance: .dark))
-        let light = try #require(AppIcon.render(pixels: 256, appearance: .light))
-        #expect(dark.width == 256 && dark.height == 256)
-        // Outside the rounded square: clear, as macOS icons are.
-        #expect(pixel(dark, 2, 2).a == 0)
-        #expect(pixel(light, 2, 2).a == 0)
-        // Inside the square near its top edge, away from the folder: near-black in dark, pale in light.
-        let d = pixel(dark, 128, 40), l = pixel(light, 128, 40)
-        #expect(d.a == 255 && d.r < 40 && d.g < 40 && d.b < 45, "dark square: \(d)")
-        #expect(l.a == 255 && l.r > 220 && l.g > 220 && l.b > 220, "light square: \(l)")
-        // The phosphor light on the folder front is the accent: green leads.
-        let (lx, ly) = AppIcon.lightCentre(pixels: 256)
-        let led = pixel(dark, lx, ly)
-        #expect(led.g > 200 && led.g > led.r && led.g > led.b, "the light is D1 green: \(led)")
-        let ledLight = pixel(light, lx, ly)
-        #expect(ledLight.g > ledLight.r && ledLight.g > ledLight.b && ledLight.g < 160, "light theme uses the darker green: \(ledLight)")
+    /// macOS 26 boxes an icon in grey when it does not fill the icon shape, so the tile must be opaque
+    /// everywhere inside the shape and clear outside it.
+    @Test func theTileFillsTheContinuousCornerShapeExactly() throws {
+        let image = try #require(AppIcon.render(pixels: 256))
+        let shape = AppIcon.tilePath()
+        var inside = 0, outside = 0
+        for gy in stride(from: CGFloat(4), to: 1024, by: 8) {
+            for gx in stride(from: CGFloat(4), to: 1024, by: 8) {
+                let p = CGPoint(x: gx, y: gy)
+                // Skip the antialiased edge: a pixel here is 4 icon units, so 10 units either side of the outline.
+                let deep = [CGPoint(x: -10, y: 0), CGPoint(x: 10, y: 0), CGPoint(x: 0, y: -10), CGPoint(x: 0, y: 10)]
+                    .map { shape.contains(CGPoint(x: p.x + $0.x, y: p.y + $0.y)) }
+                if deep.allSatisfy({ $0 }) {
+                    #expect(pixel(image, gx, gy).a == 255, "opaque inside the tile at \(p)"); inside += 1
+                } else if deep.allSatisfy({ !$0 }) {
+                    #expect(pixel(image, gx, gy).a == 0, "clear outside the tile at \(p)"); outside += 1
+                }
+            }
+        }
+        #expect(inside > 9000 && outside > 5000)
     }
 
-    @Test func theSVGInTheRepoIsTheOneTheRendererDraws() throws {
-        let svg = AppIcon.svg(.dark)
-        #expect(svg.hasPrefix("<svg") && svg.contains("viewBox=\"0 0 1024 1024\""))
-        #expect(svg.contains("#9BFF57") && svg.contains("#0C0E11"), "D1's green and near-black")
-        #expect(AppIcon.svg(.light).contains("#2F7D1E"))
-        let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        for (file, appearance) in [("AppIcon.svg", Appearance.dark), ("AppIcon-light.svg", .light)] {
-            let committed = try String(contentsOf: repo.appendingPathComponent("Resources/\(file)"), encoding: .utf8)
-            #expect(committed == AppIcon.svg(appearance), "Resources/\(file) is regenerated with `folio-icon --svg Resources`")
+    @Test func theCornersAreContinuousNotCircular() {
+        // A continuous corner starts bending 1.53 radii from the corner, a circular one at 1 radius:
+        // one radius in, the circle's edge is still straight but the continuous edge has dropped 3.3 units.
+        let shape = AppIcon.tilePath()
+        let r = AppIcon.radius, b = AppIcon.base
+        #expect(shape.contains(CGPoint(x: b.midX, y: b.maxY - 1)), "the straight top edge")
+        #expect(shape.contains(CGPoint(x: b.maxX - r * 1.6, y: b.maxY - 0.5)), "straight until 1.53 radii")
+        #expect(!shape.contains(CGPoint(x: b.maxX - r, y: b.maxY - 1.5)), "bending already at one radius")
+        #expect(!shape.contains(CGPoint(x: b.minX + r, y: b.minY + 1.5)), "all four corners")
+        #expect(shape.contains(CGPoint(x: b.midX, y: b.midY)))
+    }
+
+    @Test func aManilaFolderWithABlueTabOnASlateTile() throws {
+        for pixels in [1024, 256, 64] {
+            let image = try #require(AppIcon.render(pixels: pixels))
+            let tile = pixel(image, 512, 890)
+            #expect(tile.a == 255 && tile.b > tile.r && tile.b > tile.g - 4, "slate tile at \(pixels): \(tile)")
+            let folder = pixel(image, 400, 430)
+            #expect(folder.r > 220 && folder.r > folder.g && folder.g > folder.b && folder.b < 200,
+                    "manila front at \(pixels): \(folder)")
         }
+        let large = try #require(AppIcon.render(pixels: 512))
+        let tab = pixel(large, AppIcon.tabMark.x, AppIcon.tabMark.y)
+        #expect(tab.b > tab.r + 60, "the blue index tab: \(tab)")
+    }
+
+    @Test func thePictureInTheRepoIsTheOneTheRendererDraws() throws {
+        let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let source = try #require(CGImageSourceCreateWithURL(repo.appendingPathComponent("Resources/AppIcon.png") as CFURL, nil))
+        let committed = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
+        let drawn = try #require(AppIcon.render(pixels: 1024))
+        #expect(committed.width == 1024 && committed.height == 1024)
+        // Sampled colour by colour; a little slack for CoreGraphics differences between macOS versions.
+        var worst = 0
+        for y in stride(from: CGFloat(3), to: 1024, by: 16) {
+            for x in stride(from: CGFloat(3), to: 1024, by: 16) {
+                let a = pixel(committed, x, y), b = pixel(drawn, x, y)
+                worst = max(worst, abs(a.r - b.r), abs(a.g - b.g), abs(a.b - b.b), abs(a.a - b.a))
+            }
+        }
+        #expect(worst <= 6, "Resources/AppIcon.png is regenerated with `folio-icon --png Resources/AppIcon.png` (worst \(worst))")
     }
 }
