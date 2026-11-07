@@ -520,7 +520,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     }
 
     /// The title bar's accent swatch: the picker opens under it (pressed again, it closes).
+    /// D4's accent swatch; Native has none (the accent is System Settings').
     @objc func chooseAccent(_ sender: Any?) {
+        guard ThemeController.shared.look.showsAccentSwatch else { return }
         accentPicker.toggle(from: titleBar.accentButton)
     }
 

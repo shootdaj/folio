@@ -253,7 +253,8 @@ final class AccentButton: NSButton {
 }
 
 /// The 44 pt title bar (`.titlebar`): the window's traffic lights, the tabs, and the accent swatch at the
-/// right end. `--chrome` with a hairline under it. Dragging empty space moves the window.
+/// right end (D4 only: Native takes the accent from System Settings). `--chrome` with a hairline under
+/// it. Dragging empty space moves the window.
 final class TitleBarView: NSView, ThemeAware {
     let accentButton: AccentButton
 
@@ -267,15 +268,22 @@ final class TitleBarView: NSView, ThemeAware {
 
     override var isFlipped: Bool { true }
 
-    func themeDidChange() { accentButton.needsDisplay = true }
+    func themeDidChange() {
+        accentButton.needsDisplay = true
+        if accentButton.isHidden == ThemeController.shared.look.showsAccentSwatch { needsLayout = true }
+    }
 
-    /// Where the tabs go: after the lights (16 + 52) and the 20 pt of margin and gap, up to the swatch.
+    /// Where the tabs go: after the lights (16 + 52) and the 20 pt of margin and gap, up to the swatch,
+    /// or to the right edge when there is none.
     var tabsFrame: NSRect {
-        NSRect(x: 88, y: 0, width: max(0, accentButton.frame.minX - 10 - 88), height: bounds.height)
+        // The chassis asks before this view's own layout, so the look decides, not the button's state.
+        let end = ThemeController.shared.look.showsAccentSwatch ? bounds.width - 6 - 44 - 10 : bounds.width - 10
+        return NSRect(x: 88, y: 0, width: max(0, end - 88), height: bounds.height)
     }
 
     override func layout() {
         super.layout()
+        accentButton.isHidden = !ThemeController.shared.look.showsAccentSwatch
         accentButton.frame = NSRect(x: bounds.width - 6 - 44, y: 0, width: 44, height: 44)
         (window as? BrowserWindow)?.placeTrafficLights()
     }
