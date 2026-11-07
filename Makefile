@@ -14,10 +14,13 @@ LSREGISTER := /System/Library/Frameworks/CoreServices.framework/Frameworks/Launc
 # so `import Testing` fails without Xcode, and the test bundle cannot load it or lib_TestingInterop.dylib.
 # These add the framework path and both run paths (harmless where it already works, as on Swift 6.0).
 CLT_DEV := /Library/Developer/CommandLineTools/Library/Developer
+# Signs with the local identity from `make signing-identity` when this Mac has it, else ad hoc (CI and the
+# VM: tools/ci/build.sh wants Signature=adhoc). A fixed identity keeps macOS privacy grants across rebuilds.
+SIGN_ID ?= $(shell security find-identity -v -p codesigning 2>/dev/null | grep -q '"Folio Local Signing"' && echo 'Folio Local Signing' || echo -)
 TEST_FLAGS := $(if $(wildcard $(CLT_DEV)/Frameworks/Testing.framework),-Xswiftc -F -Xswiftc $(CLT_DEV)/Frameworks \
 	-Xlinker -rpath -Xlinker $(CLT_DEV)/Frameworks -Xlinker -rpath -Xlinker $(CLT_DEV)/usr/lib)
 
-.PHONY: app run test install install-cli uninstall
+.PHONY: app run test install install-cli uninstall signing-identity
 
 # Builds the bundle; runs nothing but folio-icon, which draws the Dock icon's PNGs into build/.
 app:
@@ -31,7 +34,7 @@ app:
 	cp -R Resources/Fonts/ $(APP)/Contents/Resources/Fonts/
 	"$$(swift build -c release --show-bin-path)/folio-icon" build/Folio.iconset
 	iconutil -c icns build/Folio.iconset -o $(APP)/Contents/Resources/Folio.icns
-	codesign --force --deep -s - $(APP)
+	codesign --force --deep -s "$(SIGN_ID)" $(APP)
 	@echo "built $(APP): Folio $(VERSION) ($(GIT_SHA))"
 
 run: app
@@ -48,6 +51,10 @@ install: app
 	ditto $(APP) /Applications/Folio.app
 	$(LSREGISTER) -f /Applications/Folio.app
 	@echo "installed /Applications/Folio.app"
+
+# Once per Mac: a self-signed code signing identity, so Full Disk Access survives `make install`.
+signing-identity:
+	tools/signing/make-identity.sh
 
 install-cli:
 	swift build -c release --product ff

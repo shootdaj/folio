@@ -677,7 +677,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             if !keepingState { addressHistory.record(folder.path) }
         case .failure(let error):
             loadError = isTrashView && (error as NSError).code == NSFileReadNoPermissionError
-                ? "Folio needs Full Disk Access to show the Recycle Bin (System Settings, Privacy & Security)"
+                ? "Folio needs Full Disk Access to show the Recycle Bin (Folio > Full Disk Access...)"
                 : error.localizedDescription
             listing = []
             arrangedWith = key
