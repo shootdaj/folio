@@ -7,6 +7,22 @@ pushed; the release workflow publishes the section below with that number as the
 
 ## [Unreleased]
 
+### Added
+
+- **Folio asks once for Full Disk Access.** macOS asks again for each protected place (Desktop,
+  Documents, Downloads, iCloud Drive, other apps' data, external and network drives). At launch, while
+  Full Disk Access is off, Folio offers to open its page in System Settings: Open System Settings, Not
+  Now, or Do Not Ask Again. Folio > Full Disk Access... opens the page any time. The guarded folders also
+  get their own usage text in Info.plist.
+
+### Changed
+
+- **`make app` signs with a local identity when the Mac has one.** `make signing-identity` makes a
+  self-signed "Folio Local Signing" certificate in the login keychain, once. With it every build has the
+  same designated requirement, so macOS keeps Full Disk Access and the folder grants after `make install`.
+  Before, each ad hoc build had a new hash and lost them. Without the identity (CI, the VM) the build
+  stays ad hoc.
+
 ## [1.0.0] - 2026-11-07
 
 The first release: all nine milestones of docs/plan/MILESTONES.md and the D4 Obsidian spotlight look,

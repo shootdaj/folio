@@ -76,7 +76,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         NotificationCenter.default.addObserver(self, selector: #selector(viewChanged(_:)), name: ViewCenter.didChange, object: nil)
         DockIcon.start()
         NSApp.activate()
+        // After the first window shows: macOS asks for each guarded folder until Full Disk Access is on.
+        DispatchQueue.main.async { DiskAccessPrompt.offerIfNeeded() }
     }
+
+    @objc func openFullDiskAccess(_ sender: Any?) { DiskAccessPrompt.openSettings() }
 
     @objc private func viewChanged(_ note: Notification) { scheduleSessionSave() }
 

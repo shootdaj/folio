@@ -24,6 +24,13 @@ make test     # swift test: FolioCore and FolioLink, temp folders only
 make app      # build/Folio.app (runs nothing but folio-icon, which draws the Dock icon)
 ```
 
+## Permissions on your own Mac
+
+macOS asks Folio once for each protected folder (Desktop, Documents, Downloads, iCloud Drive, drives).
+Folio offers Full Disk Access at launch instead, so it is one grant. To keep that grant when you build
+Folio yourself, run `make signing-identity` once: `make app` then signs every build with the same local
+certificate, and `make install` no longer resets the grant.
+
 ## CI and releases
 
 CI runs on a self-hosted GitHub Actions runner on the Mac Ultra (`macultra-folio`, labels `ultra`,
