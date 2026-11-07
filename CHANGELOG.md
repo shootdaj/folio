@@ -1,0 +1,55 @@
+# Changelog
+
+All notable changes to Folio are written down here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html). A version exists once its `vX.Y.Z` tag is
+pushed; the release workflow publishes the section below with that number as the release notes.
+
+## [Unreleased]
+
+## [0.1.0] - 2026-11-07
+
+The first release: all nine milestones of docs/plan/MILESTONES.md, each driven with real keystrokes and
+clicks in the test VM (Tests/vm/m2.sh to m9.sh).
+
+### Added
+
+- **Scaffold and Details view (M1).** Name, Date modified, Type and Size; Explorer's sort (folders first,
+  File2 before File10, up to 4 keys with Shift+click); resize, reorder and fit columns; the status bar.
+  The D1 Control room look, dark and light, with a green, amber or cyan accent.
+- **Address bar, history and keys (M2).** Back, Forward and Up with history lists; breadcrumbs with
+  folder flyouts; typed paths with typeahead, %temp% and shell: names; F-keys, Backspace, Home and End,
+  mouse buttons 4 and 5; keys bound to what macOS sees after Karabiner and BetterTouchTool.
+- **Selection and file operations (M3).** Explorer's selection rules and check boxes; a real cut;
+  Name - Copy; one progress window with pause, speed graph and Dock progress; Replace or Skip with
+  Compare; folder merge; F2 rename (batch, Tab to the next); New folder and New text document; Trash
+  and Shift+Delete; undo and redo.
+- **Drag and drop, menus, Properties (M4).** Drags in and out of other apps with Explorer's modifiers
+  and a right-drag menu; spring-loaded folders; the item and background menus (Open with, Copy as path,
+  Send to, Share, Print, aliases); Properties with General, Security, Details, Shortcut and Unblock.
+- **Tree, tabs, drives, Home (M5).** The navigation pane's tree; Quick access pins; Home with Favorites
+  and Recent; This PC with usage bars, eject and rename; Network, SMB and mapped shares; the Recycle Bin
+  with Restore; tabs (tear out, merge, reopen) and windows.
+- **Views, columns, filters, groups (M6).** Icons, List, Tiles, Content and Gallery; header filters and
+  Group by on Explorer's buckets; Choose details and 20 more columns; preview and details panes; Quick
+  Look; one view for every folder.
+- **Search (M7).** Live results with word-start matching; AQS (AND, OR, NOT, kind:, size:, date:, ext:,
+  folder:, tag:, content:); Search options; the Folder column; Open file location; saved and recent
+  searches; Spotlight plus a live walk for the places it skips.
+- **Compress, options, tags, extras (M8).** Compress to ZIP, 7z and TAR and Extract all (bsdtar); zips
+  browsed as folders; Folder Options (General, View, Search); Finder tags; auto-refresh; access keys;
+  full screen; rotate, desktop picture, folder icons, format and check, previous versions, cloud files.
+- **Make it the default (M9).** `ff` from the shell (new window, new tab, --reveal, --search) over a
+  folio: URL; Open folders in Folio instead of Finder; a BetterTouchTool Win+E preset; the Dock icon;
+  windows, tabs, history, selection, scroll, sort, search, tree and view back after a relaunch; keep
+  running with no window; launch at login; `Folio --version`; docs/KEYS.md.
+- Cmd+Left and Cmd+Right go back and forward in the list, as Option+Left and Option+Right do.
+- Every key the window receives is logged to ~/Library/Logs/Folio/keys.log, to trace a shortcut that
+  does nothing.
+- Versions come from git tags `vX.Y.Z`: `make app` stamps the version and commit count into Info.plist
+  and `Folio --version` prints `Folio <version> (<commit>)`.
+- CI on a self-hosted runner on the Mac Ultra: unit tests, the app bundle and the VM scripts M2 to M9
+  on every pull request; a pushed `vX.Y.Z` tag publishes `Folio-X.Y.Z.zip` as a GitHub release.
+
+[Unreleased]: https://github.com/shootdaj/folio/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/shootdaj/folio/releases/tag/v0.1.0
