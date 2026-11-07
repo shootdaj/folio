@@ -7,6 +7,13 @@ pushed; the release workflow publishes the section below with that number as the
 
 ## [Unreleased]
 
+### Fixed
+
+- **A Quick access click no longer scrolls the navigation pane.** The tree still opens down to the
+  folder, but the pane scrolls to it only when no row for that folder (the pin, a tree row) is in view.
+  Before, a click on a pin scrolled the pane to the same folder under This PC. Ctrl+Shift+E still
+  scrolls to the tree row and selects it.
+
 ## [1.0.0] - 2026-11-07
 
 The first release: all nine milestones of docs/plan/MILESTONES.md and the D4 Obsidian spotlight look,
