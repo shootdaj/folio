@@ -119,4 +119,57 @@ private func dir(_ path: String) -> URL { URL(fileURLWithPath: path, isDirectory
         var moved = h
         #expect(moved.goForward()?.path == "/tmp/c")
     }
+
+    @Test func suggestionsIsAPlaceOfItsOwnNotHome() {
+        var h = NavigationHistory(start: URL(fileURLWithPath: "/tmp/a"))
+        h.push(NavigationHistory.suggestions)
+        #expect(h.isSuggestions && h.isSpecial && !h.isHome)
+        #expect(h.special == .suggestions)
+        #expect(h.current.absoluteString == "folio:suggestions")
+        #expect(!h.canGoUp && h.goUp() == nil)
+    }
+
+    @Test func homeAndSuggestionsAreTwoSteps() {
+        var h = NavigationHistory(start: NavigationHistory.home)
+        h.push(NavigationHistory.suggestions)
+        #expect(h.backList.count == 1)
+        #expect(h.goBack().map(NavigationHistory.isHome) == true)
+        #expect(h.goForward().map(NavigationHistory.isSuggestions) == true)
+    }
+
+    @Test func suggestionsTwiceIsOneStep() {
+        var h = NavigationHistory(start: URL(fileURLWithPath: "/tmp/a"))
+        h.push(NavigationHistory.suggestions)
+        h.push(NavigationHistory.suggestions)
+        #expect(h.backList.count == 1)
+    }
+
+    @Test func isHomeMatchesOnlyHome() {
+        #expect(NavigationHistory.isHome(NavigationHistory.home))
+        #expect(!NavigationHistory.isHome(NavigationHistory.suggestions))
+        #expect(!NavigationHistory.isHome(URL(fileURLWithPath: "/tmp")))
+        #expect(NavigationHistory.isSpecial(NavigationHistory.suggestions))
+        #expect(NavigationHistory.isSpecial(NavigationHistory.home))
+        #expect(!NavigationHistory.isSpecial(URL(fileURLWithPath: "/tmp")))
+    }
+
+    @Test func parentOfASpecialPlaceIsNil() {
+        #expect(NavigationHistory.parent(of: NavigationHistory.home) == nil)
+        #expect(NavigationHistory.parent(of: NavigationHistory.suggestions) == nil)
+    }
+
+    @Test func aSavedHistoryWithSuggestionsComesBack() {
+        let a = URL(fileURLWithPath: "/tmp/a")
+        let h = NavigationHistory(current: NavigationHistory.suggestions, back: [NavigationHistory.home, a], forward: [])
+        #expect(h.isSuggestions)
+        #expect(h.backStackURLs.map(\.absoluteString) == ["folio:home", "file:///tmp/a"])
+    }
+
+    @Test func aSearchOnSuggestionsClosesBackToSuggestions() {
+        var h = NavigationHistory(start: NavigationHistory.suggestions)
+        h.push(NavigationHistory.suggestions, search: HistorySearch(text: "x"))
+        #expect(h.search != nil && h.backList.count == 1)
+        h.closeSearch()
+        #expect(h.search == nil && h.isSuggestions && h.backList.isEmpty)
+    }
 }

@@ -80,18 +80,18 @@ public struct TabSession: Codable, Equatable, Sendable {
     }
 
     private static func text(_ url: URL) -> String {
-        NavigationHistory.isHome(url) ? NavigationHistory.homePath : url.path
+        NavigationHistory.special(url)?.path ?? url.path
     }
 
     private static func url(_ text: String) -> URL {
-        text == NavigationHistory.homePath ? NavigationHistory.home : URL(fileURLWithPath: text, isDirectory: true)
+        SpecialPlace(path: text)?.url ?? URL(fileURLWithPath: text, isDirectory: true)
     }
 
     /// The tab back. A folder that is gone opens its nearest parent that still exists (without its
-    /// selection, scroll place, search or Forward list); Home is always there.
+    /// selection, scroll place, search or Forward list); Home and Suggestions are always there.
     public func tab(exists: (String) -> Bool) -> BrowserTab {
         var place = path
-        if place != NavigationHistory.homePath {
+        if SpecialPlace(path: place) == nil {
             while place != "/" && !exists(place) { place = (place as NSString).deletingLastPathComponent }
             if place.isEmpty { place = "/" }
         }

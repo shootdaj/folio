@@ -382,7 +382,7 @@ extension BrowserWindowController: GridHost {
         // Gallery previews the selection itself: Native's pane would show the same picture again.
         if ThemeController.shared.isNative, viewMode == .gallery { return .none }
         return DetailsPaneRule.shows(chosen: true, followsSelection: ThemeController.shared.isNative,
-                                     selectedCount: selection.rows.count, isHome: history.isHome) ? .details : .none
+                                     selectedCount: selection.rows.count, isSpecial: history.isSpecial) ? .details : .none
     }
 
     /// The Preview pane, Gallery and Quick Look follow the selection. A held arrow key changes it 30
