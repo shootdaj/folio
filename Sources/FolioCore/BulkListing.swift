@@ -7,7 +7,7 @@ import UniformTypeIdentifiers
 /// URL resource values, which cost more than the read. FolderListing uses this and falls back to the
 /// URL way for a folder (or an entry) that this cannot read.
 /// Why an extended bulk read gave nothing.
-enum ScanReadError: Error, Equatable {
+public enum ScanReadError: Error, Equatable, Sendable {
     /// The caller has no right to read the folder.
     case denied
     /// The folder is gone, or it is not a folder.
