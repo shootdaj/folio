@@ -125,7 +125,15 @@ final class SidePaneView: NSView, NSTextFieldDelegate {
         detailsHidden(true)
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
+        if native {
+            NotificationCenter.default.addObserver(self, selector: #selector(iconsUpgraded), name: FinderIconCache.didUpgrade, object: nil)
+        }
     }
+
+    /// An app or package icon has loaded, so Native draws the pane again.
+    @objc private func iconsUpgraded() { needsDisplay = true }
+
+    deinit { NotificationCenter.default.removeObserver(self) }
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
@@ -258,7 +266,8 @@ final class SidePaneView: NSView, NSTextFieldDelegate {
             thumbnail.draw(in: NSRect(x: icon.midX - w / 2, y: icon.maxY - h, width: w, height: h), from: .zero,
                            operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
         } else {
-            let image = entry.map { NSWorkspace.shared.icon(forFile: $0.url.path) } ?? NSWorkspace.shared.icon(for: .folder)
+            let image = entry.map { FinderIconCache.shared.icon(url: $0.url, isDir: summary.isFolder) }
+                ?? FinderIconCache.shared.icon(name: "", isDir: true)
             image.draw(in: icon, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
         }
         let nameFont = Typeface.ui(15, weight: 600)

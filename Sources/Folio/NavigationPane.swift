@@ -737,9 +737,11 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
         let top = outline.rect(ofRow: homeRow).maxY
         if point.y < top { return (0, top) }
         let offset = point.y - top
-        let k = Int((offset / 30).rounded())
-        if k >= pinNodes.count { return point.y > top + CGFloat(pinNodes.count) * 30 - 6 ? (pinNodes.count, top + CGFloat(pinNodes.count) * 30) : nil }
-        return abs(offset - CGFloat(k) * 30) <= 6 ? (k, top + CGFloat(k) * 30) : nil
+        // The pin rows are one height, which differs between the looks.
+        let step = outline.rect(ofRow: homeRow + 1).height > 0 && !pinNodes.isEmpty ? outline.rect(ofRow: homeRow + 1).height : Self.itemH
+        let k = Int((offset / step).rounded())
+        if k >= pinNodes.count { return point.y > top + CGFloat(pinNodes.count) * step - 6 ? (pinNodes.count, top + CGFloat(pinNodes.count) * step) : nil }
+        return abs(offset - CGFloat(k) * step) <= 6 ? (k, top + CGFloat(k) * step) : nil
     }
 
     func outlineView(_ outlineView: NSOutlineView, validateDrop info: NSDraggingInfo, proposedItem item: Any?,
