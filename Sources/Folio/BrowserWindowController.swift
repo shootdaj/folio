@@ -541,8 +541,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     @objc func goSuggestions(_ sender: Any?) { navigate(to: NavigationHistory.suggestions) }
     @objc func goHomeFolder(_ sender: Any?) { navigate(to: FileManager.default.homeDirectoryForCurrentUser) }
     @objc func refresh(_ sender: Any?) {
-        if history.isSuggestions && !isSearching { rescanSuggestions() }
-        load()
+        if history.isSuggestions && !isSearching { rescanSuggestions() } else { load() }
     }
 
     /// Cmd+L, and Option+D (Anshul's Cmd+D): the crumbs become an editable path.
@@ -1552,6 +1551,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
 
     func windowWillClose(_ notification: Notification) {
         // A search in a closed window stops: the walk, Spotlight, its ticker and a pending arrange.
+        SuggestionsCenter.shared.setViewing(self, false)
         searchEngine?.cancel()
         searchTicker?.invalidate()
         searchArrangeWork?.cancel()

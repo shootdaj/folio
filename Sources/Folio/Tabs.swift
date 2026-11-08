@@ -301,6 +301,7 @@ extension BrowserWindowController {
         updateTabStrip()
         sessionChanged()
         updateWatches()
+        SuggestionsCenter.shared.setViewing(self, history.isSuggestions && !isSearching)
     }
 }
 
@@ -758,6 +759,6 @@ extension BrowserWindowController {
 
     var suggestionsStatusText: String { PlaceNames.suggestions }
 
-    /// F5 on the page. Slice B4 replaces this with `SuggestionsCenter.shared.rescan()`.
-    func rescanSuggestions() {}
+    /// F5 on the page: a new scan.
+    func rescanSuggestions() { SuggestionsCenter.shared.rescan() }
 }

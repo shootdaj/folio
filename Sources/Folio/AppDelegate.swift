@@ -60,6 +60,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if let uitest {
+            // A test run never scans the real home: the center waits for a fixture home.
+            SuggestionsCenter.shared.useUITestDefaults(uitest.defaults)
+            SuggestionsCenter.shared.autoScanAllowed = true
             let controller = BrowserWindowController(
                 folder: uitest.folder,
                 options: .init(size: UITestRunner.windowSize, uitest: true, historyDefaults: uitest.defaults))
@@ -73,6 +76,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // Folders passed with `open -a`, `ff` or dropped on the Dock icon arrive in application(_:open:)
         // first; then those windows open and the saved session does not. Otherwise the last session comes back.
         if windows.isEmpty && !restoreSession() { openWindow(at: Self.startPlace) }
+        // Launch and session restore are over: from now on the page may scan when it is shown.
+        SuggestionsCenter.shared.autoScanAllowed = true
         VolumeCenter.shared.remountMappedShares()
         NotificationCenter.default.addObserver(self, selector: #selector(viewChanged(_:)), name: ViewCenter.didChange, object: nil)
         DockIcon.start()
