@@ -27,3 +27,18 @@ Folio --uitest new --shot ~/folio/shots/m10-d4-dark.png      --look obsidian --t
 - The run shoots the empty page and the Full Disk Access page.
 
 If "Display delete confirmation" is on in the VM, the run skips the Trash and Undo steps and says so.
+
+## What to look at in the shots and by hand
+
+Nobody saw these parts while the branch was built. Check each one in the VM.
+
+- Home did not change. The Home row stays lit on Home, the crumb shows one "Home" with no arrows, and the side pane returns on a folder. Run `m4.sh` and `m5.sh`.
+- The sidebar row: the sparkles icon in both looks, the row sits above the Trash row, the row lights when the page shows, and drag-to-pin still lands between the pins.
+- Go > Suggestions and Cmd+Shift+S open the page. The tab shows the sparkles icon. A search from the page reads "Home" in the box and the tab, and Esc goes back to the page.
+- Native: the header buttons and progress bar fit, the rows do not clip under the action strip, and the selection colors are the system colors.
+- D4: the card and row spacing, the glow on hover and focus, and the accent progress line. The Native shots must not change because of D4 work, and the reverse.
+- A narrow pane of about 300 pt: the header button and the card button stay inside the pane, and the two access buttons stack.
+- Quit with a Suggestions tab open. On the next launch, no scan starts until you show the page again or press Rescan.
+- With "Display delete confirmation" on, change the file while the sheet is open. The file must not move.
+- The row menu, Cmd+Backspace, Return (reveals and never opens), Cmd+R, and Esc.
+- VoiceOver: the Down arrow reads the focused row, and the rows have Move to Trash, Reveal and Ignore actions.
