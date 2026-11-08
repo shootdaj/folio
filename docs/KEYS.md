@@ -40,6 +40,10 @@ item show only one key, or the key would take keys away from text fields).
 | Mouse 4, 5 | Back, Forward | buttons 4 and 5 | buttons 4 and 5 | window |
 | | Home | Cmd+Shift+H | Fn+Shift+H | Go > Home |
 | | Suggestions | Cmd+Shift+S | Fn+Shift+S | Go > Suggestions |
+| | Suggestions page: move the focus | Up, Down, Page Up, Page Down, Home, End | Fn+arrows for the page and end keys | Suggestions page |
+| | Suggestions page: show the focused item in its folder (never opens it) | Return | Return | Suggestions page |
+| | Suggestions page: move the focused item to the Trash | Cmd+Backspace | Cmd+Backspace | Suggestions page, Edit > Move to Trash |
+| | Suggestions page: scan again, clear the focus | Cmd+R, Escape | Fn+R, Escape | Suggestions page |
 
 ## Search
 

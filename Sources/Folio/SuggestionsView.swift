@@ -909,30 +909,45 @@ final class SuggestionsView: NSView {
         if scroll, let b = box(id) { scrollToVisible(b.rect.insetBy(dx: 0, dy: -4)) }
     }
 
-    private func moveFocus(by step: Int?, to end: Bool = false) {
+    private func moveFocus(_ move: SuggestionFocus.Move) {
         let ids = layout.rows.filter(\.row.isFocusable).map(\.row.id)
-        guard !ids.isEmpty else { return }
-        guard let step else { focus(end ? ids.last : ids.first); return }
-        let current = focusedID.flatMap { ids.firstIndex(of: $0) }
-        let next = current.map { min(max(0, $0 + step), ids.count - 1) } ?? (step > 0 ? 0 : ids.count - 1)
-        focus(ids[next])
+        focus(SuggestionFocus.next(ids: ids, current: focusedID, move: move))
+    }
+
+    /// The focused row can go to the Trash: it is not a kept copy, not a Trash row, and not already on its way.
+    var canTrashFocused: Bool {
+        guard state.phase != .scanning, let b = box(focusedID), b.row.item != nil else { return false }
+        return b.kind.canMoveToTrash && !b.row.isKept && !isPending(b.row)
+    }
+
+    /// Cmd+Backspace and Move to Trash in the menus. Only the focused row, never the row under the mouse.
+    func trashFocused() {
+        guard canTrashFocused, let b = box(focusedID), let item = b.row.item else { NSSound.beep(); return }
+        onTrash?(b.row.suggestion, item)
     }
 
     override func keyDown(with event: NSEvent) {
-        guard event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function]).isEmpty else {
-            return super.keyDown(with: event)
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function])
+        if flags == .command {
+            switch event.keyCode {
+            case 51: trashFocused()
+            case 15: onRescan?()
+            default: super.keyDown(with: event)
+            }
+            return
         }
+        guard flags.isEmpty else { return super.keyDown(with: event) }
         switch event.keyCode {
-        case 126: moveFocus(by: -1)
-        case 125: moveFocus(by: 1)
-        case 116: moveFocus(by: -6)
-        case 121: moveFocus(by: 6)
-        case 115: moveFocus(by: nil)
-        case 119: moveFocus(by: nil, to: true)
+        case 126: moveFocus(.by(-1))
+        case 125: moveFocus(.by(1))
+        case 116: moveFocus(.by(-SuggestionFocus.pageStep))
+        case 121: moveFocus(.by(SuggestionFocus.pageStep))
+        case 115: moveFocus(.first)
+        case 119: moveFocus(.last)
         case 53: focus(nil)
         case 36, 76:
             // Return reveals the item. A 5 GB file is never opened by accident.
-            if let b = box(focusedID), let item = b.row.item { onReveal?(b.row.suggestion, item) }
+            if let b = box(focusedID), let item = b.row.item, !isPending(b.row) { onReveal?(b.row.suggestion, item) }
         default: super.keyDown(with: event)
         }
     }

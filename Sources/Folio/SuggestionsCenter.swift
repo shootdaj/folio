@@ -223,6 +223,26 @@ final class SuggestionsCenter: NSObject {
 
     // MARK: Changes the page makes
 
+    /// The rows a Move to Trash may take, before the disk is asked. The sheet shows their count and size.
+    func selection(of suggestions: [Suggestion], item: SuggestionItem? = nil) -> SuggestionSelection {
+        SuggestionActions.selection(of: suggestions, item: item, pending: pending, ignores: ignores.snapshot)
+    }
+
+    /// The plan for a Move to Trash, checked against the disk now (device, inode, size and date; for a
+    /// duplicate group also the kept copy).
+    func trashPlan(of suggestions: [Suggestion], item: SuggestionItem? = nil) -> SuggestionTrashPlan {
+        SuggestionActions.trashPlan(of: suggestions, item: item, pending: pending, ignores: ignores.snapshot, fs: fs)
+    }
+
+    /// The Trash that Empty Trash may clear: the real Trash, or in a test run the Trash of the fixture home.
+    /// Nil when the folder is not the Trash of the home, or a test run has no fixture home.
+    var trashFolder: URL? {
+        let trash = RecycleBin.trashFolder(home: home)
+        guard RecycleBin.isTrash(trash, home: home) else { return nil }
+        if isRealHome { return refusesScans ? nil : trash }
+        return UITestFixture.isAllowed(trash) ? trash : nil
+    }
+
     /// A Move to Trash has these items. The page hides them until the files change.
     func markTrashing(_ keys: [String]) {
         pending.formUnion(keys)

@@ -718,9 +718,13 @@ extension BrowserWindowController {
         }
     }
 
-    /// Empty Recycle Bin: asks, then deletes everything in it for good.
-    @objc func emptyRecycleBin(_ sender: Any?) {
-        let trash = RecycleBin.trashFolder(home: FileManager.default.homeDirectoryForCurrentUser)
+    /// Empty Recycle Bin (the Trash view menu).
+    @objc func emptyRecycleBin(_ sender: Any?) { confirmEmptyTrash() }
+
+    /// Asks, then deletes everything in the Trash for good. It takes no folder: the center names the Trash,
+    /// and refuses anything that is not the Trash of the home (or of the test fixture's home).
+    func confirmEmptyTrash() {
+        guard let trash = SuggestionsCenter.shared.trashFolder else { NSSound.beep(); return }
         let items = ((try? FileManager.default.contentsOfDirectory(at: trash, includingPropertiesForKeys: nil)) ?? [])
             .filter { $0.lastPathComponent != ".DS_Store" }
         guard !items.isEmpty, let window else { NSSound.beep(); return }

@@ -223,7 +223,8 @@ final class OperationCenter {
         postChanged(select: items.map(\.url))
     }
 
-    func trash(_ urls: [URL], window: NSWindow?) {
+    /// `cancelled` runs when the user says no to the delete confirmation, so the caller can undo what it set up.
+    func trash(_ urls: [URL], window: NSWindow?, cancelled: (@MainActor () -> Void)? = nil) {
         guard !urls.isEmpty else { return }
         // Folder Options > Display delete confirmation dialog (off by default, as in Explorer).
         if ListOptions.folder.confirmDelete, let window {
@@ -233,7 +234,10 @@ final class OperationCenter {
             alert.addButton(withTitle: "Move to " + PlaceNames.recycleBin)
             alert.addButton(withTitle: "Cancel")
             alert.beginSheetModal(for: window) { response in
-                guard response == .alertFirstButtonReturn else { return }
+                guard response == .alertFirstButtonReturn else {
+                    if let cancelled { MainActor.assumeIsolated { cancelled() } }
+                    return
+                }
                 MainActor.assumeIsolated { OperationCenter.shared.trashNow(urls, window: window) }
             }
             return

@@ -237,6 +237,8 @@ extension BrowserWindowController: FileListDelegate {
     // MARK: Delete
 
     @objc func moveToTrash(_ sender: Any?) {
+        // The Suggestions page has no selection: the focused row goes.
+        if showsSuggestionsPage { chassis.suggestions.page.trashFocused(); return }
         guard !selectedURLs.isEmpty else { NSSound.beep(); return }
         OperationCenter.shared.trash(selectedURLs, window: window)
     }
@@ -425,6 +427,14 @@ extension BrowserWindowController: FileListDelegate {
         if let view = validateViewItem(item) { return view }
         let editingText = window?.firstResponder is NSTextView
         let any = !selectedURLs.isEmpty
+        // The Suggestions page moves the focused row to the Trash, and never deletes for good.
+        if showsSuggestionsPage {
+            switch item.action {
+            case #selector(moveToTrash(_:)): return chassis.suggestions.page.canTrashFocused && !editingText
+            case #selector(deletePermanently(_:)), #selector(emptyRecycleBin(_:)): return false
+            default: break
+            }
+        }
         // Home is not a folder: nothing is pasted, made or opened in it.
         if history.isSpecial {
             switch item.action {
