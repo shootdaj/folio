@@ -2,6 +2,18 @@
 
 Binding for every agent and every session that touches this repo. Anshul's words, 2026-11-05: "make sure nothing gets fucked up", "my files should not be touched", "use an emulator to test if you can", and the golden rule: "no files on the actual physical machine should be touched by the folio app, everything it runs should be on the VM".
 
+## Which machine you are on
+
+Rules 0, 1 and 2 protect Anshul's machines: his MacBook and the Ultra (`/Users/anshul`). They apply in full there.
+
+Taylor works on a laptop (`/Users/king`) and a Mac mini. Taylor has no access to the Ultra or its VM. Taylor's words, 2026-11-08: "Lets install folio and run it on this computer. Id like to see our changes". On Taylor's machines:
+
+- An agent may build and install the app with `make install`, and open it with `open /Applications/Folio.app`.
+- Taylor uses the app by hand. Taylor's real folders are the test data, so Taylor decides each action on a file.
+- An agent never runs `--selftest` or `--uitest` on these machines. These modes make fixture trees and are for a VM.
+- Rule 2 still applies. An agent sends no `osascript` keystrokes, clicks or window activation to the desktop.
+- Unit tests still touch only temp folders (rule 1).
+
 ## 0. The golden rule: Folio never runs on the physical Mac
 
 - The Folio binary is never executed on Anshul's MacBook or on the Ultra host, in any mode: no `open`, no direct launch, no `--selftest`, no `--uitest`. Not on real folders, not on temp folders. Read-only is not an exception.
