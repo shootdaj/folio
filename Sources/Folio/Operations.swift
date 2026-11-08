@@ -275,12 +275,14 @@ final class OperationCenter {
         }
     }
 
-    func deletePermanently(_ urls: [URL], window: NSWindow?) {
+    /// `finished` runs on the main thread after the delete, whether it worked or not.
+    func deletePermanently(_ urls: [URL], window: NSWindow?, finished: (@MainActor () -> Void)? = nil) {
         Task.detached {
             let result = Result { try FileOps.deletePermanently(urls) }
             await MainActor.run {
                 if case .failure(let error) = result { self.present(error, window: window) }
                 self.postChanged(select: [], touched: urls)
+                finished?()
             }
         }
     }

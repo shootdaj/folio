@@ -15,6 +15,8 @@ pushed; the release workflow publishes the section below with that number as the
   DerivedData, build folders (node_modules and others) in projects that are idle, empty folders and
   broken links. Each card shows its rows with the size, the date and the reason. Move to Trash takes a
   row or the rows a card shows, checks each file against the disk first, and can be undone with Cmd+Z.
+  While a Move to Trash or an Empty Trash runs, each row it has shows a spinner (a pulsing light in D4)
+  and "Moving to Trash" or "Emptying", the card button waits, and the status bar says what runs.
   A duplicate group keeps one copy, and you can choose which. Reveal shows an item in its folder, and
   Ignore hides it until you use the ignored-items button at the bottom of the page. The scan starts when the page is shown, reads
   only metadata except to compare the files that could be duplicates, and never opens a package such as

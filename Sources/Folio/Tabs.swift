@@ -738,7 +738,11 @@ extension BrowserWindowController {
         alert.buttons.first?.hasDestructiveAction = true
         alert.beginSheetModal(for: window) { response in
             guard response == .alertFirstButtonReturn else { return }
-            MainActor.assumeIsolated { OperationCenter.shared.deletePermanently(items, window: window) }
+            MainActor.assumeIsolated {
+                let center = SuggestionsCenter.shared
+                center.markEmptying()
+                OperationCenter.shared.deletePermanently(items, window: window, finished: { center.finishEmptying() })
+            }
         }
     }
 }

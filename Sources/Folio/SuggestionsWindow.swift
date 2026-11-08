@@ -9,7 +9,7 @@ extension SuggestionsState {
     init(center: SuggestionsCenter) {
         self.init(phase: center.state, report: center.report, early: center.earlyCards, progress: center.progress,
                   failure: center.failure, lastScan: center.lastScan, pending: center.pending,
-                  ignoredCount: center.ignoredCount, home: center.home)
+                  emptyingTrash: center.emptyingTrash, ignoredCount: center.ignoredCount, home: center.home)
     }
 }
 
@@ -54,6 +54,10 @@ extension BrowserWindowController {
     /// The status bar text of the page, for the phase the scan is in.
     var suggestionsStatusText: String {
         let center = SuggestionsCenter.shared
+        if let busy = SuggestionPage.busyText(moving: center.pending.count, emptying: center.emptyingTrash,
+                                              trashName: PlaceNames.recycleBin) {
+            return busy
+        }
         return SuggestionPage.statusText(state: center.state, report: center.report, progress: center.progress, failure: center.failure)
     }
 

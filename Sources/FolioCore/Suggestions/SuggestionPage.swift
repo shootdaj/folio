@@ -132,6 +132,27 @@ public enum SuggestionPage {
     /// "Move 5 to Trash".
     public static func moveTitle(count: Int) -> String { "Move \(ByteText.grouped(count)) to Trash" }
 
+    /// The card button while every row it shows is on its way to the Trash.
+    public static let movingTitle = "Moving"
+    /// The Trash card button while the Trash empties.
+    public static let emptyingTitle = "Emptying"
+    /// The second line of a row on its way to the Trash, beside its spinner.
+    public static let movingRowText = "Moving to Trash"
+    /// The second line of the Trash row while the Trash empties.
+    public static let emptyingRowText = "Emptying"
+
+    /// The status bar while a Move to Trash or an Empty Trash runs: "Moving 3 items to the Trash". Nil when nothing runs.
+    public static func busyText(moving: Int, emptying: Bool, trashName: String) -> String? {
+        let move = moving == 0 ? nil
+            : "Moving \(moving == 1 ? "1 item" : ByteText.grouped(moving) + " items") to the \(trashName)"
+        switch (move, emptying) {
+        case (nil, false): return nil
+        case (nil, true): return "Emptying the \(trashName)"
+        case (let move?, false): return move
+        case (let move?, true): return move + ", emptying the \(trashName)"
+        }
+    }
+
     /// "Show all 37".
     public static func showAllTitle(count: Int) -> String { "Show all \(ByteText.grouped(count))" }
 

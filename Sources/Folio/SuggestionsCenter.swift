@@ -22,6 +22,8 @@ final class SuggestionsCenter: NSObject {
     private(set) var lastScan: Date?
     /// The item ids that a Move to Trash is working on. The page hides them and does not send them again.
     private(set) var pending: Set<String> = []
+    /// True from the yes in the Empty Trash alert until the Trash was measured again.
+    private(set) var emptyingTrash = false
 
     /// False until the app has finished launching and restoring its session. Nothing scans by itself before.
     var autoScanAllowed = false {
@@ -277,6 +279,38 @@ final class SuggestionsCenter: NSObject {
     /// The Move to Trash failed or was cancelled, so the rows show again.
     func unmarkTrashing(_ keys: [String]) {
         pending.subtract(keys)
+        post()
+    }
+
+    /// Empty Trash starts. The Trash row shows a spinner until `finishEmptying` measured the Trash again.
+    func markEmptying() {
+        emptyingTrash = true
+        post()
+    }
+
+    /// The delete ended. The Trash is measured again off the main thread, then the spinner stops.
+    func finishEmptying() {
+        guard emptyingTrash else { return }
+        let trashKey = FilePaths.folderKey(RecycleBin.trashFolder(home: home))
+        guard state == .done, let current = report, !current.denied.contains(where: { FilePaths.folderKey($0) == trashKey }) else {
+            emptyingTrash = false
+            post()
+            return
+        }
+        var trashConfig = scanConfig()
+        trashConfig.kinds = [.trash]
+        let config = trashConfig
+        let fs = self.fs
+        let mine = generation
+        Task.detached(priority: .utility) {
+            let trash = SuggestionScanner.measureTrash(config: config, fs: fs)
+            await SuggestionsCenter.shared.applyEmptied(trash: trash, generation: mine)
+        }
+    }
+
+    private func applyEmptied(trash: Suggestion?, generation id: Int) {
+        emptyingTrash = false
+        if id == generation, state == .done, let current = report { report = current.replacingTrash(with: trash) }
         post()
     }
 

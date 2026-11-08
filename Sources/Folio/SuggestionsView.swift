@@ -12,6 +12,8 @@ struct SuggestionsState {
     var lastScan: Date?
     /// The item ids that a Move to Trash is working on.
     var pending: Set<String> = []
+    /// True while Empty Trash runs and the Trash is measured again.
+    var emptyingTrash = false
     var ignoredCount = 0
     var home = FileManager.default.homeDirectoryForCurrentUser
 }
@@ -33,7 +35,13 @@ final class SuggestionsPaneView: NSView {
         scrollView.documentView = page
         addSubview(scrollView)
         page.onHeightChange = { [weak self] in self?.needsLayout = true }
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(self, selector: #selector(scrolled(_:)), name: NSView.boundsDidChangeNotification,
+                                               object: scrollView.contentView)
     }
+
+    /// The page scrolled: busy rows that came into view get their spinner.
+    @objc private func scrolled(_ note: Notification) { page.updateBusyIndicators() }
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
@@ -152,6 +160,8 @@ final class SuggestionsView: NSView {
 
     private var buttons: [Command: OSButton] = [:]
     private let progressBar = NSProgressIndicator()
+    /// The spinner (Native) or pulsing light (D4) of each busy row near the visible part of the page, by row id.
+    private var busyViews: [String: (native: Bool, view: NSView)] = [:]
     private let trashButton = ChromeButton(glyph: .trash, label: "Move to Trash", target: nil, action: nil)
     private let revealButton = ChromeButton(glyph: .search, label: PlaceNames.reveal, target: nil, action: nil)
     private let ignoreButton = ChromeButton(glyph: .eyeOff, label: "Ignore", target: nil, action: nil)
@@ -202,9 +212,29 @@ final class SuggestionsView: NSView {
         if let hoveredID, !ids.contains(hoveredID) { self.hoveredID = nil }
     }
 
+    /// The row waits for an action: a Move to Trash that has it, or Empty Trash on the Trash row.
     private func isPending(_ row: SuggestionRow) -> Bool {
         guard let item = row.item else { return false }
+        if state.emptyingTrash && row.suggestion.kind == .trash { return true }
         return state.pending.contains(item.id)
+    }
+
+    /// What a busy row's second line says in place of its reason.
+    private func busyText(_ row: SuggestionRow) -> String? {
+        guard isPending(row) else { return nil }
+        return row.suggestion.kind == .trash ? SuggestionPage.emptyingRowText : SuggestionPage.movingRowText
+    }
+
+    /// The card button waits: every row it shows is on its way to the Trash, or the Trash empties.
+    private func isBusy(_ section: SuggestionSection) -> Bool {
+        if section.kind == .trash { return state.emptyingTrash }
+        return section.shown.allSatisfy { sug in sug.items.allSatisfy { state.pending.contains($0.id) } }
+    }
+
+    private func cardTitle(_ section: SuggestionSection) -> String {
+        let busy = isBusy(section)
+        if section.kind == .trash { return busy ? SuggestionPage.emptyingTitle : "Empty " + PlaceNames.recycleBin }
+        return busy ? SuggestionPage.movingTitle : SuggestionPage.moveTitle(count: section.shown.count)
     }
 
     func fittingHeight(width: CGFloat) -> CGFloat { makeLayout(width: width).height }
@@ -324,13 +354,12 @@ final class SuggestionsView: NSView {
             let mid = y + M.headH / 2
             var edge = right
             do {
-                let title = s.kind == .trash ? "Empty " + PlaceNames.recycleBin : SuggestionPage.moveTitle(count: s.shown.count)
+                let title = cardTitle(s)
                 let style: OSButton.Style = s.kind == .trash ? .warn : .plain
                 let bw = buttonWidth(title, style)
-                let allPending = s.shown.allSatisfy { sug in sug.items.allSatisfy { st.pending.contains($0.id) } }
                 out.controls.append(Placement(command: .card(s.kind), title: title, style: style,
                                               frame: NSRect(x: right - bw, y: mid - M.buttonH / 2, width: bw, height: M.buttonH),
-                                              enabled: !allPending))
+                                              enabled: !isBusy(s)))
                 edge = right - bw - 10
             }
             out.labels.append(Label(text: SuggestionPage.sectionTotal(s), font: digits, color: .secondaryLabelColor, x: edge, midY: mid,
@@ -514,13 +543,12 @@ final class SuggestionsView: NSView {
             let top = y
             let mid = top + M.headH / 2
             out.heads.append((s, NSRect(x: x, y: top, width: w, height: M.headH)))
-            let title = s.kind == .trash ? "Empty " + PlaceNames.recycleBin : SuggestionPage.moveTitle(count: s.shown.count)
+            let title = cardTitle(s)
             let style: OSButton.Style = s.kind == .trash ? .warn : .plain
             let bw = buttonWidth(title, style)
-            let allPending = s.shown.allSatisfy { sug in sug.items.allSatisfy { st.pending.contains($0.id) } }
             out.controls.append(Placement(command: .card(s.kind), title: title, style: style,
                                           frame: NSRect(x: right - 10 - bw, y: mid - M.buttonH / 2, width: bw, height: M.buttonH),
-                                          enabled: !allPending))
+                                          enabled: !isBusy(s)))
             let edge = right - 10 - bw - 12
             out.labels.append(Label(text: SuggestionPage.sectionTotal(s), font: Typeface.mono(12, weight: 500), color: p.text2,
                                     x: edge, midY: mid, alignRight: true, tone: \.text2))
@@ -702,9 +730,11 @@ final class SuggestionsView: NSView {
         if row.isKept, nameW + 40 < textMax {
             drawLine(row.detail, font: Typeface.mono(11, weight: 500), color: p.accent, x: left + nameW + 10, midY: r.minY + 16)
         }
-        let second = row.role == .member ? row.place : row.place + " \u{00B7} " + row.detail
+        let busy = busyText(row)
+        let second = busy.map { row.place + " \u{00B7} " + $0 } ?? (row.role == .member ? row.place : row.place + " \u{00B7} " + row.detail)
         drawLine(second, font: Typeface.mono(11), color: p.muted, x: left, midY: r.minY + 33, maxWidth: textMax)
-        if let size = row.size {
+        // A busy row shows the pulsing light in the size's place.
+        if busy == nil, let size = row.size {
             drawLine(SuggestionPage.size(size), font: Typeface.mono(12, weight: 500), color: p.text2, x: r.maxX - M.rowPad,
                      midY: r.midY, alignRight: true)
         }
@@ -749,6 +779,54 @@ final class SuggestionsView: NSView {
             progressBar.isHidden = true
         }
         updateStrip()
+        updateBusyIndicators()
+    }
+
+    /// Puts a spinner on each busy row near the visible part of the page, and takes the others away. A card batch
+    /// can hold 500 rows, so rows far out of view get no spinner. The pane calls this again when the page scrolls.
+    func updateBusyIndicators() {
+        let near = visibleRect.insetBy(dx: 0, dy: -300)
+        var live = Set<String>()
+        for b in layout.rows where b.row.isFocusable && b.rect.intersects(near) && isPending(b.row) {
+            let id = b.row.id
+            live.insert(id)
+            if let existing = busyViews[id], existing.native != native {
+                existing.view.removeFromSuperview()
+                busyViews[id] = nil
+            }
+            let view = busyViews[id]?.view ?? makeBusyView()
+            if view.superview == nil { addSubview(view, positioned: .below, relativeTo: trashButton) }
+            busyViews[id] = (native, view)
+            if native {
+                let side: CGFloat = 16
+                view.frame = NSRect(x: b.rect.maxX - NativeMetrics.inset - side, y: b.rect.midY - side / 2, width: side, height: side)
+            } else if let light = view as? LedView {
+                let d = light.diameter
+                light.place(dotAt: NSPoint(x: b.rect.maxX - D4Metrics.rowPad - d, y: (b.rect.midY - d / 2).rounded()))
+            }
+        }
+        for (id, entry) in busyViews where !live.contains(id) {
+            (entry.view as? NSProgressIndicator)?.stopAnimation(nil)
+            entry.view.removeFromSuperview()
+            busyViews[id] = nil
+        }
+    }
+
+    /// Native: the small system spinner. D4: the status bar's pulsing accent light (`.sb-dot.busy`).
+    private func makeBusyView() -> NSView {
+        if native {
+            let spinner = NSProgressIndicator()
+            spinner.style = .spinning
+            spinner.controlSize = .small
+            spinner.isIndeterminate = true
+            spinner.isDisplayedWhenStopped = false
+            spinner.startAnimation(nil)
+            return spinner
+        }
+        let light = LedView(diameter: 7)
+        light.tone = { $0.accent }
+        light.pulsing = true
+        return light
     }
 
     private func perform(_ command: Command) {
@@ -876,9 +954,11 @@ final class SuggestionsView: NSView {
         if row.isKept, nameW + 40 < textMax {
             drawLine(row.detail, font: .systemFont(ofSize: 11), color: secondary, x: left + nameW + 8, midY: r.minY + 14)
         }
-        let second = row.role == .member ? row.place : row.place + " \u{00B7} " + row.detail
+        let busy = busyText(row)
+        let second = busy.map { row.place + " \u{00B7} " + $0 } ?? (row.role == .member ? row.place : row.place + " \u{00B7} " + row.detail)
         drawLine(second, font: .systemFont(ofSize: 11), color: secondary, x: left, midY: r.minY + 29, maxWidth: textMax)
-        if let size = row.size {
+        // A busy row shows the spinner in the size's place.
+        if busy == nil, let size = row.size {
             drawLine(SuggestionPage.size(size), font: .monospacedDigitSystemFont(ofSize: 13, weight: .regular), color: primary,
                      x: r.maxX - M.inset, midY: r.midY, alignRight: true)
         }
@@ -998,7 +1078,8 @@ final class SuggestionsView: NSView {
             let e = AddressPart()
             e.setAccessibilityRole(b.row.isFocusable ? .button : .staticText)
             let size = b.row.size.map { ", " + SuggestionPage.size($0) } ?? ""
-            e.setAccessibilityLabel(displayName(b) + size + ", " + (b.row.detail.isEmpty ? b.row.place : b.row.detail)
+            let busy = busyText(b.row).map { ", " + $0 } ?? ""
+            e.setAccessibilityLabel(displayName(b) + size + busy + ", " + (b.row.detail.isEmpty ? b.row.place : b.row.detail)
                                     + (b.row.isFocusable && !b.row.place.isEmpty ? ", in " + b.row.place : ""))
             e.setAccessibilityParent(self)
             e.setAccessibilityFrameInParentSpace(b.rect)

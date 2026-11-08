@@ -120,6 +120,24 @@ import Testing
         #expect(SuggestionPage.ignoredTitle(count: 4) == "Show 4 ignored items again")
     }
 
+    @Test func busyTextSaysWhatIsRunning() {
+        #expect(SuggestionPage.busyText(moving: 0, emptying: false, trashName: "Trash") == nil)
+        #expect(SuggestionPage.busyText(moving: 1, emptying: false, trashName: "Trash") == "Moving 1 item to the Trash")
+        #expect(SuggestionPage.busyText(moving: 1_234, emptying: false, trashName: "Recycle Bin")
+                == "Moving 1,234 items to the Recycle Bin")
+        #expect(SuggestionPage.busyText(moving: 0, emptying: true, trashName: "Trash") == "Emptying the Trash")
+        // Both at once: the move is named first, because the rows that move are the ones the user looks at.
+        #expect(SuggestionPage.busyText(moving: 2, emptying: true, trashName: "Trash")
+                == "Moving 2 items to the Trash, emptying the Trash")
+    }
+
+    @Test func busyRowsAndButtonsSayWhatTheyWaitFor() {
+        #expect(SuggestionPage.movingRowText == "Moving to Trash")
+        #expect(SuggestionPage.emptyingRowText == "Emptying")
+        #expect(SuggestionPage.movingTitle == "Moving")
+        #expect(SuggestionPage.emptyingTitle == "Emptying")
+    }
+
     @Test func theCheckedTimeReadsInWholeUnits() {
         #expect(SuggestionPage.checkedText(nil, now: now) == "Not checked yet")
         #expect(SuggestionPage.checkedText(now.addingTimeInterval(-10), now: now) == "Checked just now")
