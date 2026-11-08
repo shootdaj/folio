@@ -8,9 +8,16 @@ final class SidebarView: NSView {
     let outline = SidebarOutlineView(frame: .zero)
     let pane = NavigationPane()
     private let scroll = NSScrollView()
+    /// Native: the sidebar material, behind the scroll view. Hidden in D4.
+    private let material = NSVisualEffectView()
 
     override init(frame: NSRect) {
         super.init(frame: frame)
+        material.material = .sidebar
+        material.blendingMode = .behindWindow
+        material.state = .followsWindowActiveState
+        material.isHidden = !ThemeController.shared.isNative
+        addSubview(material)
         scroll.drawsBackground = false
         scroll.contentView.drawsBackground = false
         scroll.hasVerticalScroller = true
@@ -31,11 +38,29 @@ final class SidebarView: NSView {
     override func layout() {
         super.layout()
         scroll.frame = NSRect(x: 0, y: 0, width: bounds.width - 1, height: bounds.height)
+        let native = ThemeController.shared.isNative
+        material.isHidden = !native
+        material.frame = NSRect(x: 0, y: 0, width: bounds.width - 1, height: bounds.height)
+        // Native: the rows start under the traffic lights and scroll beneath the toolbar band.
+        let inset = native ? NativeSidebarMetrics.topInset : 0
+        if scroll.contentInsets.top != inset {
+            scroll.automaticallyAdjustsContentInsets = false
+            scroll.contentInsets = NSEdgeInsets(top: inset, left: 0, bottom: 0, right: 0)
+            scroll.scrollerInsets = NSEdgeInsets(top: inset, left: 0, bottom: 0, right: 0)
+            scroll.contentView.scroll(to: NSPoint(x: 0, y: -inset))
+            scroll.reflectScrolledClipView(scroll.contentView)
+        }
         outline.sizeLastColumnToFit()
     }
 
     override func draw(_ dirtyRect: NSRect) {
         let p = ThemeColors.current
+        if ThemeController.shared.isNative {
+            // The material is drawn by its own view. Only the 1 pt edge on the right is drawn here.
+            NSColor.separatorColor.setFill()
+            NSRect(x: bounds.width - 1, y: 0, width: 1, height: bounds.height).fill()
+            return
+        }
         fillRect(bounds, p.side)
         fillRect(NSRect(x: bounds.width - 1, y: 0, width: 1, height: bounds.height), p.line)
     }
@@ -127,6 +152,7 @@ final class SideNode: NSObject, @unchecked Sendable {
     }
 
     var isFooter: Bool { if case .footer = kind { true } else { false } }
+    var isVolumeRow: Bool { switch kind { case .volume, .share: true; default: false } }
     var isHeader: Bool { if case .header = kind { true } else { false } }
 }
 
@@ -257,7 +283,8 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
 
     /// The hue a card's rows take on hover (D4's `--hue` per card).
     func hue(of s: SideNode.Section, _ p: ThemeColors) -> NSColor {
-        switch s {
+        if Self.native { return p.accent }
+        return switch s {
         case .quickAccess, .allFolders: p.accent
         case .thisPC: p.hue(.green)
         case .network: p.hue(.teal)
@@ -389,7 +416,12 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
 
     /// D4's cards: 10 pt between them, a 40 pt label row, 30 pt items, 8 pt under the last item, and 14 pt
     /// under the last card. A drive adds its capacity bar and free space under its row.
-    static let cardGap: CGFloat = 10, labelH: CGFloat = 40, itemH: CGFloat = 30, volumeH: CGFloat = 68
+    /// Native has no cards: a 28 pt section header, 28 pt items and a drive row with its bar and free space.
+    private static var native: Bool { ThemeController.shared.isNative }
+    static var cardGap: CGFloat { native ? 0 : 10 }
+    static var labelH: CGFloat { native ? 28 : 40 }
+    static var itemH: CGFloat { native ? 28 : 30 }
+    static var volumeH: CGFloat { native ? NativeSidebarMetrics.volumeH : 68 }
 
     func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
         guard let node = item as? SideNode else { return Self.itemH }
@@ -397,9 +429,10 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
         case .header: return Self.cardGap + Self.labelH
         case .footer(let s):
             let open = !collapsed.contains(s.rawValue)
+            if Self.native { return open ? 8 : 1 }
             return (open ? 8 : 0) + 1 + (s == sections.last ? 14 : 0)
         case .volume, .share: return Self.volumeH
-        case .folder: return 26
+        case .folder: return Self.native ? NativeSidebarMetrics.folderH : 26
         case .details: return DetailsCardDrawing.height(details, width: outlineView.bounds.width - 20)
         default: return Self.itemH
         }
@@ -464,7 +497,7 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
 
     /// The cards (label row to footer), drawn behind the rows.
     func panelRects() -> [NSRect] {
-        guard let outline else { return [] }
+        guard let outline, !Self.native else { return [] }
         let w = outline.bounds.width
         return SideNode.Section.allCases.compactMap { s in
             guard let h = headers[s], let f = footers[s] else { return nil }
@@ -685,9 +718,19 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
         }
     }
 
+    /// The Quick access rows, label row to footer. Native has no card, so the band is built from the rows.
+    private func quickAccessBand() -> NSRect? {
+        guard Self.native else { return panelRects().first }
+        guard let outline, let h = headers[.quickAccess], let f = footers[.quickAccess] else { return nil }
+        let hr = outline.row(forItem: h), fr = outline.row(forItem: f)
+        guard hr >= 0, fr >= 0 else { return nil }
+        let top = outline.rect(ofRow: hr).minY, bottom = outline.rect(ofRow: fr).maxY
+        return NSRect(x: 0, y: top, width: outline.bounds.width, height: bottom - top)
+    }
+
     /// The place between Quick access pins a point is close to (0...pins), with the line's y.
     private func pinInsertion(at point: NSPoint) -> (Int, CGFloat)? {
-        guard let outline, !isCollapsed(.quickAccess), let panel = panelRects().first,
+        guard let outline, !isCollapsed(.quickAccess), let panel = quickAccessBand(),
               panel.insetBy(dx: 0, dy: -2).contains(point) else { return nil }
         let homeRow = outline.row(forItem: homeNode)
         guard homeRow >= 0 else { return nil }
@@ -893,6 +936,16 @@ final class SidebarOutlineView: NSOutlineView {
     func chevronRect(row: Int) -> NSRect? {
         guard let pane, let node = item(atRow: row) as? SideNode, isExpandable(node) else { return nil }
         let r = rect(ofRow: row)
+        if ThemeController.shared.isNative {
+            var depth = 0
+            if case .folder = node.kind { depth = pane.depth(of: node) + 1 }
+            let x = NativeSidebarMetrics.chevronX(depth: depth) - 3
+            switch node.kind {
+            case .volume, .share, .cloud: return NSRect(x: x, y: r.minY + NativeSidebarMetrics.itemH / 2 - 8, width: 16, height: 16)
+            case .folder: return NSRect(x: x, y: r.midY - 8, width: 16, height: 16)
+            default: return nil
+            }
+        }
         switch node.kind {
         case .volume, .share: return NSRect(x: 12, y: r.minY + 7, width: 16, height: 16)
         case .cloud: return NSRect(x: 12, y: r.midY - 8, width: 16, height: 16)
@@ -1076,6 +1129,25 @@ final class SidebarOutlineView: NSOutlineView {
     }
 }
 
+/// Where Native's sidebar puts things. `chevronRect` and the row drawing both read these.
+enum NativeSidebarMetrics {
+    /// The toolbar band the traffic lights sit in: the rows start under it.
+    static let topInset: CGFloat = 52
+    static let itemH: CGFloat = 28, folderH: CGFloat = 24
+    /// A drive: its 28 pt row, the 4 pt bar under it and the free space under that.
+    static let volumeH: CGFloat = 54
+    static let barGap: CGFloat = 1, barH: CGFloat = 4
+    /// The selection and the drop outline are inset from the sidebar's sides.
+    static let sideInset: CGFloat = 10
+    static let selectionRadius: CGFloat = 6
+    static let iconSlot: CGFloat = 20, iconPoints: CGFloat = 15
+    static let indent: CGFloat = 14
+    /// The disclosure chevron is 12 pt wide. Tree folders step in by one indent per level.
+    static func chevronX(depth: Int) -> CGFloat { 14 + CGFloat(depth) * indent }
+    static func iconX(depth: Int) -> CGFloat { chevronX(depth: depth) + 14 }
+    static func textX(depth: Int) -> CGFloat { iconX(depth: depth) + iconSlot + 6 }
+}
+
 /// A row: every navigation pane row is drawn here (card labels, places, drives with their capacity bars,
 /// tree folders, the Details card), with D4's `.sitem` states: a 7% wash on hover, the accent at 16% with
 /// a glowing left edge on the current place, the drop highlight and the keyboard focus ring.
@@ -1092,6 +1164,21 @@ final class SideRowView: NSTableRowView {
     override func drawSelection(in dirtyRect: NSRect) {}
     override func drawBackground(in dirtyRect: NSRect) {}
 
+    private var keyObservers: [NSObjectProtocol] = []
+
+    /// Native: the current place is accent only while the window is key, so a change of key state redraws.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        keyObservers.forEach(NotificationCenter.default.removeObserver)
+        keyObservers = []
+        guard ThemeController.shared.isNative, let window else { return }
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
+            keyObservers.append(NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.needsDisplay = true }
+            })
+        }
+    }
+
     /// The row across its card (the card is 10 pt in from the sidebar's sides).
     private var inner: NSRect { NSRect(x: 10, y: 0, width: bounds.width - 20, height: bounds.height) }
     /// The 30 pt item line at the top of the row (a drive's bar and free space sit under it).
@@ -1104,6 +1191,10 @@ final class SideRowView: NSTableRowView {
         let hovered = row >= 0 && outline.hoveredRow == row
         let focused = isSelected && outline.window?.firstResponder === outline
         let on = pane.isCurrent(node)
+        if ThemeController.shared.isNative {
+            drawNative(node, pane: pane, outline: outline, on: on, p)
+            return
+        }
         let hue = pane.section(of: node).map { pane.hue(of: $0, p) } ?? p.accent
         switch node.kind {
         case .header(let s): drawHeader(s, hovered: hovered, focused: focused, collapsed: pane.isCollapsed(s), p)
@@ -1126,6 +1217,144 @@ final class SideRowView: NSTableRowView {
             drawContent(node, on: on, hovered: hovered, hue: hue, p)
             if focused { strokeRounded(line.insetBy(dx: 3, dy: 1), radius: 8, p.accent, width: 2) }
         }
+    }
+
+    // MARK: Native
+
+    /// The SF Symbol for a row.
+    private func nativeSymbol(_ node: SideNode) -> String? {
+        switch node.kind {
+        case .home: return "house"
+        case .pin(let place, _):
+            switch place.title {
+            case "Downloads": return "arrow.down.circle"
+            case "Desktop": return "menubar.dock.rectangle"
+            case "Documents": return "doc"
+            case "Pictures": return "photo"
+            case "Movies": return "film"
+            case "Code": return "chevron.left.forwardslash.chevron.right"
+            default: return "folder"
+            }
+        case .cloud(let c): return c.path == FileManager.default.homeDirectoryForCurrentUser.path ? "house" : "icloud"
+        case .recycle: return "trash"
+        case .volume(let v): return v.canEject ? "externaldrive" : "internaldrive"
+        case .share, .server: return "server.rack"
+        case .folder: return "folder"
+        case .browse: return "globe"
+        case .device: return "photo.on.rectangle"
+        case .connect: return "link"
+        default: return nil
+        }
+    }
+
+    /// Native: a rounded current place, SF Symbols in the accent, sentence-case headers and a thin drive bar.
+    private func drawNative(_ node: SideNode, pane: NavigationPane, outline: SidebarOutlineView, on: Bool, _ p: ThemeColors) {
+        typealias M = NativeSidebarMetrics
+        let row = myRow
+        let active = outline.window?.isKeyWindow == true
+        let focused = isSelected && outline.window?.firstResponder === outline && active
+        let current = on || focused
+        let hovered = row >= 0 && outline.hoveredRow == row
+        var depth = 0
+        if case .folder = node.kind { depth = pane.depth(of: node) + 1 }
+        let mid = (node.isVolumeRow ? M.itemH : bounds.height) / 2
+
+        switch node.kind {
+        case .header(let s):
+            let collapsed = pane.isCollapsed(s)
+            let y = bounds.height - 10
+            drawLine(Typeface.caption(node.title), font: Typeface.ui(11, weight: 600), color: p.muted,
+                     x: M.sideInset + 10, midY: y)
+            if hovered || collapsed {
+                Glyph.drawSymbol(named: "chevron.right", in: NSRect(x: bounds.width - M.sideInset - 10 - 12, y: y - 6, width: 12, height: 12),
+                                 color: p.muted.ns, pointSize: 9, weight: .semibold, rotation: collapsed ? 0 : .pi / 2)
+            }
+            return
+        case .footer:
+            return
+        case .details:
+            DetailsCardDrawing.draw(pane.details, in: inner, p)
+            return
+        case .notice(let text):
+            drawLine(text, font: Typeface.ui(11), color: p.muted, x: M.iconX(depth: 0), midY: mid, maxWidth: bounds.width - M.iconX(depth: 0) - 20)
+            return
+        default:
+            break
+        }
+
+        // The selection, or the drop outline on the same shape.
+        let shape = NSRect(x: M.sideInset, y: 1, width: bounds.width - 2 * M.sideInset, height: bounds.height - 2)
+        if current {
+            fillRounded(shape, radius: M.selectionRadius, focused ? p.selectionFill : p.selectionInactive)
+        }
+        if outline.dropRow == row {
+            strokeRounded(shape.insetBy(dx: 1, dy: 1), radius: M.selectionRadius, p.accent, width: 2)
+        }
+
+        let onAccent = focused
+        let tint = onAccent ? p.onAccent : p.accent
+        let label = onAccent ? p.onAccent : p.text
+        let secondary = onAccent ? p.onAccent.withAlpha(0.75) : p.text2
+        let iconRect = NSRect(x: M.iconX(depth: depth), y: mid - M.iconSlot / 2, width: M.iconSlot, height: M.iconSlot)
+        let textX = M.textX(depth: depth)
+        let font = Typeface.ui(13)
+
+        if outline.isExpandable(node) {
+            switch node.kind {
+            case .volume, .share, .cloud, .folder:
+                Glyph.drawSymbol(named: "chevron.right", in: NSRect(x: M.chevronX(depth: depth), y: mid - 6, width: 12, height: 12),
+                                 color: onAccent ? p.onAccent.ns : p.muted.ns, pointSize: 9, weight: .semibold,
+                                 rotation: outline.isItemExpanded(node) ? .pi / 2 : 0)
+            default: break
+            }
+        }
+        if let name = nativeSymbol(node) {
+            Glyph.drawSymbol(named: name, in: iconRect, color: tint.ns, pointSize: M.iconPoints)
+        }
+
+        switch node.kind {
+        case .home:
+            drawLine("Home", font: font, color: label, x: textX, midY: mid, maxWidth: bounds.width - textX - 20)
+        case .pin(let place, _):
+            let room = bounds.width - textX - 20
+            let pw = place.prefix.isEmpty ? 0 : drawLine(place.prefix, font: font, color: secondary, x: textX, midY: mid, maxWidth: room)
+            drawLine(place.title, font: font, color: label, x: textX + pw, midY: mid, maxWidth: room - pw)
+        case .cloud(let c):
+            drawLine(c.name, font: font, color: label, x: textX, midY: mid, maxWidth: bounds.width - textX - 20)
+        case .recycle:
+            drawLine("Recycle Bin", font: font, color: label, x: textX, midY: mid, maxWidth: bounds.width - textX - 20)
+        case .volume(let v), .share(let v):
+            drawNativeVolume(v, textX: textX, mid: mid, label: label, secondary: secondary, onAccent: onAccent, p)
+        case .folder(let f):
+            drawLine(f.name, font: font, color: f.isHidden && !onAccent ? p.muted : label, x: textX, midY: mid,
+                     maxWidth: bounds.width - textX - 20)
+        case .browse:
+            drawLine(pane.browseStatus, font: font, color: label, x: textX, midY: mid, maxWidth: bounds.width - textX - 20)
+        case .device(let name), .server(let name):
+            drawLine(name, font: font, color: label, x: textX, midY: mid, maxWidth: bounds.width - textX - 20)
+        case .connect:
+            drawLine("Connect to server...", font: font, color: label, x: textX, midY: mid, maxWidth: bounds.width - textX - 20)
+        default:
+            break
+        }
+    }
+
+    /// A drive: the name, a 4 pt capsule bar under it (red from 90 percent) and "x GB free of y GB" in 11 pt.
+    private func drawNativeVolume(_ v: VolumeCapacity, textX: CGFloat, mid: CGFloat, label: NSColor, secondary: NSColor,
+                                  onAccent: Bool, _ p: ThemeColors) {
+        typealias M = NativeSidebarMetrics
+        let ejectRoom: CGFloat = v.canEject ? 28 : 0
+        drawLine(pane?.label(v) ?? v.name, font: Typeface.ui(13), color: label, x: textX, midY: mid,
+                 maxWidth: bounds.width - textX - 20 - ejectRoom)
+        let right = bounds.width - M.sideInset - 12
+        let bar = NSRect(x: textX, y: M.itemH + M.barGap, width: max(0, right - textX), height: M.barH)
+        let fillTone: NSColor = onAccent ? p.onAccent : (v.isNearlyFull ? p.miss : p.accent)
+        let track: NSColor = onAccent ? p.onAccent.withAlpha(0.3) : .quaternarySystemFill
+        fillRounded(bar, radius: M.barH / 2, track)
+        let used = NSRect(x: bar.minX, y: bar.minY, width: max(bar.height, bar.width * CGFloat(min(1, v.usedFraction))), height: bar.height)
+        fillRounded(used, radius: M.barH / 2, fillTone)
+        let text = "\(ByteText.storage(v.free)) free of \(ByteText.storage(v.total))"
+        drawLine(text, font: Typeface.ui(11), color: secondary, x: textX, midY: bar.maxY + 4 + 7, maxWidth: bar.width)
     }
 
     /// `.scard-h`: the mono uppercase label (text-2 on hover), the count, and the chevron at the right.
@@ -1334,7 +1563,7 @@ final class SideCellView: NSTableCellView {
             volume = v
             let label = (v.isNetwork ? "Disconnect " : "Eject ") + v.name
             let button = ChromeButton(glyph: .eject, label: label, target: self, action: #selector(ejectPressed(_:)))
-            button.iconSize = 14
+            button.iconSize = ThemeController.shared.isNative ? 11 : 14
             button.tone = { $0.muted }
             button.hoverTone = { $0.accent }
             addSubview(button)
