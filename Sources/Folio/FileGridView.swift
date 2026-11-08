@@ -157,7 +157,12 @@ final class GridCellView: NSView, NSViewToolTipOwner {
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
             NotificationCenter.default.addObserver(self, selector: #selector(keyChanged), name: name, object: window)
         }
+        if isNative {
+            NotificationCenter.default.addObserver(self, selector: #selector(iconsUpgraded), name: FinderIconCache.didUpgrade, object: nil)
+        }
     }
+
+    @objc private func iconsUpgraded() { needsDisplay = true }
 
     @objc private func keyChanged() { if isSelected { needsDisplay = true } }
 
@@ -252,6 +257,8 @@ final class GridCellView: NSView, NSViewToolTipOwner {
                     ItemIcon.drawFile(named: entry.name, in: badge, palette: p)
                 }
             }
+        } else if isNative {
+            FinderIcon.draw(url: entry.url, isDir: entry.isFolder, isLink: false, in: icon)
         } else if entry.isFolder {
             let h = icon.width * 16 / 20
             ItemIcon.drawFolder(in: NSRect(x: icon.minX, y: icon.midY - h / 2, width: icon.width, height: h), palette: p, lit: isSelected && !isNative)

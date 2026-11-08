@@ -374,8 +374,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         tableView.headerView = header
         tableView.cornerView = nil
         tableView.style = .plain
-        tableView.rowHeight = ListOptions.compact ? ListMetrics.compactRowHeight : ListMetrics.rowHeight
-        if ThemeController.shared.look == .native { tableView.rowHeight = ListOptions.compact ? 20 : 24 }
+        if ThemeController.shared.look == .native {
+            tableView.rowHeight = ListOptions.compact ? ListMetrics.native.compactRowHeight : ListMetrics.native.rowHeight
+        } else {
+            tableView.rowHeight = ListOptions.compact ? ListMetrics.compactRowHeight : ListMetrics.rowHeight
+        }
         // Group headers scroll with their rows; a header click sorts or adds a sort key, never selects a column.
         tableView.floatsGroupRows = false
         tableView.allowsColumnSelection = false
@@ -1030,7 +1033,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         applyNavigationPaneOptions()
         tableView.showsCheckboxes = ListOptions.checkboxes
         var rowH = ListOptions.compact ? ListMetrics.compactRowHeight : ListMetrics.rowHeight
-        if ThemeController.shared.look == .native { rowH = ListOptions.compact ? 20 : 24 }
+        if ThemeController.shared.look == .native {
+            rowH = ListOptions.compact ? ListMetrics.native.compactRowHeight : ListMetrics.native.rowHeight
+        }
         if tableView.rowHeight != rowH {
             tableView.rowHeight = rowH
             tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<layout.rows.count))
