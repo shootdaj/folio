@@ -23,7 +23,7 @@ extension BrowserWindowController {
         updateWatches()
         let items = tabs.tabs.map { tab in
             var item = TabItem(id: tab.id, title: tab.history.search.map { s in
-                                   "Search Results in " + (s.everywhere ? "This PC" : displayName(tab.current))
+                                   "Search Results in " + (s.everywhere ? PlaceNames.thisComputer : displayName(tab.current))
                                } ?? tabTitle(tab), isHome: tab.history.isHome,
                                folder: tab.history.isHome ? nil : tab.current)
             item.isSearch = tab.history.search != nil
@@ -31,6 +31,7 @@ extension BrowserWindowController {
         }
         chassis.tabStrip.items = items
         chassis.tabStrip.activeIndex = tabs.activeIndex
+        chassis.setTabRowVisible(items.count >= 2)
     }
 
     /// A folder tab's title: its name, or with Folder Options > Display the full path in the title bar,
@@ -151,7 +152,7 @@ extension BrowserWindowController {
 
     func tabMenu(_ i: Int) -> NSMenu {
         let menu = NSMenu(title: "Tab")
-        menu.font = Typeface.mono(13)
+        menu.font = Typeface.menu()
         func add(_ title: String, _ action: Selector, enabled: Bool = true) {
             let item = NSMenuItem(title: title, action: enabled ? action : nil, keyEquivalent: "")
             item.target = self
@@ -286,7 +287,7 @@ extension BrowserWindowController {
     func applyPendingTree() {
         guard let folders = pendingTreeFolders else { return }
         pendingTreeFolders = nil
-        chassis.sidebar.pane.expandFolders(folders)
+        chassis.sidebar.pane.expandFoldersInBackground(folders)
     }
 
     func sessionChanged() {
@@ -308,7 +309,7 @@ extension BrowserWindowController {
 extension BrowserWindowController {
     func wireNavigationPane() {
         let pane = chassis.sidebar.pane
-        pane.tree.showHidden = ListOptions.showHidden
+        pane.tree.showHidden = ListOptions.navPaneShowHidden
         pane.setPlaces(pins.places)
         pane.onNavigate = { [weak self] url in self?.navigate(to: url) }
         pane.onHome = { [weak self] in self?.goHome(nil) }
@@ -329,6 +330,10 @@ extension BrowserWindowController {
         pane.menuProvider = { [weak self] node in self?.nodeMenu(node) }
         pane.dropHost = self
         pane.onTreeChanged = { [weak self] in self?.sessionChanged() }
+        // The right-hand pane's width, dragged at its left edge, is kept for every window.
+        let store = SidebarStore(defaults: .standard)
+        chassis.sidePaneWidth = CGFloat(store.sidePaneWidth.map(SidePaneSize.clamped) ?? SidePaneSize.standard)
+        chassis.onSidePaneResized = { width in SidebarStore(defaults: .standard).setSidePaneWidth(width.map(Double.init)) }
         chassis.onSidebarResized = { [weak self] width in
             SidebarStore(defaults: .standard).setWidth(Double(width))
             self?.chassis.needsLayout = true
@@ -346,7 +351,7 @@ extension BrowserWindowController {
     func revealCurrentFolder(select: Bool) {
         // Home and the Recycle Bin have their own rows; the tree is not opened for them.
         guard !history.isHome, !RecycleBin.isTrash(history.current, home: FileManager.default.homeDirectoryForCurrentUser) else { return }
-        chassis.sidebar.pane.reveal(FilePaths.folderKey(history.current), select: select)
+        chassis.sidebar.pane.revealInBackground(FilePaths.folderKey(history.current), select: select)
     }
 
     /// Ctrl+Shift+E: the tree opens to this folder, which takes the keyboard there (Right, Left, * work on).
@@ -360,6 +365,7 @@ extension BrowserWindowController {
     @objc func toggleNavigationPane(_ sender: Any?) { ListOptions.navPaneShown.toggle() }
     @objc func toggleExpandToCurrent(_ sender: Any?) { ListOptions.expandToCurrent.toggle() }
     @objc func toggleHiddenItems(_ sender: Any?) { ListOptions.showHidden.toggle() }
+    @objc func toggleNavPaneHidden(_ sender: Any?) { ListOptions.navPaneShowHidden.toggle() }
 
     @objc func volumesChanged(_ note: Notification) {
         let list = VolumeCenter.shared.volumes
@@ -389,9 +395,9 @@ extension BrowserWindowController {
     /// Folders that changed on disk: their tree nodes are read again.
     func refreshTree(_ note: Notification) {
         var folders = (note.userInfo?["folders"] as? Set<String>) ?? []
-        for path in (note.userInfo?["select"] as? [String]) ?? [] {
-            folders.insert(FilePaths.folderKey(URL(fileURLWithPath: path).deletingLastPathComponent()))
-        }
+        // Each pasted item's folder, resolved once per folder (a paste of thousands shares a few).
+        let parents = Set(((note.userInfo?["select"] as? [String]) ?? []).map { ($0 as NSString).deletingLastPathComponent })
+        for parent in parents { folders.insert(FilePaths.folderKey(URL(fileURLWithPath: parent))) }
         if folders.isEmpty, !history.isHome { folders.insert(FilePaths.folderKey(history.current)) }
         chassis.sidebar.pane.refresh(folders: folders)
     }
@@ -426,7 +432,7 @@ extension BrowserWindowController {
 
     func nodeMenu(_ node: SideNode) -> NSMenu? {
         let menu = NSMenu(title: "Navigation")
-        menu.font = Typeface.mono(13)
+        menu.font = Typeface.menu()
         func add(_ title: String, _ action: Selector, _ object: Any? = nil, enabled: Bool = true) {
             let item = NSMenuItem(title: title, action: enabled ? action : nil, keyEquivalent: "")
             item.target = self
@@ -613,7 +619,7 @@ extension BrowserWindowController {
 
     func homeMenu(_ url: URL) -> NSMenu {
         let menu = NSMenu(title: "Home")
-        menu.font = Typeface.mono(13)
+        menu.font = Typeface.menu()
         func add(_ title: String, _ action: Selector) {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
             item.target = self
@@ -713,9 +719,9 @@ extension BrowserWindowController {
         guard !items.isEmpty, let window else { NSSound.beep(); return }
         let alert = NSAlert()
         alert.messageText = "Permanently delete these \(items.count) items?"
-        alert.informativeText = "Everything in the Recycle Bin goes for good. This can't be undone."
+        alert.informativeText = "Everything in the \(PlaceNames.recycleBin) goes for good. This can't be undone."
         alert.alertStyle = .critical
-        alert.addButton(withTitle: "Empty Recycle Bin")
+        alert.addButton(withTitle: "Empty " + PlaceNames.recycleBin)
         alert.addButton(withTitle: "Cancel")
         alert.buttons.first?.hasDestructiveAction = true
         alert.beginSheetModal(for: window) { response in

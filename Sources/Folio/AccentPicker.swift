@@ -124,7 +124,7 @@ final class AccentPickerView: NSView, ThemeAware {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         // `--pop` (s2 88%, light s1 93%) over the window, with D4's line-2 border.
         let fill = p.pop.over(p.bg)
         fillRounded(bounds, radius: 12, fill)
@@ -176,7 +176,7 @@ final class PresetSwatch: NSButton {
     override func mouseExited(with event: NSEvent) { hovered = false; needsDisplay = true }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         let c = NSPoint(x: bounds.midX, y: bounds.midY)
         let r: CGFloat = 11 * (isHighlighted ? 0.88 : hovered ? 1.15 : 1)
         let dot = NSRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)
@@ -224,7 +224,7 @@ final class HueSliderCell: NSSliderCell {
 
     override func drawBar(inside rect: NSRect, flipped: Bool) {
         guard let view = controlView else { return }
-        let p = Palette.current
+        let p = ThemeColors.current
         let b = view.bounds
         let track = NSRect(x: b.minX, y: b.midY - 7, width: b.width, height: 14)
         let stops = (0...12).map { Accent.color(hue: $0 * 30, p.appearance).ns }
@@ -236,7 +236,7 @@ final class HueSliderCell: NSSliderCell {
     }
 
     override func drawKnob(_ knobRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         let r = knobRect.insetBy(dx: 1.5, dy: 1.5)
         withGlow(RGBA(r: 0, g: 0, b: 0, a: 0.4), blur: 6) {
             p.accent.ns.setFill()

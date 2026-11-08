@@ -130,22 +130,24 @@ public enum ByteText {
 public struct QuickAccessPlace: Sendable, Equatable {
     /// The last folder name, drawn bright.
     public let title: String
-    /// The part before it, drawn dim ("Anshul/").
+    /// The part before it, drawn dim ("Projects/").
     public let prefix: String
     public let path: String
 }
 
 public enum QuickAccess {
-    /// D1's favourites, Anshul/Code first. Pinning and reordering arrive in milestone 5.
-    public static let defaults = ["Anshul/Code", "Downloads", "Desktop", "Documents", "Pictures", "Movies"]
+    /// Explorer's Quick access set, in Explorer's order (Videos is Movies on a Mac). A fresh install
+    /// starts with these until anything is pinned or unpinned.
+    public static let defaults = ["Desktop", "Downloads", "Documents", "Pictures", "Music", "Movies"]
 
+    /// The default folders that exist in `home` as folders. A missing one is left out.
     public static func places(home: URL) -> [QuickAccessPlace] {
-        defaults.map { relative in
-            let slash = relative.lastIndex(of: "/")
-            let title = slash.map { String(relative[relative.index(after: $0)...]) } ?? relative
-            let prefix = slash.map { String(relative[...$0]) } ?? ""
-            let base = home.path.hasSuffix("/") ? String(home.path.dropLast()) : home.path
-            return QuickAccessPlace(title: title, prefix: prefix, path: base + "/" + relative)
+        let base = home.path.hasSuffix("/") ? String(home.path.dropLast()) : home.path
+        return defaults.compactMap { name in
+            let path = base + "/" + name
+            var isDir: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue else { return nil }
+            return QuickAccessPlace(title: name, prefix: "", path: path)
         }
     }
 }

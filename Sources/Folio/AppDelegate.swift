@@ -44,6 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if let uitest {
             ThemeController.shared.start(defaults: uitest.defaults, forcedAppearance: uitest.appearance)
             ThemeController.shared.hue = uitest.hue
+            ThemeController.shared.look = uitest.look
         } else {
             ThemeController.shared.start(defaults: .standard)
         }
@@ -76,6 +77,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         NotificationCenter.default.addObserver(self, selector: #selector(viewChanged(_:)), name: ViewCenter.didChange, object: nil)
         DockIcon.start()
         NSApp.activate()
+        // After the first window shows: macOS asks for each guarded folder until Full Disk Access is on.
+        DispatchQueue.main.async { DiskAccessPrompt.offerIfNeeded() }
+    }
+
+    @objc func openFullDiskAccess(_ sender: Any?) { DiskAccessPrompt.openSettings() }
+
+    /// Folio > Settings... (Cmd+,, the Mac's key for an app's settings): Folder Options, with the search
+    /// box ready. It works with no window open too.
+    @objc func showSettings(_ sender: Any?) {
+        FolderOptionsWindowController.show(near: NSApp.mainWindow ?? NSApp.keyWindow)
     }
 
     @objc private func viewChanged(_ note: Notification) { scheduleSessionSave() }
@@ -91,15 +102,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case #selector(reopenClosedTab(_:)): return closedTabs.count > 0
         case #selector(tileWindows(_:)): return !windows.isEmpty
         case #selector(toggleFolderHandler(_:)): item.state = SystemSettings.foldersOpenInFolio ? .on : .off
+        case #selector(toggleRevealsInFolio(_:)): item.state = SystemSettings.revealsInFolio ? .on : .off
         case #selector(toggleLaunchAtLogin(_:)): item.state = SystemSettings.launchesAtLogin ? .on : .off
         case #selector(toggleKeepRunning(_:)): item.state = ListOptions.folder.keepRunning ? .on : .off
+        case #selector(setLookTheme(_:)): item.state = item.representedObject as? String == ThemeController.shared.look.rawValue ? .on : .off
         default: break
         }
         return true
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        saveSession()
+        saveSession(now: true)
         terminating = true
         // File promises from Folio's last drag would hold up quitting (AppKit resolves them all).
         DragState.releasePasteboard()
@@ -120,7 +133,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 openSavedSearch(saved)
                 continue
             }
-            open(FolioRequest(path: url.path))
+            // A folder revealed from another app shows selected in its parent, as Finder does. A file
+            // always shows selected in its folder.
+            let isFolder = Self.kind(url.path) == .folder
+            open(FolioRequest(path: url.path, select: isFolder && SystemSettings.isReveal(url)))
         }
         NSApp.activate()
     }
@@ -252,7 +268,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             } else {
                 if let size { window.setContentSize(size) }
                 if let point {
-                    window.setFrameTopLeftPoint(NSPoint(x: point.x - 120, y: point.y + ChassisView.titleH + 18))
+                    window.setFrameTopLeftPoint(NSPoint(x: point.x - 120, y: point.y + (ChassisView.titleH > 0 ? ChassisView.titleH : 28) + 18))
                 } else if windows.isEmpty {
                     window.center()
                 } else {
@@ -306,15 +322,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         sessionTimer = timer
     }
 
-    func saveSession() {
+    /// `now` writes before returning (quitting); otherwise the JSON is written off the main thread.
+    func saveSession(now: Bool = false) {
         guard uitest == nil, !terminating else { return }
         sessionTimer?.invalidate()
         sessionTimer = nil
         let ordered = NSApp.orderedWindows.compactMap { $0.windowController as? BrowserWindowController }
         let all = ordered.filter { c in windows.contains { $0 === c } } + windows.filter { c in !ordered.contains { $0 === c } }
         let session = Session(windows: all.compactMap { $0.windowSession() }, viewMode: ViewCenter.shared.mode.rawValue)
+        guard now else {
+            SessionStore().saveInBackground(session) { error in
+                perfLog.error("session not saved: \(error.localizedDescription, privacy: .public)")
+            }
+            return
+        }
         do {
-            try SessionStore().save(session)
+            try SessionStore().saveNow(session)
         } catch {
             perfLog.error("session not saved: \(error.localizedDescription, privacy: .public)")
         }
@@ -352,6 +375,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
     }
 
+    // MARK: Theme
+
+    /// View > Theme: saves the look and opens each browser window again with the same tabs, frame and
+    /// open tree folders, since a look also changes how views are built (the sidebar, the list's style).
+    @objc func setLookTheme(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let look = LookTheme(rawValue: raw),
+              look != ThemeController.shared.look else { return }
+        ThemeController.shared.look = look
+        rebuildWindows()
+    }
+
+    /// Back to front, so the front window ends up in front again.
+    func rebuildWindows() {
+        let ordered = NSApp.orderedWindows.compactMap { $0.windowController as? BrowserWindowController }
+            .filter { c in windows.contains { $0 === c } }
+        let rest = windows.filter { c in !ordered.contains { $0 === c } }
+        for old in (ordered + rest).reversed() {
+            guard let saved = old.windowSession() else { continue }
+            let tabs = saved.tabs.map { $0.tab(exists: { _ in true }) }
+            let f = saved.frame
+            let controller = openWindow(with: tabs, active: saved.clampedActive, near: nil, size: nil,
+                                        frame: NSRect(x: f.x, y: f.y, width: f.width, height: f.height))
+            controller.restoreTree(saved.expandedFolders ?? [])
+            old.isBeingRebuilt = true
+            old.window?.close()
+        }
+    }
+
     // MARK: Folio and macOS (the Folio menu, Folder Options > General)
 
     /// Open folders in Folio instead of Finder: asks Launch Services, reads back what it kept, and says so.
@@ -365,6 +416,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         alert.messageText = report.headline
         alert.informativeText = report.details + "\n\n" + report.note
         alert.alertStyle = report.allAccepted ? .informational : .warning
+        alert.addButton(withTitle: "OK")
+        if let window {
+            alert.beginSheetModal(for: window) { _ in MainActor.assumeIsolated { done?() } }
+        } else {
+            alert.runModal()
+            done?()
+        }
+    }
+
+    /// Reveal in Folio instead of Finder: the NSFileViewer default. An alert shows only when macOS did
+    /// not keep it, or when another app had it before.
+    @objc func toggleRevealsInFolio(_ sender: Any?) {
+        setRevealsInFolio(!SystemSettings.revealsInFolio, sheetOn: nil)
+    }
+
+    func setRevealsInFolio(_ on: Bool, sheetOn window: NSWindow?, done: (() -> Void)? = nil) {
+        let report = SystemSettings.setRevealsInFolio(on)
+        let text: (String, String)?
+        if let problem = report.problem {
+            text = (on ? "Reveals from other apps were not moved to Folio" : "Reveals from other apps were not moved back to Finder", problem)
+        } else if let replaced = report.replaced {
+            text = ("Reveals from other apps now go to Folio",
+                    "Before, they went to \(DefaultFolderHandler.appName(replaced)). Turn this off to send them to Finder.")
+        } else {
+            text = nil
+        }
+        guard let (title, info) = text else { done?(); return }
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = info
+        alert.alertStyle = report.problem == nil ? .informational : .warning
         alert.addButton(withTitle: "OK")
         if let window {
             alert.beginSheetModal(for: window) { _ in MainActor.assumeIsolated { done?() } }

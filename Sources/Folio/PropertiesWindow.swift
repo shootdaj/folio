@@ -61,14 +61,14 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
 
     private init(urls: [URL]) {
         self.urls = urls
+        let native = ThemeController.shared.look == .native
         let window = PropertiesWindow(contentRect: NSRect(x: 0, y: 0, width: 540, height: 640),
-                                      styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
+                                      styleMask: native ? [.titled, .closable, .miniaturizable]
+                                          : [.titled, .closable, .miniaturizable, .fullSizeContentView],
                                       backing: .buffered, defer: false)
-        window.titlebarAppearsTransparent = true
-        window.titleVisibility = .hidden
         window.isReleasedWhenClosed = false
-        window.backgroundColor = Palette.current.s2.ns
         super.init(window: window)
+        applyChrome()
         window.delegate = self
         let content = PropertiesContentView()
         window.contentView = content
@@ -81,7 +81,7 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
         nameField.isBordered = false
         nameField.drawsBackground = false
         nameField.focusRingType = .none
-        nameField.font = Typeface.ui(15, weight: 650)
+        nameField.font = Typeface.ui(15, weight: ThemeController.shared.look == .native ? 600 : 650)
         nameField.setAccessibilityLabel("Name")
         for t in Tab.allCases {
             let b = SegmentButton(t.rawValue) { [weak self] in self?.select(t) }
@@ -98,15 +98,37 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
 
     // MARK: Model
 
+    /// D4 hides the title and draws its own strip. Native is a standard titled window, "name Info" in
+    /// the title bar, on the default window background.
+    private func applyChrome() {
+        guard let window else { return }
+        if ThemeController.shared.look == .native {
+            window.styleMask.remove(.fullSizeContentView)
+            window.titlebarAppearsTransparent = false
+            window.titleVisibility = .visible
+            window.backgroundColor = .windowBackgroundColor
+        } else {
+            window.styleMask.insert(.fullSizeContentView)
+            window.titlebarAppearsTransparent = true
+            window.titleVisibility = .hidden
+            window.backgroundColor = ThemeColors.current.s2.ns
+        }
+    }
+
+    /// "name Info" in Native, "name Properties" in D4.
+    private func windowTitle(for name: String) -> String {
+        name + (ThemeController.shared.look == .native ? " Info" : " Properties")
+    }
+
     private func reload() {
         infos = urls.map(ItemInfo.read)
         let title = urls.count == 1 ? (infos.first?.name ?? "") : "\(urls.count) items"
-        window?.title = title + " Properties"
+        window?.title = windowTitle(for: title)
         header.title = title + " Properties"
         header.infos = infos
         nameField.stringValue = urls.count == 1 ? (infos.first?.name ?? "") : "\(urls.count) items selected"
         nameField.isEditable = urls.count == 1
-        nameField.textColor = Palette.current.text.ns
+        nameField.textColor = ThemeColors.current.text.ns
         if !tabs.contains(tab) { tab = .general }
         layout()
         build()
@@ -158,21 +180,33 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
     private func layout() {
         guard let content = window?.contentView else { return }
         let w = content.bounds.width, h = content.bounds.height
-        header.frame = NSRect(x: 0, y: 0, width: w, height: 126)
-        nameField.frame = NSRect(x: 100, y: 62, width: w - 100 - 24, height: 24)
+        let m = PropertiesMetrics.current
+        let native = ThemeController.shared.look == .native
+        header.frame = NSRect(x: 0, y: 0, width: w, height: m.headerH)
+        if native {
+            nameField.frame = NSRect(x: 88, y: m.nameY, width: w - 88 - 24, height: 22)
+        } else {
+            nameField.frame = NSRect(x: 100, y: m.nameY, width: w - 100 - 24, height: 24)
+        }
         var x: CGFloat = 24
+        if native {
+            // Centred under the header, a 4 pt gap between the segments.
+            let widths = Tab.allCases.filter { tabs.contains($0) }.compactMap { tabButtons[$0]?.fit() }
+            x = max(24, ((w - widths.reduce(0, +) - 4 * CGFloat(max(0, widths.count - 1))) / 2).rounded())
+        }
         for t in Tab.allCases {
             guard let b = tabButtons[t] else { continue }
             b.isHidden = !tabs.contains(t)
             b.isOn = t == tab
             guard !b.isHidden else { continue }
             let bw = b.fit()
-            b.frame = NSRect(x: x, y: 138, width: bw, height: 34)
-            x += bw - 1
+            b.frame = NSRect(x: x, y: m.tabY, width: bw, height: m.tabH)
+            x += native ? bw + 4 : bw - 1
         }
-        sheet.frame = NSRect(x: 0, y: 186, width: w, height: h - 186 - 72)
+        sheet.frame = NSRect(x: 0, y: m.sheetY, width: w, height: h - m.sheetY - m.bottomInset)
         let cw = closeButton.fit(minimum: 112)
         closeButton.frame = NSRect(x: w - 24 - cw, y: h - 24 - 40, width: cw, height: 40)
+        closeButton.isHidden = native
         content.needsDisplay = true
     }
 
@@ -210,7 +244,7 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
 
     private func customize(_ info: ItemInfo) -> [PropertySheet.Line] {
         let popup = NSPopUpButton(frame: .zero, pullsDown: false)
-        popup.font = Typeface.mono(13)
+        popup.font = Typeface.menu()
         for preset in ColumnPreset.allCases {
             popup.addItem(withTitle: preset.title)
             popup.lastItem?.representedObject = preset.rawValue
@@ -467,7 +501,7 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
     private func openWith(_ info: ItemInfo) -> [PropertySheet.Line] {
         let apps = OpenWith.apps(for: info.url)
         let popup = NSPopUpButton(frame: .zero, pullsDown: false)
-        popup.font = Typeface.mono(13)
+        popup.font = Typeface.menu()
         for app in apps {
             popup.addItem(withTitle: app.name)
             let icon = NSWorkspace.shared.icon(forFile: app.url.path)
@@ -598,8 +632,13 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
     }
 
     @objc private func themeChanged(_ note: Notification) {
-        window?.backgroundColor = Palette.current.s2.ns
-        nameField.textColor = Palette.current.text.ns
+        applyChrome()
+        let name = urls.count == 1 ? (infos.first?.name ?? "") : "\(urls.count) items"
+        window?.title = windowTitle(for: name)
+        nameField.font = Typeface.ui(15, weight: ThemeController.shared.look == .native ? 600 : 650)
+        nameField.textColor = ThemeColors.current.text.ns
+        layout()
+        build()
         if let content = window?.contentView { refreshTheme(in: content) }
     }
 
@@ -607,6 +646,20 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
         cancel.cancel()
         NotificationCenter.default.removeObserver(self)
         Self.open.removeAll { $0 === self }
+    }
+}
+
+/// Where the header, the tabs and the rows sit. D4 has its title strip and tall tabs, Native the Finder
+/// Get Info layout under a standard title bar. Read when the window lays out, so a look change is picked up.
+@MainActor
+struct PropertiesMetrics {
+    let headerH, nameY, tabY, tabH, sheetY, bottomInset: CGFloat
+
+    static var current: PropertiesMetrics {
+        if ThemeController.shared.look == .native {
+            return PropertiesMetrics(headerH: 80, nameY: 18, tabY: 88, tabH: 28, sheetY: 128, bottomInset: 16)
+        }
+        return PropertiesMetrics(headerH: 126, nameY: 62, tabY: 138, tabH: 34, sheetY: 186, bottomInset: 72)
     }
 }
 
@@ -643,7 +696,8 @@ final class PropertiesContentView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        if ThemeController.shared.look == .native { return }
+        let p = ThemeColors.current
         fillRect(bounds, p.pop.over(p.bg))
     }
 
@@ -651,7 +705,8 @@ final class PropertiesContentView: NSView {
         override var isFlipped: Bool { true }
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func draw(_ dirtyRect: NSRect) {
-            strokeRounded(bounds, radius: 12, Palette.current.line2)
+            if ThemeController.shared.look == .native { return }
+            strokeRounded(bounds, radius: 12, ThemeColors.current.line2)
         }
     }
 }
@@ -664,8 +719,23 @@ final class PropertiesHeader: NSView {
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
+    /// Native: Finder's own icon at 48 pt (the second item's behind it for several), the kind under the name.
+    private func drawNative() {
+        func icon(_ info: ItemInfo, _ r: NSRect) {
+            NSWorkspace.shared.icon(forFile: info.url.path).draw(in: r, from: .zero, operation: .sourceOver,
+                                                                 fraction: 1, respectFlipped: true, hints: nil)
+        }
+        let box = NSRect(x: 24, y: 16, width: 48, height: 48)
+        if infos.count > 1 { icon(infos[1], box.offsetBy(dx: 6, dy: -4)) }
+        if let info = infos.first { icon(info, box) }
+        let kind = infos.count == 1 ? (infos.first.map { $0.link == .alias ? "Alias" : $0.link == .symlink ? "Symbolic link" : $0.kind } ?? "")
+            : "\(infos.count) items"
+        drawLine(kind, font: Typeface.ui(12), color: .secondaryLabelColor, x: 88, midY: 52, maxWidth: bounds.width - 88 - 24)
+    }
+
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        if ThemeController.shared.look == .native { return drawNative() }
+        let p = ThemeColors.current
         fillRect(NSRect(x: 0, y: 0, width: bounds.width, height: 44), p.chrome)
         fillRect(NSRect(x: 0, y: 43, width: bounds.width, height: 1), p.line)
         drawLine(title, font: Typeface.ui(14, weight: 700), color: p.text, x: 82, midY: 22,
@@ -694,6 +764,7 @@ final class PropertiesHeader: NSView {
 final class SegmentButton: NSButton {
     var isOn = false { didSet { needsDisplay = true; setAccessibilityValue(isOn ? 1 : 0) } }
     private let onPress: () -> Void
+    private var hovering = false { didSet { needsDisplay = true } }
 
     init(_ title: String, onPress: @escaping () -> Void) {
         self.onPress = onPress
@@ -713,8 +784,33 @@ final class SegmentButton: NSButton {
 
     func fit() -> CGFloat { textWidth(title, font: Typeface.ui(13, weight: 600)) + 24 }
 
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+                                       owner: self, userInfo: nil))
+    }
+
+    override func mouseEntered(with event: NSEvent) { hovering = true }
+    override func mouseExited(with event: NSEvent) { hovering = false }
+
+    /// Native: the chosen tab is a rounded `s4` pill with the label colour, the others secondary, no underline.
+    private func drawNative() {
+        let p = ThemeColors.current
+        let r = bounds.insetBy(dx: 0.5, dy: 0.5)
+        if isOn {
+            fillRounded(r, radius: 6, p.s4)
+        } else if hovering || isHighlighted {
+            fillRounded(r, radius: 6, .quaternarySystemFill)
+        }
+        let font = Typeface.ui(13, weight: 600)
+        let tw = textWidth(title, font: font)
+        drawLine(title, font: font, color: isOn ? .labelColor : .secondaryLabelColor, x: (bounds.width - tw) / 2, midY: bounds.midY)
+    }
+
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        if ThemeController.shared.look == .native { return drawNative() }
+        let p = ThemeColors.current
         let r = bounds.insetBy(dx: 0.5, dy: 0.5)
         if isOn { fillRect(r, p.thumb) }
         if isHighlighted { fillRect(r, p.text.withAlpha(0.08)) }
@@ -766,22 +862,31 @@ final class PropertySheet: NSView {
         }
     }
 
-    private static let keyX: CGFloat = 28, valueX: CGFloat = 156
+    private static var native: Bool { ThemeController.shared.look == .native }
+    private static var keyX: CGFloat { native ? 24 : 28 }
+    private static var valueX: CGFloat { native ? 152 : 156 }
     private var axElements: [NSAccessibilityElement] = []
 
     override var isFlipped: Bool { true }
 
+    private static var rowH: CGFloat { native ? 22 : 28 }
+
+    /// The value's font: D4 sets numbers in Geist Mono, Native uses the system font everywhere.
+    private func valueFont(_ line: Line) -> NSFont {
+        line.mono && !Self.native ? Typeface.mono(12) : Typeface.ui(13)
+    }
+
     private func height(_ line: Line) -> CGFloat {
-        if line.isSeparator { return 13 }
+        if line.isSeparator { return Self.native ? 11 : 13 }
         if line.wraps, !line.value.isEmpty {
             let w = bounds.width - Self.valueX - 28
-            let font = line.mono ? Typeface.mono(12) : Typeface.ui(13)
+            let font = valueFont(line)
             let r = (line.value as NSString).boundingRect(with: NSSize(width: max(40, w), height: 400),
                                                           options: [.usesLineFragmentOrigin], attributes: [.font: font])
-            return max(28, ceil(r.height) + 10)
+            return max(Self.rowH, ceil(r.height) + (Self.native ? 8 : 10))
         }
         if line.control is DriveChartView { return 112 }
-        return line.control is OSButton || line.control is NSPopUpButton || line.control is TagField ? 40 : 28
+        return line.control is OSButton || line.control is NSPopUpButton || line.control is TagField ? (Self.native ? 34 : 40) : Self.rowH
     }
 
     private func frames() -> [NSRect] {
@@ -797,7 +902,7 @@ final class PropertySheet: NSView {
     /// ("Opens with  TextEdit  [Change...]").
     private func controlX(_ line: Line) -> CGFloat {
         guard !line.value.isEmpty else { return Self.valueX - 2 }
-        let font = line.mono ? Typeface.mono(12) : Typeface.ui(13)
+        let font = valueFont(line)
         return Self.valueX + ceil(textWidth(line.value, font: font)) + 16
     }
 
@@ -805,28 +910,35 @@ final class PropertySheet: NSView {
         super.layout()
         for (line, r) in zip(lines, frames()) {
             guard let c = line.control else { continue }
-            let h: CGFloat = c is DriveChartView ? 100 : c is OSButton || c is NSPopUpButton || c is TagField ? 32 : 22
+            let h: CGFloat = c is DriveChartView ? 100 : c is OSButton || c is NSPopUpButton || c is TagField ? (Self.native ? 28 : 32) : 22
             let x = controlX(line)
             c.frame = NSRect(x: x, y: r.midY - h / 2, width: min(line.controlWidth, bounds.width - x - 24), height: h)
         }
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         for (line, r) in zip(lines, frames()) {
             if line.isSeparator {
                 fillRect(NSRect(x: Self.keyX, y: r.midY, width: bounds.width - 2 * Self.keyX, height: 1), p.line)
                 continue
             }
-            let top = line.wraps ? r.minY + 14 : r.midY
-            drawLine(line.key.uppercased(), font: Typeface.mono(11, weight: 600), color: p.muted, x: Self.keyX, midY: top,
-                     maxWidth: Self.valueX - Self.keyX - 10, kern: Typeface.labelKern(11))
+            let native = Self.native
+            let top = line.wraps ? r.minY + (native ? 11 : 14) : r.midY
+            if native {
+                // Finder's Get Info: the key right-aligned in secondary text, the value beside it.
+                drawLine(line.key, font: Typeface.ui(13), color: .secondaryLabelColor, x: Self.valueX - 12, midY: top,
+                         maxWidth: Self.valueX - Self.keyX - 12, alignRight: true)
+            } else {
+                drawLine(Typeface.caption(line.key), font: Typeface.mono(11, weight: 600), color: p.muted, x: Self.keyX, midY: top,
+                         maxWidth: Self.valueX - Self.keyX - 10, kern: Typeface.labelKern(11))
+            }
             guard !line.value.isEmpty else { continue }
-            let font = line.mono ? Typeface.mono(12) : Typeface.ui(13)
-            let color = line.live ? p.accent : p.text
+            let font = valueFont(line)
+            let color = line.live ? p.accent : (native ? .labelColor : p.text)
             if line.wraps {
                 let w = bounds.width - Self.valueX - 28
-                (line.value as NSString).draw(with: NSRect(x: Self.valueX, y: r.minY + 6, width: w, height: r.height - 6),
+                (line.value as NSString).draw(with: NSRect(x: Self.valueX, y: r.minY + (native ? 4 : 6), width: w, height: r.height - (native ? 4 : 6)),
                                               options: [.usesLineFragmentOrigin],
                                               attributes: [.font: font, .foregroundColor: color.ns])
             } else {
@@ -880,9 +992,9 @@ final class FlowView: NSView {
 final class LabelView: NSView {
     private let text: String
     private let font: NSFont
-    private let color: (Palette) -> RGBA
+    private let color: (ThemeColors) -> NSColor
 
-    init(_ text: String, font: NSFont, color: @escaping (Palette) -> RGBA) {
+    init(_ text: String, font: NSFont, color: @escaping (ThemeColors) -> NSColor) {
         self.text = text
         self.font = font
         self.color = color
@@ -893,7 +1005,7 @@ final class LabelView: NSView {
     override var isFlipped: Bool { true }
 
     override func draw(_ dirtyRect: NSRect) {
-        drawLine(text, font: font, color: color(Palette.current), x: 0, midY: bounds.midY, maxWidth: bounds.width)
+        drawLine(text, font: font, color: color(ThemeColors.current), x: 0, midY: bounds.midY, maxWidth: bounds.width)
     }
 }
 
@@ -908,7 +1020,7 @@ final class TagField: NSTextField, NSTextFieldDelegate {
         drawsBackground = false
         focusRingType = .none
         font = Typeface.mono(12)
-        textColor = Palette.current.text.ns
+        textColor = ThemeColors.current.text.ns
         delegate = self
         setAccessibilityLabel("Tags")
     }
@@ -916,7 +1028,7 @@ final class TagField: NSTextField, NSTextFieldDelegate {
     required init?(coder: NSCoder) { fatalError("not used") }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         fillRounded(bounds, radius: 8, p.field)
         strokeRounded(bounds.insetBy(dx: 0.5, dy: 0.5), radius: 8, p.line2)
         super.draw(dirtyRect)

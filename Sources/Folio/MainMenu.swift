@@ -16,10 +16,15 @@ enum MainMenu {
         add(name, to: main, [
             item("About \(name)", #selector(NSApplication.orderFrontStandardAboutPanel(_:))),
             .separator(),
+            // The Mac's place and key for settings: Folder Options (also View > Options...).
+            item("Settings...", #selector(AppDelegate.showSettings(_:)), ","),
+            .separator(),
             // Milestone 9: Folio and macOS (also in View > Options > General).
             item("Open Folders in Folio Instead of Finder", #selector(AppDelegate.toggleFolderHandler(_:))),
+            item("Reveal in Folio Instead of Finder", #selector(AppDelegate.toggleRevealsInFolio(_:))),
             item("Launch at Login", #selector(AppDelegate.toggleLaunchAtLogin(_:))),
             item("Keep Running When the Last Window Closes", #selector(AppDelegate.toggleKeepRunning(_:))),
+            item("Full Disk Access...", #selector(AppDelegate.openFullDiskAccess(_:))),
             .separator(),
             servicesItem,
             .separator(),
@@ -92,6 +97,10 @@ enum MainMenu {
             submenu("Group By", groupItems()),
             item("Collapse All Groups", #selector(BrowserWindowController.collapseAllGroups(_:))),
             item("Expand All Groups", #selector(BrowserWindowController.expandAllGroups(_:))),
+            // Details view's folders open in place; Right and Left do it from the list (no key here, so a
+            // text field keeps its arrows).
+            item("Expand Selected Folders", #selector(BrowserWindowController.expandSelectedFolders(_:))),
+            item("Collapse All Folders", #selector(BrowserWindowController.collapseAllFolders(_:))),
             .separator(),
             item("Choose Details...", #selector(BrowserWindowController.chooseDetails(_:))),
             // Explorer's Ctrl+Numpad +, as Cmd+= (Cmd+Numpad + works too, in BrowserWindow).
@@ -102,12 +111,17 @@ enum MainMenu {
                 item("Navigation Pane", #selector(BrowserWindowController.toggleNavigationPane(_:))),
                 item("Expand to Current Folder", #selector(BrowserWindowController.expandToCurrentFolder(_:)), "e", [.control, .shift]),
                 item("Always Expand to Current Folder", #selector(BrowserWindowController.toggleExpandToCurrent(_:))),
+                item("Show Hidden Folders", #selector(BrowserWindowController.toggleNavPaneHidden(_:))),
             ]),
             .separator(),
             // Explorer's F11; macOS keeps F11 for Show Desktop, so Ctrl+Cmd+F is the key here.
             item("Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control]),
         ] + fullScreenF11() + [
             .separator(),
+            // Native (the Mac's own styles) or D4 Obsidian; both follow the Mac's light or dark setting.
+            submenu("Theme", LookTheme.allCases.map {
+                choice($0.title, #selector(AppDelegate.setLookTheme(_:)), $0.rawValue)
+            }),
             // Explorer's See more > Options (Folder Options).
             item("Options...", #selector(BrowserWindowController.showFolderOptions(_:)), ",", [.command, .option]),
         ])
@@ -171,6 +185,7 @@ enum MainMenu {
         }
         items.append(.separator())
         items.append(item("Compact View", #selector(BrowserWindowController.toggleCompactView(_:))))
+        items.append(submenu("Details Size", detailsSizeItems()))
         items.append(submenu("Show", showItems()))
         items.append(.separator())
         items.append(item("Make This the Default View", #selector(BrowserWindowController.makeDefaultView(_:))))
@@ -179,6 +194,14 @@ enum MainMenu {
             items.append(item("Choose Details...", #selector(BrowserWindowController.chooseDetails(_:))))
         }
         return items
+    }
+
+    /// View > Details Size: the four sizes, and a step up (Cmd++) or down (Cmd+-).
+    static func detailsSizeItems() -> [NSMenuItem] {
+        DetailsSize.allCases.map { choice($0.title, #selector(BrowserWindowController.setDetailsSize(_:)), $0.rawValue) }
+            + [.separator(),
+               item("Bigger", #selector(BrowserWindowController.detailsBigger(_:)), "+"),
+               item("Smaller", #selector(BrowserWindowController.detailsSmaller(_:)), "-")]
     }
 
     /// View > Show: the panes and what the list shows (Explorer's View > Show).

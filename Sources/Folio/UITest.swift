@@ -1,13 +1,26 @@
 import AppKit
 import FolioCore
 
-/// `Folio --uitest <folder|new> --shot <file> [--theme dark|light|system] [--accent <hue 0-359>]`
+/// `Folio --uitest <folder|new> --shot <file> [--theme dark|light|system] [--accent <hue 0-359>] [--look native|obsidian]
+///   [--tabs N] [--view <mode>] [--extra options|properties|preview|home]...`
 ///
 /// Runs inside the test VM only (docs/plan/RULES.md, rule 0). Opens one window off-screen on a test
 /// folder, waits for it to render, then from inside the app:
 ///   1. writes `<shot>-1-open.png` (its own window, via CGWindowListCreateImage of its window number),
 ///   2. clicks the Name header with a synthesized mouse down and up, writes `<shot>-2-name-sorted.png`,
 ///   3. clicks row index 3 the same way, writes `<shot>-3-row-selected.png`,
+/// Optional flags show more than the Details list. Without them the run is exactly the three steps above.
+///   --tabs N      opens N-1 more tabs on the same folder first, so the tab row shows (N from 1 to 12).
+///   --view <v>    switches the view first: details, list, tiles, content, gallery, icons (medium icons),
+///                 extraLargeIcons, largeIcons, mediumIcons or smallIcons. The choice goes to the
+///                 throwaway preferences only. In a view with no table the sort and the row selection
+///                 go straight to the window controller, since there is no header or row to click.
+///   --extra <s>   after step 3, opens a surface off-screen, shoots it as `<shot>-4-<s>.png`, closes it.
+///                 Repeat the flag for more. options is the Folder Options window, properties is the
+///                 Properties window of the selected row, preview is the Preview pane on the first file,
+///                 home is the Home page. The two windows are moved off every screen as well.
+/// Any preference can be set for one run as a launch argument, which macOS keeps in the argument domain
+/// and never saves: `-detailsSize large` shoots Details at the Large size.
 /// prints what it saw, and exits 0 when every step worked (1 otherwise, 2 for bad arguments, 3 on a
 /// 90 s timeout).
 /// `new` makes /private/tmp/folio-tests/<run id>/Code (40 folders, 8 files) and trashes it afterwards.
@@ -18,10 +31,27 @@ struct UITestConfig {
     /// Forced for this run only (the app itself follows the Mac); nil is the system's.
     var appearance: Appearance?
     var hue: Int
+    /// D4 Obsidian unless `--look native`: the VM proofs were made in D4.
+    var look: LookTheme
     var defaults: UserDefaults
+    /// `--tabs N`: how many tabs the window has for the shots.
+    var tabs = 1
+    /// `--view`: the view mode for the shots, nil is the throwaway store's (Details).
+    var view: ViewMode?
+    /// `--extra`: the surfaces shot after step 3, in the order given.
+    var extras: [String] = []
+
+    static let extraNames = ["options", "properties", "preview", "home"]
+    static let viewNames: [String: ViewMode] = [
+        "details": .details, "list": .list, "tiles": .tiles, "content": .content, "gallery": .gallery,
+        "icons": .mediumIcons, "extraLargeIcons": .extraLargeIcons, "largeIcons": .largeIcons,
+        "mediumIcons": .mediumIcons, "smallIcons": .smallIcons,
+    ]
 
     static let usage = "usage: Folio --uitest <folder under /private/tmp/folio-tests/ | new> --shot <file.png> "
-        + "[--theme dark|light|system] [--accent <hue 0-359>]"
+        + "[--theme dark|light|system] [--accent <hue 0-359>] [--look native|obsidian] "
+        + "[--tabs N] [--view details|list|tiles|content|gallery|icons|extraLargeIcons|largeIcons|mediumIcons|smallIcons] "
+        + "[--extra options|properties|preview|home]..."
 
     /// nil when `--uitest` is absent. Exits with code 2 on bad arguments.
     static func parse(_ args: [String]) -> UITestConfig? {
@@ -50,6 +80,30 @@ struct UITestConfig {
             hue = Accent.normalized(n)
         }
 
+        var look = LookTheme.obsidian
+        if let raw = value("--look") {
+            guard let l = LookTheme(rawValue: raw) else { fail("bad --look \(raw)") }
+            look = l
+        }
+
+        var tabs = 1
+        if let raw = value("--tabs") {
+            guard let n = Int(raw), (1...12).contains(n) else { fail("bad --tabs \(raw)") }
+            tabs = n
+        }
+        var view: ViewMode?
+        if let raw = value("--view") {
+            guard let mode = viewNames[raw] else { fail("bad --view \(raw)") }
+            view = mode
+        }
+        var extras: [String] = []
+        for (i, arg) in args.enumerated() where arg == "--extra" {
+            guard args.indices.contains(i + 1), extraNames.contains(args[i + 1]) else {
+                fail("bad --extra " + (args.indices.contains(i + 1) ? args[i + 1] : "(missing)"))
+            }
+            extras.append(args[i + 1])
+        }
+
         var folder: URL
         var made = false
         if args[flag + 1] == "new" {
@@ -70,7 +124,8 @@ struct UITestConfig {
             fail("could not make a temp preferences store")
         }
         let base = shot.hasSuffix(".png") ? String(shot.dropLast(4)) : shot
-        return UITestConfig(folder: folder, madeFixture: made, shotBase: base, appearance: appearance, hue: hue, defaults: defaults)
+        return UITestConfig(folder: folder, madeFixture: made, shotBase: base, appearance: appearance, hue: hue, look: look,
+                            defaults: defaults, tabs: tabs, view: view, extras: extras)
     }
 }
 
@@ -91,8 +146,19 @@ enum UITestRunner {
         window.setFrameOrigin(NSPoint(x: -20000, y: -20000))
         window.orderFrontRegardless()
 
-        let fontsOK = Typeface.ui(13).familyName == "Geist" && Typeface.mono(12).familyName == "Geist Mono"
-        report("fonts: Geist and Geist Mono " + (fontsOK ? "registered" : "MISSING, system fallback in use"))
+        // Geist ships in the bundle for D4 either way; Native draws in the system font (SF Pro).
+        let geist = NSFontManager.shared.availableMembers(ofFontFamily: "Geist") != nil
+            && NSFontManager.shared.availableMembers(ofFontFamily: "Geist Mono") != nil
+        let fontsOK: Bool
+        switch config.look {
+        case .obsidian:
+            fontsOK = Typeface.ui(13).familyName == "Geist" && Typeface.mono(12).familyName == "Geist Mono"
+            report("fonts: Geist and Geist Mono " + (fontsOK ? "registered" : "MISSING, system fallback in use"))
+        case .native:
+            let system = NSFont.systemFont(ofSize: 13).familyName
+            fontsOK = geist && Typeface.ui(13).familyName == system
+            report("fonts: Native in \(Typeface.ui(13).familyName ?? "?"), Geist " + (geist ? "registered" : "MISSING"))
+        }
         if !fontsOK { problems.append("fonts") }
 
         guard await wait(timeout: 10, { c.isIdle }) else {
@@ -100,6 +166,21 @@ enum UITestRunner {
             return finish(config, 1)
         }
         await settle(0.8)
+        // The optional setup: more tabs, then another view. Neither runs by default.
+        for n in 1..<max(config.tabs, 1) {
+            c.newTab(nil)
+            _ = await wait(timeout: 10, { c.isIdle })
+            report("tab \(n + 1) of \(config.tabs) opened on the same folder")
+        }
+        if config.tabs > 1 { await settle(0.5) }
+        if let mode = config.view {
+            // ViewCenter keeps this in the throwaway store, so nothing reaches the real preferences.
+            c.chooseView(mode)
+            _ = await wait(timeout: 10, { c.isIdle })
+            await settle(0.8)
+            report("view: \(c.viewMode.title)" + (c.viewMode == mode ? "" : " (asked for \(mode.title))"))
+            if c.viewMode != mode { problems.append("view") }
+        }
         report("folder: \(config.folder.path), \(c.entries.count) rows, "
                + "\(c.entries.filter(\.isFolder).count) folders, theme \(config.appearance?.rawValue ?? "system"), accent hue \(config.hue)")
         shot(window, config, "1-open", c, &problems)
@@ -107,9 +188,12 @@ enum UITestRunner {
         let before = c.sortSpec
         let target = before.clicking(.name)
         var how = "synthesized mouse down and up on the Name header"
-        c.uitestClickHeader(.name)
-        if !(await wait(timeout: 1.5, { c.sortSpec == target })) {
-            how = "fallback: tableView.sortDescriptors (the synthesized click did not sort)"
+        // Only Details has a header to click. Another view sorts as the header would.
+        if c.viewMode.usesTable { c.uitestClickHeader(.name) }
+        let headerSorted = c.viewMode.usesTable ? await wait(timeout: 1.5, { c.sortSpec == target }) : false
+        if !headerSorted {
+            how = c.viewMode.usesTable ? "fallback: tableView.sortDescriptors (the synthesized click did not sort)"
+                : "applySort (this view has no header)"
             c.uitestSortFallback(.name)
             if !(await wait(timeout: 1.5, { c.sortSpec == target })) { problems.append("header click") }
         }
@@ -121,8 +205,15 @@ enum UITestRunner {
 
         let row = 3
         how = "synthesized mouse down and up on row \(row)"
-        c.uitestClickRow(row)
-        if !(await wait(timeout: 1.5, { c.tableView.selectedRowIndexes == IndexSet(integer: row) })) {
+        if !c.viewMode.usesTable {
+            how = "selection.click and applySelection (this view has no table row)"
+            c.selection.click(row)
+            c.applySelection(scrollTo: row)
+            if c.selection.rows != IndexSet(integer: row) { problems.append("row select") }
+        } else {
+            c.uitestClickRow(row)
+        }
+        if c.viewMode.usesTable, !(await wait(timeout: 1.5, { c.tableView.selectedRowIndexes == IndexSet(integer: row) })) {
             how = "fallback: selectRowIndexes (the synthesized click did not select)"
             c.tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
             if c.tableView.selectedRowIndexes != IndexSet(integer: row) { problems.append("row select") }
@@ -132,8 +223,73 @@ enum UITestRunner {
         report("select row index \(row) via \(how): \(name); status reads \"\(c.statusText)\"")
         shot(window, config, "3-row-selected", c, &problems)
 
+        for extra in config.extras { await shootExtra(extra, window, config, c, &problems) }
+
         report(problems.isEmpty ? "result: ok" : "result: FAILED (" + problems.joined(separator: ", ") + ")")
         return finish(config, problems.isEmpty ? 0 : 1)
+    }
+
+    /// Step 4: one more surface, shot window-only like the others. Dialogs go off-screen and close again.
+    private static func shootExtra(_ name: String, _ window: BrowserWindow, _ config: UITestConfig,
+                                   _ c: BrowserWindowController, _ problems: inout [String]) async {
+        let suffix = "4-" + name
+        switch name {
+        case "options":
+            let known = Set(NSApp.windows.map(ObjectIdentifier.init))
+            FolderOptionsWindowController.show(near: window)
+            await shootDialog(known, suffix, config, c, &problems)
+        case "properties":
+            let urls = c.selectedEntries.map(\.url)
+            guard !urls.isEmpty else {
+                report("extra properties: no row is selected")
+                problems.append("extra properties")
+                return
+            }
+            let known = Set(NSApp.windows.map(ObjectIdentifier.init))
+            PropertiesWindowController.show(urls, near: window)
+            await shootDialog(known, suffix, config, c, &problems)
+        case "preview":
+            // ListOptions.sidePane would write the real preferences, so the pane is set on the chassis alone.
+            guard let index = c.entries.firstIndex(where: { !$0.isFolder }) else {
+                report("extra preview: the folder has no file")
+                problems.append("extra preview")
+                return
+            }
+            c.selection.click(index)
+            c.applySelection(scrollTo: index)
+            c.chassis.sidePaneKind = .preview
+            c.chassis.sidePane.show(selection: c.selectedEntries, folder: c.history.current,
+                                    folderName: c.displayName(c.history.current), itemCount: c.shownCount, meta: nil)
+            await settle(1.5)
+            report("extra preview: \(c.entries[index].name) in the Preview pane")
+            shot(window, config, suffix, c, &problems)
+            c.chassis.sidePaneKind = c.shownSidePane
+        case "home":
+            c.goHome(nil)
+            await settle(1.0)
+            report("extra home: \(c.homeStatusText)")
+            shot(window, config, suffix, c, &problems)
+            c.navigate(to: config.folder)
+            _ = await wait(timeout: 10, { c.isIdle })
+        default:
+            break
+        }
+    }
+
+    private static func shootDialog(_ known: Set<ObjectIdentifier>, _ suffix: String, _ config: UITestConfig,
+                                    _ c: BrowserWindowController, _ problems: inout [String]) async {
+        guard let dialog = NSApp.windows.first(where: { !known.contains(ObjectIdentifier($0)) && $0.isVisible }) else {
+            report("shot \(suffix): no window opened")
+            problems.append("shot \(suffix)")
+            return
+        }
+        // Off every screen, like the browser window. Setting the origin after ordering front skips the screen clamp.
+        dialog.setFrameOrigin(NSPoint(x: -20000, y: -20000))
+        await settle(0.8)
+        report("extra \(suffix): \"\(dialog.title)\" \(Int(dialog.frame.width))x\(Int(dialog.frame.height)) pt")
+        shot(dialog, config, suffix, c, &problems)
+        dialog.close()
+        await settle(0.2)
     }
 
     private static func finish(_ config: UITestConfig, _ code: Int32) -> Int32 {

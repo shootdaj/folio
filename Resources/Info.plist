@@ -47,6 +47,16 @@
 	<string>NSApplication</string>
 	<key>NSSupportsAutomaticTermination</key>
 	<false/>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>Folio is a file manager: it lists and opens the files on your Desktop.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>Folio is a file manager: it lists and opens the files in Documents.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>Folio is a file manager: it lists and opens the files in Downloads.</string>
+	<key>NSRemovableVolumesUsageDescription</key>
+	<string>Folio is a file manager: it lists and opens the files on external drives.</string>
+	<key>NSNetworkVolumesUsageDescription</key>
+	<string>Folio is a file manager: it lists and opens the files on network drives.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Folio lists the file servers on your network under Network, as Finder does.</string>
 	<key>NSBonjourServices</key>

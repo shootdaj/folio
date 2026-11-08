@@ -11,6 +11,10 @@ if let flag = CommandLine.arguments.firstIndex(of: "--selftest") {
     exit(SelfTest.run(folder))
 }
 
+if let flag = CommandLine.arguments.firstIndex(of: "--bench") {
+    exit(MainActor.assumeIsolated { Bench.run(Array(CommandLine.arguments.dropFirst(flag + 1))) })
+}
+
 let uitest = UITestConfig.parse(CommandLine.arguments)
 
 MainActor.assumeIsolated {

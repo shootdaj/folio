@@ -157,3 +157,15 @@ public enum RubberBand {
         adding ? base.union(hit) : hit
     }
 }
+
+/// When a loop that follows a mouse press must stop without its button-up event. Mission Control,
+/// Exposé or a Space switch can take the release, and the window would stay stuck in the press.
+public enum PressTracking {
+    /// `pressedButtons` is `NSEvent.pressedMouseButtons` (bit 0 left, bit 1 right); `button` is the
+    /// one pressed. `idle` is the time since the last event; `limit` nil means no idle limit.
+    public static func shouldStop(pressedButtons: Int, button: Int, idle: Double, limit: Double?) -> Bool {
+        if pressedButtons & (1 << button) == 0 { return true }
+        if let limit, idle >= limit { return true }
+        return false
+    }
+}

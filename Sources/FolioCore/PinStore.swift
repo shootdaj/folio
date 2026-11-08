@@ -1,7 +1,7 @@
 import Foundation
 
 /// The sidebar's Quick access pins, in order, saved under `quickAccessPins`. Until anything is pinned
-/// or unpinned it holds D1's favourites. Drop a folder on the group to pin it at that place, drag a pin
+/// or unpinned it holds Explorer's set (`QuickAccess.defaults`) of the folders that exist. Drop a folder on the group to pin it at that place, drag a pin
 /// to reorder, Unpin from its menu.
 public struct PinStore {
     public static let key = "quickAccessPins"
@@ -50,7 +50,7 @@ public struct PinStore {
 
     public mutating func replace(with list: [String]) { save(list.map(Self.clean)) }
 
-    /// What the sidebar draws: the folder name bright and, inside home, its parent dim ("Anshul/");
+    /// What the sidebar draws: the folder name bright and, inside home, its parent dim ("Projects/");
     /// outside home the parent folder's name.
     public var places: [QuickAccessPlace] {
         let base = Self.clean(home.path)

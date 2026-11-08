@@ -42,6 +42,22 @@ import Testing
         #expect(!tree.isLoaded(top))
     }
 
+    @Test func aFolderReadOffTheMainThreadIsUsedOnceAndFiltered() throws {
+        let t = try makeTree()
+        defer { t.close() }
+        let tree = FolderTree()
+        let top = path(t, "tree")
+        tree.prime([top: FolderTree.subfolders(of: top)])
+        #expect(!tree.isLoaded(top), "a primed folder is not in the tree until it is asked for")
+        let fromPrime = tree.children(of: top).map(\.name)
+        #expect(fromPrime == ["alpha", "beta", "File2", "File10", "Zeta"], "hidden folders are filtered as from the disk")
+        tree.invalidate(top)
+        try t.folder("tree/Added")
+        #expect(tree.children(of: top).map(\.name).contains("Added"), "after a change the disk is read again")
+        tree.prime([top: []])
+        #expect(tree.children(of: top).contains { $0.name == "Added" }, "a folder already in the tree keeps its children")
+    }
+
     @Test func foldersOnlyInNaturalOrderWithoutHiddenOnes() throws {
         let t = try makeTree()
         defer { t.close() }

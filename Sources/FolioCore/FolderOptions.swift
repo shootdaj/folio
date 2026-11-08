@@ -43,6 +43,8 @@ public struct FolderOptions: Equatable, Sendable {
     public var showStatusBar = true
     public var useCheckBoxes = false
     public var typing = Typing.selectItem
+    /// View > Details Size: the Details list's text, icons and rows.
+    public var detailsSize = DetailsSize.small
     /// The Recycle Bin's Display delete confirmation dialog, off as in Explorer.
     public var confirmDelete = false
 
@@ -51,6 +53,9 @@ public struct FolderOptions: Equatable, Sendable {
     public var showAllFolders = false
     public var showNetwork = true
     public var showThisPC = true
+    /// Hidden folders in the tree, apart from the list's "Show hidden files": off keeps the tree to the
+    /// folders Finder shows, with hidden items shown in the list.
+    public var navPaneShowHidden = false
 
     // Search
     public var dontUseIndex = false
@@ -128,7 +133,8 @@ public struct FolderOptions: Equatable, Sendable {
         case hiddenOff, hiddenOn, hideEmptyDrives, hideExtensions, hideFolderMergeConflicts, hideProtectedOSFiles
         case showDriveLetters, showCompressedInColour, showPopupDescriptions, showPreviewHandlers, showStatusBar
         case useCheckBoxes, typingSearchBox, typingSelect, confirmDelete
-        case expandToOpenFolder, showAllFolders, showNetwork, showThisPC
+        case detailsSmall, detailsMedium, detailsLarge, detailsExtraLarge
+        case expandToOpenFolder, showAllFolders, showNetwork, showThisPC, navPaneShowHidden
         case dontUseIndex, includeSystemDirectories, includeCompressedFiles, alwaysSearchContents
     }
 
@@ -166,10 +172,15 @@ public struct FolderOptions: Equatable, Sendable {
         case .typingSearchBox: typing == .searchBox
         case .typingSelect: typing == .selectItem
         case .confirmDelete: confirmDelete
+        case .detailsSmall: detailsSize == .small
+        case .detailsMedium: detailsSize == .medium
+        case .detailsLarge: detailsSize == .large
+        case .detailsExtraLarge: detailsSize == .extraLarge
         case .expandToOpenFolder: expandToOpenFolder
         case .showAllFolders: showAllFolders
         case .showNetwork: showNetwork
         case .showThisPC: showThisPC
+        case .navPaneShowHidden: navPaneShowHidden
         case .dontUseIndex: dontUseIndex
         case .includeSystemDirectories: includeSystemDirectories
         case .includeCompressedFiles: includeCompressedFiles
@@ -212,10 +223,15 @@ public struct FolderOptions: Equatable, Sendable {
         case .typingSearchBox: typing = .searchBox
         case .typingSelect: typing = .selectItem
         case .confirmDelete: confirmDelete.toggle()
+        case .detailsSmall: detailsSize = .small
+        case .detailsMedium: detailsSize = .medium
+        case .detailsLarge: detailsSize = .large
+        case .detailsExtraLarge: detailsSize = .extraLarge
         case .expandToOpenFolder: expandToOpenFolder.toggle()
         case .showAllFolders: showAllFolders.toggle()
         case .showNetwork: showNetwork.toggle()
         case .showThisPC: showThisPC.toggle()
+        case .navPaneShowHidden: navPaneShowHidden.toggle()
         case .dontUseIndex: dontUseIndex.toggle()
         case .includeSystemDirectories: includeSystemDirectories.toggle()
         case .includeCompressedFiles: includeCompressedFiles.toggle()
@@ -252,9 +268,16 @@ public struct FolderOptions: Equatable, Sendable {
         Row("When typing into list view", .heading, nil),
         Row("Automatically type into the Search Box", .radio(group: "typing"), .typingSearchBox, indent: 2),
         Row("Select the typed item in the view", .radio(group: "typing"), .typingSelect, indent: 2),
+        Row("Text and icon size in Details view", .heading, nil),
+        Row("Small", .radio(group: "detailsSize"), .detailsSmall, indent: 2, note: "13 pt names and 16 pt icons, as Finder"),
+        Row("Medium", .radio(group: "detailsSize"), .detailsMedium, indent: 2, note: "14 pt names and 20 pt icons"),
+        Row("Large", .radio(group: "detailsSize"), .detailsLarge, indent: 2, note: "16 pt names and 24 pt icons"),
+        Row("Extra large", .radio(group: "detailsSize"), .detailsExtraLarge, indent: 2, note: "18 pt names and 32 pt icons"),
         Row("Navigation pane", .heading, nil, indent: 0),
         Row("Expand to open folder", .check, .expandToOpenFolder),
         Row("Show all folders", .check, .showAllFolders, note: "Roots the tree at the top of the Mac: Home, drives, Network and the Recycle Bin"),
+        Row("Show hidden folders", .check, .navPaneShowHidden,
+            note: "Dot folders and hidden folders in the tree. The list follows Hidden files and folders"),
         Row("Show libraries", .check, nil),
         Row("Show Network", .check, .showNetwork),
         Row("Show This PC", .check, .showThisPC),
@@ -273,8 +296,8 @@ public struct FolderOptionsStore {
         "externalFoldersInNewTab", "reopenWindows", "keepRunningWithoutWindows",
         "showThumbnails", "fileIconOnThumbnails", "folderTipSizes", "fullPathInTitle", "showHiddenItems", "hideEmptyDrives",
         "showFileExtensions", "hideFolderMergeConflicts", "hideProtectedFiles", "showDriveLetters", "showCompressedInColour",
-        "showInfoTips", "showPreviewHandlers", "showStatusBar", "itemCheckBoxes", "typeIntoSearch", "confirmDelete",
-        "navPaneExpandToCurrent", "navPaneShowAllFolders", "navPaneShowNetwork", "navPaneShowThisPC",
+        "showInfoTips", "showPreviewHandlers", "showStatusBar", "itemCheckBoxes", "typeIntoSearch", "confirmDelete", "detailsSize",
+        "navPaneExpandToCurrent", "navPaneShowAllFolders", "navPaneShowNetwork", "navPaneShowThisPC", "navPaneShowHidden",
         "searchDontUseIndex", "searchSystemFiles", "searchZippedFolders", "searchFileContents",
     ]
 
@@ -293,8 +316,9 @@ public struct FolderOptionsStore {
             "showDriveLetters": o.showDriveLetters, "showCompressedInColour": o.showCompressedInColour,
             "showInfoTips": o.showPopupDescriptions, "showPreviewHandlers": o.showPreviewHandlers,
             "showStatusBar": o.showStatusBar, "itemCheckBoxes": o.useCheckBoxes, "typeIntoSearch": o.typing == .searchBox,
-            "confirmDelete": o.confirmDelete, "navPaneExpandToCurrent": o.expandToOpenFolder,
+            "confirmDelete": o.confirmDelete, "detailsSize": o.detailsSize.rawValue, "navPaneExpandToCurrent": o.expandToOpenFolder,
             "navPaneShowAllFolders": o.showAllFolders, "navPaneShowNetwork": o.showNetwork, "navPaneShowThisPC": o.showThisPC,
+            "navPaneShowHidden": o.navPaneShowHidden,
             "searchDontUseIndex": o.dontUseIndex, "searchSystemFiles": o.includeSystemDirectories,
             "searchZippedFolders": o.includeCompressedFiles, "searchFileContents": o.alwaysSearchContents,
         ]
@@ -329,10 +353,12 @@ public struct FolderOptionsStore {
         o.useCheckBoxes = bool("itemCheckBoxes", o.useCheckBoxes)
         o.typing = bool("typeIntoSearch", false) ? .searchBox : .selectItem
         o.confirmDelete = bool("confirmDelete", o.confirmDelete)
+        o.detailsSize = defaults.string(forKey: "detailsSize").flatMap(DetailsSize.init(rawValue:)) ?? o.detailsSize
         o.expandToOpenFolder = bool("navPaneExpandToCurrent", o.expandToOpenFolder)
         o.showAllFolders = bool("navPaneShowAllFolders", o.showAllFolders)
         o.showNetwork = bool("navPaneShowNetwork", o.showNetwork)
         o.showThisPC = bool("navPaneShowThisPC", o.showThisPC)
+        o.navPaneShowHidden = bool("navPaneShowHidden", o.navPaneShowHidden)
         o.dontUseIndex = bool("searchDontUseIndex", o.dontUseIndex)
         o.includeSystemDirectories = bool("searchSystemFiles", o.includeSystemDirectories)
         o.includeCompressedFiles = bool("searchZippedFolders", o.includeCompressedFiles)
