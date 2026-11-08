@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import FolioCore
 
-/// Quick access pins: D1's favourites until something is pinned, drop-to-pin at a place, drag to
+/// Quick access pins: Explorer's set until something is pinned, drop-to-pin at a place, drag to
 /// reorder, unpin, and the order kept across launches.
 @Suite struct PinStoreTests {
     private let home = URL(fileURLWithPath: "/Users/someone", isDirectory: true)
@@ -15,11 +15,24 @@ import Testing
         try body(defaults)
     }
 
-    @Test func startsWithD1sFavourites() throws {
+    @Test func startsWithExplorersSetOfTheFoldersThatExist() throws {
         try withDefaults { d in
+            let home = URL(fileURLWithPath: "/private/tmp/folio-tests/pins-home-\(UUID().uuidString)", isDirectory: true)
+            defer { try? FileManager.default.trashItem(at: home, resultingItemURL: nil) }
+            for name in ["Movies", "Downloads", "Desktop", "Documents"] {
+                try FileManager.default.createDirectory(at: home.appendingPathComponent(name), withIntermediateDirectories: true)
+            }
             let store = PinStore(defaults: d, home: home)
-            #expect(store.paths == QuickAccess.defaults.map { "/Users/someone/" + $0 })
-            #expect(store.places.first == QuickAccessPlace(title: "Code", prefix: "Anshul/", path: "/Users/someone/Anshul/Code"))
+            #expect(store.paths == ["Desktop", "Downloads", "Documents", "Movies"].map { home.path + "/" + $0 })
+            #expect(store.places.first == QuickAccessPlace(title: "Desktop", prefix: "", path: home.path + "/Desktop"))
+            // The defaults are not saved: a folder made later shows up until something is pinned.
+            #expect(d.array(forKey: PinStore.key) == nil)
+        }
+    }
+
+    @Test func aHomeWithNoneOfTheFoldersStartsEmpty() throws {
+        try withDefaults { d in
+            #expect(PinStore(defaults: d, home: home).paths.isEmpty)
         }
     }
 

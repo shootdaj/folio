@@ -16,6 +16,17 @@ final class ItemDecorCache {
         icons = [:]
     }
 
+    /// Forgets what was read for the items in `folder` and below (a load or refresh of that folder);
+    /// other windows' rows keep theirs.
+    func clear(under folder: URL) {
+        // Rows read in other folders stay, up to a bound.
+        if tags.count + flags.count + icons.count > 20_000 { clear(); return }
+        let prefix = folder.path == "/" ? "/" : folder.path + "/"
+        tags = tags.filter { !$0.key.hasPrefix(prefix) }
+        flags = flags.filter { !$0.key.hasPrefix(prefix) }
+        icons = icons.filter { !$0.key.hasPrefix(prefix) }
+    }
+
     func forget(_ url: URL) {
         tags[url.path] = nil
         flags[url.path] = nil
@@ -29,16 +40,23 @@ final class ItemDecorCache {
         return colors
     }
 
-    /// Locked (uchg) or compressed (APFS/HFS compression).
-    func lockedOrCompressed(_ url: URL) -> Bool {
+    private static let lockedOrCompressedMask = UInt32(UF_IMMUTABLE | UF_COMPRESSED | SF_IMMUTABLE)
+
+    /// Locked (uchg) or compressed (APFS/HFS compression). The listing's flags answer without a disk read.
+    func lockedOrCompressed(_ entry: FileEntry) -> Bool {
+        if let f = entry.bsdFlags { return f & Self.lockedOrCompressedMask != 0 }
+        let url = entry.url
         if let known = flags[url.path] { return known }
         var st = stat()
-        let on = lstat(url.path, &st) == 0 && st.st_flags & UInt32(UF_IMMUTABLE | UF_COMPRESSED | SF_IMMUTABLE) != 0
+        let on = lstat(url.path, &st) == 0 && st.st_flags & Self.lockedOrCompressedMask != 0
         flags[url.path] = on
         return on
     }
 
-    func customIcon(_ url: URL) -> NSImage? {
+    /// A folder's own icon. The listing's Finder flags rule out most folders without a disk read.
+    func customIcon(_ entry: FileEntry) -> NSImage? {
+        guard entry.mayHaveCustomIcon else { return nil }
+        let url = entry.url
         if let known = icons[url.path] { return known }
         let icon = FolderIcon.hasCustomIcon(url) ? NSWorkspace.shared.icon(forFile: url.path) : nil
         icons[url.path] = icon
@@ -72,8 +90,8 @@ extension BrowserWindowController {
         let real = !isInZip
         cell.tagColors = real ? decor.tagColors(entry.url) : []
         cell.underline = o.singleClickOpens ? o.underline : nil
-        cell.isFlagDimmed = real && o.showCompressedInColour && decor.lockedOrCompressed(entry.url)
-        cell.customIcon = real && entry.isFolder ? decor.customIcon(entry.url) : nil
+        cell.isFlagDimmed = real && o.showCompressedInColour && decor.lockedOrCompressed(entry)
+        cell.customIcon = real && entry.isFolder ? decor.customIcon(entry) : nil
         cell.tip = o.showPopupDescriptions ? { [weak self] in self?.infoTip(entry) } : nil
     }
 
@@ -82,7 +100,7 @@ extension BrowserWindowController {
         let decor = ItemDecorCache.shared
         cell.showsTypeBadge = o.fileIconOnThumbnails
         cell.tagColors = isInZip ? [] : decor.tagColors(entry.url)
-        cell.isFlagDimmed = !isInZip && o.showCompressedInColour && decor.lockedOrCompressed(entry.url)
+        cell.isFlagDimmed = !isInZip && o.showCompressedInColour && decor.lockedOrCompressed(entry)
         cell.tip = o.showPopupDescriptions ? { [weak self] in self?.infoTip(entry) } : nil
     }
 
@@ -112,10 +130,11 @@ extension BrowserWindowController {
         treeWatcher?.stop()
     }
 
-    /// The folders every tab shows (not Home, not inside a zip), and the tree's roots.
+    /// The folders every tab shows (not Home, not inside a zip), the shown tab's folders open in place, and
+    /// the tree's roots.
     func updateWatches() {
         let folders = tabs.tabs.map(\.history.current).filter { !NavigationHistory.isHome($0) && ZipPath.split($0) == nil }
-        folderWatcher?.watch(Set(folders.map(\.path)))
+        folderWatcher?.watch(Set(folders.map(\.path)).union(expandedFolders))
         let roots = Set(volumes.map(\.path) + [FileManager.default.homeDirectoryForCurrentUser.path])
         treeWatcher?.watch(roots: roots)
     }
@@ -123,22 +142,31 @@ extension BrowserWindowController {
     /// The shown tab's folder changed on disk: listed again, selection and scroll kept.
     private func watchedFoldersChanged(_ keys: Set<String>) {
         guard !history.isHome, !isInZip, !isSearching else { return }
-        guard keys.contains(FilePaths.folderKey(history.current)) else { return }
-        ItemDecorCache.shared.clear()
+        guard keys.contains(FilePaths.folderKey(history.current)) || !keys.isDisjoint(with: expandedFolders) else { return }
+        ItemDecorCache.shared.clear(under: history.current)
         perfLog.notice("auto-refresh: \(self.history.current.path, privacy: .public) changed on disk")
         reloadContents()
     }
 
     /// Folders under the tree's roots changed: nodes already read whose subfolders differ are read again.
+    /// The folders are read off the main thread, and a stale node takes the read instead of a second one.
     private func treeFoldersChanged(_ keys: Set<String>) {
-        let tree = chassis.sidebar.pane.tree
-        var stale: Set<String> = []
-        for key in keys {
-            guard let cached = tree.cachedChildren(of: key) else { continue }
-            let now = FolderTree.subfolders(of: key).filter { tree.showHidden || !$0.isHidden }.map(\.path)
-            if Set(cached.map(\.path)) != Set(now) { stale.insert(key) }
+        let loaded = keys.filter { chassis.sidebar.pane.tree.isLoaded($0) }
+        guard !loaded.isEmpty else { return }
+        Task.detached(priority: .utility) { [weak self] in
+            var lists: [String: [TreeFolder]] = [:]
+            for key in loaded { lists[key] = FolderTree.subfolders(of: key) }
+            await MainActor.run {
+                guard let self else { return }
+                let pane = self.chassis.sidebar.pane
+                var stale: Set<String> = []
+                for (key, all) in lists {
+                    guard let cached = pane.tree.cachedChildren(of: key) else { continue }
+                    if cached.map(\.path) != pane.tree.shown(all).map(\.path) { stale.insert(key) }
+                }
+                if !stale.isEmpty { pane.refresh(folders: stale, lists: lists) }
+            }
         }
-        if !stale.isEmpty { chassis.sidebar.pane.refresh(folders: stale) }
     }
 
     // MARK: Access keys (Explorer's Alt)
@@ -205,7 +233,7 @@ extension BrowserWindowController {
     /// folder, Tags... for a new one, Remove all tags.
     func tagsMenu() -> NSMenu {
         let menu = NSMenu(title: "Tags")
-        menu.font = Typeface.mono(13)
+        menu.font = Typeface.menu()
         let urls = selectedURLs
         func state(_ tag: FileTag) -> NSControl.StateValue {
             switch FileTags.state(of: tag, on: urls) { case .on: .on; case .mixed: .mixed; case .off: .off }

@@ -93,7 +93,7 @@ final class DropTipView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         // D4's `.tip`: --tip-bg (s4), a line-2 hairline, radius 8.
         fillRounded(bounds, radius: 8, p.s4)
         strokeRounded(bounds, radius: 8, p.line2)
@@ -125,7 +125,7 @@ extension BrowserWindowController: NSDraggingSource, DropHost {
     // MARK: Dragging out
 
     func list(_ list: NSView, beginDragWith event: NSEvent, rightButton: Bool) {
-        let rows = selection.rows
+        let rows = outermostSelectedRows
         guard !rows.isEmpty else { return }
         // Out of a zip: the entries are copied out to a temp folder first, and those files are dragged.
         var staged: [Int: URL] = [:]
@@ -382,7 +382,7 @@ extension BrowserWindowController: NSDraggingSource, DropHost {
         guard let content = window?.contentView else { return }
         let menu = NSMenu(title: "Drop")
         menu.autoenablesItems = false
-        menu.font = Typeface.mono(13)
+        menu.font = Typeface.menu()
         let choices: [(String, DropAction)] = [("Move here", .move), ("Copy here", .copy), ("Create alias here", .alias)]
         for (title, action) in choices {
             let item = NSMenuItem(title: title, action: #selector(dropMenuChose(_:)), keyEquivalent: "")

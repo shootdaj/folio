@@ -17,6 +17,10 @@
 set -u
 
 APP="$HOME/folio/Folio.app"
+# These scripts check the D4 Obsidian look (View > Theme); the app's default is Native.
+defaults write com.anshul.folio lookTheme obsidian
+# The VM has no Full Disk Access to give: the launch alert (DiskAccessPrompt) must not hold the run.
+defaults write com.anshul.folio diskAccessDismissed -bool true
 SHOTS="$HOME/folio/shots"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 ROOT="/private/tmp/folio-tests/look-$STAMP"
@@ -263,7 +267,7 @@ quit_folio
 for k in session accentHue theme accent quickAccessPins navPaneCollapsed homeCollapsed favorites recentFiles addressHistory \
          navPaneExpandToCurrent navPaneShown navPaneWidth showHiddenItems defaultView detailsColumns showFileExtensions \
          showThumbnails compactView sidePane itemCheckBoxes searchBoxWidth fullPathInTitle showStatusBar \
-         navPaneShowAllFolders navPaneShowNetwork navPaneShowThisPC; do
+         navPaneShowAllFolders navPaneShowNetwork navPaneShowThisPC navPaneShowHidden detailsSize; do
     defaults delete com.anshul.folio "$k" >/dev/null 2>&1
 done
 # View > Navigation pane > Always expand to current folder off, so the sidebar shows D4's three cards

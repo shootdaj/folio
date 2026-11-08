@@ -27,6 +27,7 @@ final class FilterPanelController {
     func show(below rect: NSRect, in view: NSView) {
         guard let window = view.window else { return }
         refresh()
+        if ThemeController.shared.isNative { panel.appearance = window.effectiveAppearance }
         let anchor = window.convertToScreen(view.convert(rect, to: nil))
         let size = panel.view.preferredSize
         var x = anchor.maxX - size.width + 6
@@ -131,7 +132,16 @@ final class FilterPanel: NSPanel {
         becomesKeyOnlyIfNeeded = true
         animationBehavior = .none
         self.title = title
-        contentView = view
+        if ThemeController.shared.isNative {
+            // Native: the system popover material behind the view, which draws no fill or border.
+            let material = ClickThroughEffectView(material: .popover, cornerRadius: 10)
+            view.frame = material.bounds
+            view.autoresizingMask = [.width, .height]
+            material.addSubview(view)
+            contentView = material
+        } else {
+            contentView = view
+        }
         view.setAccessibilityLabel(title)
     }
 
@@ -209,12 +219,19 @@ final class FilterView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
-        fillRounded(bounds, radius: 12, p.pop.over(p.bg))
-        strokeRounded(bounds, radius: 12, p.line2)
-        let head = "FILTER  " + column.title.uppercased()
-        drawLine(head, font: Typeface.mono(12, weight: 600), color: p.muted, x: 14, midY: Self.headH / 2, kern: Typeface.labelKern(12))
-        fillRect(NSRect(x: 1, y: Self.headH - 1, width: bounds.width - 2, height: 1), p.line)
+        let p = ThemeColors.current
+        let native = ThemeController.shared.isNative
+        if native {
+            // No fill, no border and no head hairline: the popover material is the panel.
+            drawLine("Filter  " + column.title, font: Typeface.ui(11, weight: 600), color: NSColor.secondaryLabelColor, x: 14,
+                     midY: Self.headH / 2)
+        } else {
+            fillRounded(bounds, radius: 12, p.pop.over(p.bg))
+            strokeRounded(bounds, radius: 12, p.line2)
+            let head = Typeface.caption("Filter  " + column.title)
+            drawLine(head, font: Typeface.mono(12, weight: 600), color: p.muted, x: 14, midY: Self.headH / 2, kern: Typeface.labelKern(12))
+            fillRect(NSRect(x: 1, y: Self.headH - 1, width: bounds.width - 2, height: 1), p.line)
+        }
         let top = Self.headH + calendarH
         if column.isDate { fillRect(NSRect(x: 10, y: top - 4, width: bounds.width - 20, height: 1), p.line) }
         if !message.isEmpty {
@@ -297,7 +314,7 @@ final class MonthCalendarView: NSView {
         dragStart = d
         dragEnd = d
         needsDisplay = true
-        while let next = window?.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
+        while let window, let next = MouseTracking.next(window, [.leftMouseDragged, .leftMouseUp], idle: nil) {
             let q = convert(next.locationInWindow, from: nil)
             if let j = index(at: q) { dragEnd = day(at: j); needsDisplay = true }
             if next.type == .leftMouseUp { break }
@@ -316,7 +333,7 @@ final class MonthCalendarView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         let title = month.formatted(.dateTime.month(.wide).year())
         let tf = Typeface.ui(13, weight: 650)
         drawLine(title, font: tf, color: p.text, x: bounds.midX - textWidth(title, font: tf) / 2, midY: headH / 2 + 1)
@@ -336,12 +353,12 @@ final class MonthCalendarView: NSView {
             let inMonth = cal.isDate(d, equalTo: month, toGranularity: .month)
             let picked = isPicked(d)
             if picked {
-                fillRounded(r, radius: 3, p.accent)
+                fillRounded(r, radius: 3, ThemeController.shared.isNative ? NSColor.controlAccentColor : p.accent.ns)
             } else if d == today {
                 strokeRounded(r, radius: 3, p.accent)
             }
             let n = "\(cal.component(.day, from: d))"
-            let tone: RGBA = picked ? p.onAccent : (inMonth ? p.text : p.muted)
+            let tone: NSColor = picked ? p.onAccent : (inMonth ? p.text : p.muted)
             drawLine(n, font: df, color: tone, x: r.midX - textWidth(n, font: df) / 2, midY: r.midY - 1)
             if daysWithItems.contains(cal.startOfDay(for: d)) {
                 (picked ? p.onAccent : p.accent).ns.setFill()

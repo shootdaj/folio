@@ -48,13 +48,22 @@ import Testing
 }
 
 @Suite struct QuickAccessTests {
-    @Test func codeComesFirstThenTheStandardFolders() {
-        let home = URL(fileURLWithPath: "/Users/someone")
+    @Test func theDefaultsAreExplorersSetInExplorersOrder() {
+        #expect(QuickAccess.defaults == ["Desktop", "Downloads", "Documents", "Pictures", "Music", "Movies"])
+        #expect(!QuickAccess.defaults.contains { $0.contains("/") })
+    }
+
+    @Test func placesListTheDefaultFoldersThatExistInHome() throws {
+        let home = URL(fileURLWithPath: "/private/tmp/folio-tests/qa-home-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.trashItem(at: home, resultingItemURL: nil) }
+        for name in ["Desktop", "Documents", "Music"] {
+            try FileManager.default.createDirectory(at: home.appendingPathComponent(name), withIntermediateDirectories: true)
+        }
+        // A file with a default folder's name is not a folder, so it is left out too.
+        try Data().write(to: home.appendingPathComponent("Pictures"))
         let places = QuickAccess.places(home: home)
-        #expect(places.map(\.title) == ["Code", "Downloads", "Desktop", "Documents", "Pictures", "Movies"])
-        #expect(places[0].prefix == "Anshul/")
-        #expect(places[0].path == "/Users/someone/Anshul/Code")
-        #expect(places[1].prefix == "")
-        #expect(places[1].path == "/Users/someone/Downloads")
+        #expect(places.map(\.title) == ["Desktop", "Documents", "Music"])
+        #expect(places.allSatisfy { $0.prefix.isEmpty })
+        #expect(places.map(\.path) == ["Desktop", "Documents", "Music"].map { home.path + "/" + $0 })
     }
 }

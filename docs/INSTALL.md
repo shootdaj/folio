@@ -25,8 +25,8 @@ Releases zip ──► /Applications ──► make install-cli ──► BTT pr
    ```
    (Or try to open it, then System Settings > Privacy & Security > **Open Anyway**.)
 4. Open it once from /Applications. That registers it with Launch Services, so `ff`, `open -b
-   com.anshul.folio` and folio: links find it. Its Dock icon is the folder with the green light (a light
-   version on a light Mac).
+   com.anshul.folio` and folio: links find it. Its Dock icon is three glass leaves: a blue front leaf on a
+   white tile, or a white one on a graphite tile in macOS 26's dark icon style.
 
 `/Applications/Folio.app/Contents/MacOS/Folio --version` prints the version and the commit it was built
 from, for example `Folio 1.0.0 (f12cd6f)`.
@@ -42,7 +42,9 @@ make install                # copies it to /Applications and registers it
 ```
 
 `make app` draws the Dock icon (`folio-icon` writes build/Folio.iconset, `iconutil` turns it into
-Folio.icns) and stamps the version from the git tags (`git describe --tags --always --dirty`: 1.0.0 on the
+Folio.icns). If Xcode is installed, `actool` also compiles build/AppIcon.icon into Assets.car, which has
+the dark icon for macOS 26's dark icon style. Without Xcode the light icon shows in every style. `make
+app` also stamps the version from the git tags (`git describe --tags --always --dirty`: 1.0.0 on the
 tag v1.0.0, 1.0.0-3-gabc1234 three commits after it) and the commit into the bundle.
 
 `make install` copies build/Folio.app to /Applications (an older copy goes to the Trash first) and
@@ -95,14 +97,59 @@ Folio > **Open Folders in Folio Instead of Finder**, or View > Options... > Gene
 **Open folders in Folio instead of Finder**. Folio asks Launch Services to make it the default app for
 folders (`public.folder`) and drives (`public.volume`), reads the answer back, and shows what macOS kept.
 
-Measured in the test VM (macOS 15.7): macOS accepted both, and `open <folder>` from Terminal then opened
-the folder in Folio, as a new tab.
+**macOS 26 keeps folders on Finder.** Measured on macOS 26.4.1: Launch Services refuses
+`public.folder` with error -50 (`paramErr`) for every app, Finder too. The system log says
+`scheme or content type is protected`. Only Apple processes with a private entitlement (Finder,
+CoreServicesUIAgent) can change this default, and System Settings has no control for it. This is a
+macOS limit, not a Folio fault. Drives still change: after the click, a drive's root opens in Folio.
+Folio then shows the box as on, so a second click hands drives back to Finder.
 
-The known limit: **"Reveal in Finder" and "Show in Finder" in other apps stay on Finder.** They call
-Finder by name, not the default app for folders. Folders opened through Launch Services follow the
-setting: `open <folder>` in Terminal (measured), and other apps that open a folder rather than reveal it.
-Double-clicking a folder inside Finder stays in Finder. For a reveal in Folio, use `ff --reveal <path>`.
-Turning the box off hands folders back to Finder.
+Measured in the test VM (macOS 15.7): macOS accepted both types, and `open <folder>` from Terminal then
+opened the folder in Folio, as a new tab.
+
+The known limits on every version:
+- **"Reveal in Finder" and "Show in Finder" in other apps go to Finder**, unless **Reveal in Folio
+  instead of Finder** is on (below).
+- Folders that other apps open (`open <folder>` in Terminal, for example) go to the default app for
+  folders. On macOS 26 that is always Finder.
+- Double-clicking a folder inside Finder stays in Finder.
+
+In Terminal, use `ff --reveal <path>` for a reveal in Folio.
+
+### Reveal in Folio instead of Finder
+
+Folio > **Reveal in Folio Instead of Finder**, or View > Options... > General > Folio and macOS >
+**Reveal in Folio instead of Finder**. Folio sets the `NSFileViewer` user default in the global domain
+to Folio. It is the same as this command:
+
+```sh
+defaults write -g NSFileViewer -string com.anshul.folio
+```
+
+AppKit reads this setting when an app calls "Reveal in Finder" or "Show in Finder" through
+`NSWorkspace`. Turning the box off removes the key when it names Folio, so reveals go to Finder
+again. If the key names another app (ForkLift, for example), turning the box on replaces it and tells
+you which app it replaced.
+
+Measured on macOS 26.4.1, with probe apps in place of Folio:
+- A reveal of a file opens Folio with the file selected in its folder.
+- A reveal of a folder and a plain open of a folder (`open -a Folio <folder>`) send identical events.
+  Only the sender is different: a reveal comes from the app that asks for it, and a command-line tool is
+  no app. So Folio shows a folder selected in its parent when this box is on and the folder comes from
+  another app. A folder from a command-line tool, the Dock (a drop on Folio's icon), Finder (Open With),
+  or a drive's root opens the folder itself.
+- A plain folder open from another app does not follow this setting. It goes to the default app for
+  folders, which macOS 26 keeps on Finder. Where Folio is the default app for folders (macOS 15), such
+  an open reaches Folio and looks the same as a reveal. With this box on, Folio then shows the folder
+  selected in its parent. Turn the box off to open the folder itself.
+- If the app that the key names is missing, AppKit logs
+  `Finder replacement <id> not found; "defaults delete -g NSFileViewer" to remove`.
+
+Not measured:
+- The Dock and Finder senders. Their bundle IDs are on the list, but no test dropped a folder on the Dock.
+- Whether an app that is already open follows the change at once. If a reveal still goes to Finder,
+  quit and reopen that app.
+- Scripts and Apple events that address Finder by name always go to Finder.
 
 ## 6. The rest of Folder Options > General > Folio and macOS
 
@@ -119,13 +166,14 @@ Settings live in `~/Library/Preferences/com.anshul.folio.plist`.
 
 ## Uninstall
 
-1. In Folio, turn off **Open folders in Folio instead of Finder** (folders go back to Finder) and
-   **Launch Folio at login**.
+1. In Folio, turn off **Open folders in Folio instead of Finder** (folders go back to Finder),
+   **Reveal in Folio instead of Finder** (reveals go back to Finder) and **Launch Folio at login**.
 2. Quit Folio (Cmd+Q), then:
    ```sh
    make uninstall
    ```
-   It moves /Applications/Folio.app and ff (/usr/local/bin or ~/bin) to the Trash.
+   It moves /Applications/Folio.app and ff (/usr/local/bin or ~/bin) to the Trash. If `NSFileViewer`
+   still names Folio, it removes that key, so reveals go to Finder again.
 3. In BetterTouchTool, turn off or delete the Folio preset.
 4. Optional: move `~/Library/Application Support/Folio` and `~/Library/Preferences/com.anshul.folio.plist`
    to the Trash to forget the session, saved searches and settings.

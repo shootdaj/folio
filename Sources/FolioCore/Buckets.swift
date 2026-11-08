@@ -33,12 +33,41 @@ public struct Bucket: Sendable, Hashable {
 /// What "today" and "this week" mean when bucketing dates: now, and the user's calendar (time zone
 /// and first day of the week).
 public struct BucketContext: Sendable {
-    public var now: Date
-    public var calendar: Calendar
+    public var now: Date { didSet { edges = DateEdges(now: now, calendar: calendar) } }
+    public var calendar: Calendar { didSet { edges = DateEdges(now: now, calendar: calendar) } }
+    /// The date buckets' edges, worked out once for `now` instead of once per item.
+    private(set) var edges: DateEdges
 
     public init(now: Date = Date(), calendar: Calendar = .current) {
         self.now = now
         self.calendar = calendar
+        edges = DateEdges(now: now, calendar: calendar)
+    }
+}
+
+/// Where each date bucket starts, for one moment: midnight splits days and the week starts on the
+/// calendar's first weekday.
+struct DateEdges: Sendable {
+    let today, tomorrow, dayAfterTomorrow, yesterday: Date
+    let week, weekPlus7, weekPlus14, weekMinus7: Date
+    let month, monthPlus1, monthMinus1: Date
+    let year, yearPlus1: Date
+
+    init(now: Date, calendar cal: Calendar) {
+        func add(_ unit: Calendar.Component, _ n: Int, _ to: Date) -> Date { cal.date(byAdding: unit, value: n, to: to)! }
+        today = cal.startOfDay(for: now)
+        tomorrow = add(.day, 1, today)
+        dayAfterTomorrow = add(.day, 1, tomorrow)
+        yesterday = add(.day, -1, today)
+        week = cal.dateInterval(of: .weekOfYear, for: now)?.start ?? today
+        weekPlus7 = add(.day, 7, week)
+        weekPlus14 = add(.day, 14, week)
+        weekMinus7 = add(.day, -7, week)
+        month = cal.dateInterval(of: .month, for: now)?.start ?? today
+        monthPlus1 = add(.month, 1, month)
+        monthMinus1 = add(.month, -1, month)
+        year = cal.dateInterval(of: .year, for: now)?.start ?? today
+        yearPlus1 = add(.year, 1, year)
     }
 }
 
@@ -55,11 +84,25 @@ public enum Buckets {
         Bucket(id: "other", title: "Other", rank: 4),
     ]
 
+    private static let posix = Locale(identifier: "en_US_POSIX")
+    private static let dateBucketsByID = Dictionary(uniqueKeysWithValues: dateBuckets.map { ($0.id, $0) })
+    private static func dateBucket(_ id: String) -> Bucket { dateBucketsByID[id]! }
+
     /// By the first character: digits, then Latin letters in three ranges (accents folded), else Other.
     public static func name(_ name: String) -> Bucket {
         guard let first = name.first else { return nameBuckets[4] }
+        // Plain ASCII needs no folding (most names start so).
+        if let a = first.asciiValue {
+            switch a {
+            case 0x30...0x39: return nameBuckets[0]
+            case 0x41...0x48, 0x61...0x68: return nameBuckets[1]
+            case 0x49...0x50, 0x69...0x70: return nameBuckets[2]
+            case 0x51...0x5A, 0x71...0x7A: return nameBuckets[3]
+            default: return nameBuckets[4]
+            }
+        }
         let folded = String(first).folding(options: [.diacriticInsensitive, .caseInsensitive, .widthInsensitive],
-                                           locale: Locale(identifier: "en_US_POSIX")).uppercased()
+                                           locale: posix).uppercased()
         guard let scalar = folded.unicodeScalars.first, folded.unicodeScalars.count == 1 else { return nameBuckets[4] }
         switch scalar.value {
         case 0x30...0x39: return nameBuckets[0]
@@ -114,35 +157,27 @@ public enum Buckets {
         Bucket(id: "future", title: "Sometime in the future", rank: 13),
     ]
 
-    private static func dateBucket(_ id: String) -> Bucket { dateBuckets.first { $0.id == id }! }
 
     /// Checked in order, first match wins; midnight splits days and the week starts on the calendar's
     /// first weekday. There is no Last year: before 1 January is A long time ago.
     public static func date(_ date: Date?, _ context: BucketContext) -> Bucket {
         guard let date else { return .unspecified }
-        let cal = context.calendar
-        let now = context.now
-        let today = cal.startOfDay(for: now)
-        func add(_ unit: Calendar.Component, _ n: Int, _ to: Date) -> Date { cal.date(byAdding: unit, value: n, to: to)! }
-        let tomorrow = add(.day, 1, today)
-        let week = cal.dateInterval(of: .weekOfYear, for: now)?.start ?? today
-        let month = cal.dateInterval(of: .month, for: now)?.start ?? today
-        let year = cal.dateInterval(of: .year, for: now)?.start ?? today
-        if date >= tomorrow {
-            if date < add(.day, 1, tomorrow) { return dateBucket("tomorrow") }
-            if date < add(.day, 7, week) { return dateBucket("laterThisWeek") }
-            if date < add(.day, 14, week) { return dateBucket("nextWeek") }
-            if date < add(.month, 1, month) { return dateBucket("laterThisMonth") }
-            if date < add(.year, 1, year) { return dateBucket("laterThisYear") }
+        let e = context.edges
+        if date >= e.tomorrow {
+            if date < e.dayAfterTomorrow { return dateBucket("tomorrow") }
+            if date < e.weekPlus7 { return dateBucket("laterThisWeek") }
+            if date < e.weekPlus14 { return dateBucket("nextWeek") }
+            if date < e.monthPlus1 { return dateBucket("laterThisMonth") }
+            if date < e.yearPlus1 { return dateBucket("laterThisYear") }
             return dateBucket("future")
         }
-        if date >= today { return dateBucket("today") }
-        if date >= add(.day, -1, today) { return dateBucket("yesterday") }
-        if date >= week { return dateBucket("earlierThisWeek") }
-        if date >= add(.day, -7, week) { return dateBucket("lastWeek") }
-        if date >= month { return dateBucket("earlierThisMonth") }
-        if date >= add(.month, -1, month) { return dateBucket("lastMonth") }
-        if date >= year { return dateBucket("earlierThisYear") }
+        if date >= e.today { return dateBucket("today") }
+        if date >= e.yesterday { return dateBucket("yesterday") }
+        if date >= e.week { return dateBucket("earlierThisWeek") }
+        if date >= e.weekMinus7 { return dateBucket("lastWeek") }
+        if date >= e.month { return dateBucket("earlierThisMonth") }
+        if date >= e.monthMinus1 { return dateBucket("lastMonth") }
+        if date >= e.year { return dateBucket("earlierThisYear") }
         return dateBucket("longAgo")
     }
 
@@ -199,3 +234,4 @@ public enum Buckets {
         }.map { ($0, counts[$0]!) }
     }
 }
+

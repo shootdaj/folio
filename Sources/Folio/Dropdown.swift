@@ -62,6 +62,7 @@ final class Dropdown {
         guard let window = view.window else { return }
         close()
         let panel = DropdownPanel(content: content)
+        if ThemeController.shared.isNative { panel.appearance = window.effectiveAppearance }
         panel.view.onPick = { [weak self] index in self?.pick(index) }
         self.panel = panel
         self.id = id
@@ -167,11 +168,51 @@ final class DropdownPanel: NSPanel {
         becomesKeyOnlyIfNeeded = true
         animationBehavior = .none
         title = content.title
-        contentView = view
+        if ThemeController.shared.isNative {
+            // Native: the system menu material behind the rows, with no fill or border of our own.
+            let material = ClickThroughEffectView(material: .menu, cornerRadius: 10)
+            view.frame = material.bounds
+            view.autoresizingMask = [.width, .height]
+            material.addSubview(view)
+            contentView = material
+        } else {
+            contentView = view
+        }
     }
 
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
+}
+
+/// A material view that never takes a click, so the rows above it get every mouse event.
+final class ClickThroughEffectView: NSVisualEffectView {
+    init(material: NSVisualEffectView.Material, cornerRadius: CGFloat) {
+        super.init(frame: .zero)
+        self.material = material
+        blendingMode = .behindWindow
+        state = .active
+        maskImage = Self.mask(radius: cornerRadius)
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = super.hitTest(point)
+        return hit === self ? nil : hit
+    }
+
+    /// A stretchable rounded mask, so the window shadow follows the corners.
+    static func mask(radius: CGFloat) -> NSImage {
+        let side = radius * 2 + 1
+        let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
+            NSColor.black.setFill()
+            NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).fill()
+            return true
+        }
+        image.capInsets = NSEdgeInsets(top: radius, left: radius, bottom: radius, right: radius)
+        image.resizingMode = .stretch
+        return image
+    }
 }
 
 /// Draws a dropdown as D4's spotlight panels. Field style (`.ta`): --pop with a line-2 border at radius 12,
@@ -187,9 +228,12 @@ final class DropdownView: NSView {
     private let rowsView = DropdownRowsView()
     private let overlay = DropdownOverlay()
 
-    static let pad: CGFloat = 6
-    static let headerH: CGFloat = 32
-    static let footerH: CGFloat = 41
+    private static var isNative: Bool { ThemeController.shared.isNative }
+    static var pad: CGFloat { isNative ? 5 : 6 }
+    static var headerH: CGFloat { isNative ? 28 : 32 }
+    static var footerH: CGFloat { isNative ? 28 : 41 }
+    /// The border width D4 draws round the panel. Native draws none.
+    static var edge: CGFloat { isNative ? 0 : 1 }
     static let menuMinW: CGFloat = 220, menuMaxW: CGFloat = 340, menuMaxH: CGFloat = 360
 
     init(content: DropdownContent) {
@@ -215,7 +259,7 @@ final class DropdownView: NSView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     var isField: Bool { if case .field = content.style { true } else { false } }
-    var rowH: CGFloat { isField ? 32 : 30 }
+    var rowH: CGFloat { Self.isNative ? (isField ? 24 : 22) : (isField ? 32 : 30) }
 
     func setHighlight(_ index: Int?, fromKeyboard: Bool) {
         guard index != highlighted || fromKeyboard != keyboardHighlight else { return }
@@ -229,10 +273,10 @@ final class DropdownView: NSView {
 
     // MARK: Size
 
-    private var chromeH: CGFloat { isField ? 1 + Self.headerH + Self.footerH + Self.pad + 1 : 2 }
+    private var chromeH: CGFloat { isField ? 2 * Self.edge + Self.headerH + Self.footerH + Self.pad : 2 * Self.edge }
 
     func listHeight() -> CGFloat {
-        content.rows.isEmpty ? (isField ? 46 : 38) + 2 * Self.pad : CGFloat(content.rows.count) * rowH + 2 * Self.pad
+        content.rows.isEmpty ? (Self.isNative ? rowH : (isField ? 46 : 38)) + 2 * Self.pad : CGFloat(content.rows.count) * rowH + 2 * Self.pad
     }
 
     func preferredSize(width: CGFloat?, maxHeight: CGFloat) -> NSSize {
@@ -240,17 +284,18 @@ final class DropdownView: NSView {
         if !isField { h = min(h, Self.menuMaxH) }
         h = min(h, maxHeight)
         if let width { return NSSize(width: width, height: h) }
-        let font = Typeface.ui(13, weight: 500)
+        let font = Self.isNative ? Typeface.menu() : Typeface.ui(13, weight: 500)
         let widest = content.rows.map { textWidth($0.text, font: font) }.max() ?? textWidth(content.empty, font: Typeface.ui(13))
-        let w = 2 + 2 * Self.pad + 10 + 16 + 9 + widest + 10 + 24
+        let w = 2 * Self.edge + 2 * Self.pad + 10 + 16 + 9 + widest + 10 + 24
         return NSSize(width: min(max(w, Self.menuMinW), Self.menuMaxW), height: h)
     }
 
     override func layout() {
         super.layout()
-        let top: CGFloat = isField ? 1 + Self.headerH : 1
-        let bottom: CGFloat = isField ? Self.footerH + Self.pad + 1 : 1
-        scroll.frame = NSRect(x: 1, y: top, width: bounds.width - 2, height: max(0, bounds.height - top - bottom))
+        let e = Self.edge
+        let top: CGFloat = isField ? e + Self.headerH : e
+        let bottom: CGFloat = isField ? Self.footerH + Self.pad + e : e
+        scroll.frame = NSRect(x: e, y: top, width: bounds.width - 2 * e, height: max(0, bounds.height - top - bottom))
         rowsView.frame = NSRect(x: 0, y: 0, width: scroll.contentSize.width, height: listHeight())
         overlay.frame = bounds
     }
@@ -258,12 +303,16 @@ final class DropdownView: NSView {
     // MARK: Drawing
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
+        if Self.isNative {
+            drawNative(p)
+            return
+        }
         fillRounded(bounds, radius: 12, p.pop.over(p.bg))
         strokeRounded(bounds, radius: 12, p.line2)
         guard case .field(let header, let count) = content.style else { return }
         let mid = 1 + Self.headerH / 2 + 2
-        drawLine(header.uppercased(), font: Typeface.mono(12, weight: 600), color: p.muted, x: 18, midY: mid,
+        drawLine(Typeface.caption(header), font: Typeface.mono(12, weight: 600), color: p.muted, x: 18, midY: mid,
                  maxWidth: bounds.width - 120, kern: Typeface.labelKern(12))
         drawLine(count, font: Typeface.mono(12, weight: 500), color: p.muted, x: bounds.width - 16, midY: mid, alignRight: true)
         // Footer: "Tab fills, Enter opens, Esc cancels" with key caps.
@@ -281,8 +330,20 @@ final class DropdownView: NSView {
         }
     }
 
+    /// Native: no fill or border. The typeahead keeps a quiet head and a plain key hint.
+    private func drawNative(_ p: ThemeColors) {
+        guard case .field(let header, let count) = content.style else { return }
+        let mid = Self.headerH / 2 + 1
+        drawLine(header, font: Typeface.ui(11, weight: 600), color: p.muted, x: 14, midY: mid, maxWidth: bounds.width - 100)
+        drawLine(count, font: Typeface.ui(11), color: p.muted, x: bounds.width - 14, midY: mid, alignRight: true)
+        let footTop = bounds.height - Self.pad - Self.footerH
+        fillRect(NSRect(x: 10, y: footTop, width: bounds.width - 20, height: 1), p.line)
+        let hint = content.isSearchList ? "Enter runs, Esc closes" : "Tab fills, Enter opens, Esc cancels"
+        drawLine(hint, font: Typeface.ui(11), color: p.muted, x: 14, midY: footTop + Self.footerH / 2)
+    }
+
     /// D4's `kbd`: s2 cap, line-2 border with a 2 pt bottom, Geist Mono 500 12 in text-2.
-    private func drawKey(_ key: String, x: CGFloat, midY: CGFloat, height: CGFloat, _ p: Palette) -> CGFloat {
+    private func drawKey(_ key: String, x: CGFloat, midY: CGFloat, height: CGFloat, _ p: ThemeColors) -> CGFloat {
         let font = Typeface.mono(12, weight: 500)
         let w = textWidth(key, font: font) + 12 + 2
         let r = NSRect(x: x, y: (midY - height / 2).rounded(), width: w, height: height)
@@ -303,7 +364,8 @@ final class DropdownRowsView: NSView {
 
     func rowRect(_ i: Int) -> NSRect {
         let h = owner?.rowH ?? 30
-        return NSRect(x: DropdownView.pad, y: DropdownView.pad + CGFloat(i) * h, width: bounds.width - 2 * DropdownView.pad, height: h)
+        let inset = DropdownView.pad
+        return NSRect(x: inset, y: DropdownView.pad + CGFloat(i) * h, width: bounds.width - 2 * inset, height: h)
     }
 
     private func row(at event: NSEvent) -> Int? {
@@ -339,11 +401,13 @@ final class DropdownRowsView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         guard let owner else { return }
-        let p = Palette.current
+        let p = ThemeColors.current
         let content = owner.content
         if content.rows.isEmpty {
-            drawLine(content.empty, font: Typeface.ui(13), color: p.text2, x: DropdownView.pad + 12,
-                     midY: DropdownView.pad + (owner.isField ? 23 : 19), maxWidth: bounds.width - 32)
+            let native = ThemeController.shared.isNative
+            drawLine(content.empty, font: native ? Typeface.menu() : Typeface.ui(13), color: p.text2,
+                     x: DropdownView.pad + (native ? 10 : 12),
+                     midY: DropdownView.pad + (native ? owner.rowH / 2 : (owner.isField ? 23 : 19)), maxWidth: bounds.width - 32)
             return
         }
         for (i, row) in content.rows.enumerated() {
@@ -358,7 +422,11 @@ final class DropdownRowsView: NSView {
     }
 
     /// `.ta-row`: light, folder, then the directory (ellipsized) and the leaf name, typed part bold.
-    private func drawFieldRow(_ row: DropdownRow, in r: NSRect, hi: Bool, _ p: Palette) {
+    private func drawFieldRow(_ row: DropdownRow, in r: NSRect, hi: Bool, _ p: ThemeColors) {
+        if ThemeController.shared.isNative {
+            drawNativeFieldRow(row, in: r, hi: hi, p)
+            return
+        }
         // `.ta-row.hi`: the --sel fill and a glowing 3 pt accent edge, 7 pt short of top and bottom.
         if hi {
             fillRounded(r, radius: 8, p.selectionFill)
@@ -392,7 +460,11 @@ final class DropdownRowsView: NSView {
 
     /// `.mi`: folder and name in Geist 500; the folder on the path (`.mi.cur`) in the text colour with
     /// the accent tick at the right.
-    private func drawMenuRow(_ row: DropdownRow, in r: NSRect, hi: Bool, keyboard: Bool, _ p: Palette) {
+    private func drawMenuRow(_ row: DropdownRow, in r: NSRect, hi: Bool, keyboard: Bool, _ p: ThemeColors) {
+        if ThemeController.shared.isNative {
+            drawNativeMenuRow(row, in: r, hi: hi, p)
+            return
+        }
         let tone = row.isCurrent || hi ? p.text : p.text2
         if hi {
             fillRounded(r, radius: 8, p.text.withAlpha(0.07))
@@ -404,6 +476,48 @@ final class DropdownRowsView: NSView {
                  maxWidth: r.maxX - 10 - tick - (r.minX + 35))
         if row.isCurrent {
             Glyph.check.draw(in: NSRect(x: r.maxX - 10 - 14, y: r.midY - 7, width: 14, height: 14), color: p.accent.ns)
+        }
+    }
+
+    /// Native typeahead row: the selection fill at radius 5, a folder, the path with the typed part bold.
+    private func drawNativeFieldRow(_ row: DropdownRow, in r: NSRect, hi: Bool, _ p: ThemeColors) {
+        if hi { fillRounded(r, radius: 5, p.selectionFill) }
+        let icon = NSRect(x: r.minX + 8, y: r.midY - 8, width: 16, height: 16)
+        if owner?.content.isSearchList == true {
+            Glyph.search.draw(in: icon, color: (hi ? p.selectedText : p.muted).ns)
+        } else {
+            ItemIcon.drawFolder(in: icon, palette: p, lit: hi)
+        }
+        let textX = r.minX + 8 + 16 + 8
+        let room = r.maxX - 8 - textX
+        let slash = row.text.lastIndex(of: "/").map { row.text.index(after: $0) } ?? row.text.startIndex
+        let dir = String(row.text[..<slash]), leaf = String(row.text[slash...])
+        let leafBold = max(0, min(row.boldLength - dir.count, leaf.count))
+        let main = hi ? p.selectedText : p.text
+        let font = Typeface.menu()
+        let bold = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
+        let dim: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: (hi ? p.selectedText : p.muted).ns]
+        let dirText = NSAttributedString(string: dir, attributes: dim)
+        let leafText = NSMutableAttributedString(string: String(leaf.prefix(leafBold)),
+                                                 attributes: [.font: bold, .foregroundColor: main.ns])
+        leafText.append(NSAttributedString(string: String(leaf.dropFirst(leafBold)), attributes: [.font: font, .foregroundColor: main.ns]))
+        let leafW = min(ceil(leafText.size().width), room)
+        let dirW = max(0, min(ceil(dirText.size().width), room - leafW))
+        if dirW > 0 { drawAttributed(dirText, x: textX, midY: r.midY, width: dirW, font: font) }
+        drawAttributed(leafText, x: textX + dirW, midY: r.midY, width: leafW, font: font)
+    }
+
+    /// Native menu row: the selection fill at radius 5, a folder, the name, and a checkmark on the path.
+    private func drawNativeMenuRow(_ row: DropdownRow, in r: NSRect, hi: Bool, _ p: ThemeColors) {
+        if hi { fillRounded(r, radius: 5, p.selectionFill) }
+        let tone = hi ? p.selectedText : p.text
+        ItemIcon.drawFolder(in: NSRect(x: r.minX + 8, y: r.midY - 8, width: 16, height: 16), palette: p, lit: row.isCurrent)
+        let tick: CGFloat = row.isCurrent ? 22 : 0
+        drawLine(row.text, font: Typeface.menu(), color: tone, x: r.minX + 8 + 16 + 8, midY: r.midY,
+                 maxWidth: r.maxX - 8 - tick - (r.minX + 32))
+        if row.isCurrent {
+            Glyph.drawSymbol(named: "checkmark", in: NSRect(x: r.maxX - 8 - 12, y: r.midY - 7, width: 12, height: 14),
+                             color: tone.ns, pointSize: 11, weight: .semibold)
         }
     }
 

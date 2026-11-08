@@ -41,7 +41,13 @@ public final class FileSubject: SearchSubject {
     private lazy var values: URLResourceValues? = try? entry.url.resourceValues(forKeys: [.creationDateKey, .contentTypeKey, .tagNamesKey])
     public var created: Date? { (given["created"] as? Date) ?? values?.creationDate }
     public var contentType: String? { (given["type"] as? String) ?? values?.contentType?.identifier }
-    public var tags: [String] { (given["tags"] as? [String]) ?? values?.tagNames ?? [] }
+    /// A plain word is also looked for in the tags, so every item whose name does not match asks for
+    /// them: one `getxattr` says first whether the item has any (most have none).
+    public var tags: [String] {
+        if let t = given["tags"] as? [String] { return t }
+        guard FileTags.hasTags(entry.url) else { return [] }
+        return values?.tagNames ?? []
+    }
 
     private lazy var mdItem: MDItem? = readsProperties ? MDItemCreateWithURL(kCFAllocatorDefault, entry.url as CFURL) : nil
     public var authors: [String] {
@@ -124,16 +130,20 @@ public struct SearchMerger: Sendable {
 
     public func contains(_ url: URL) -> Bool { seen.contains(FilePaths.itemKey(url)) }
 
-    /// Relevance first, then names as Finder sorts them.
+    /// Relevance first, then names as Finder sorts them (StandardOrder: each name made a Core
+    /// Foundation string once, not on every comparison).
     public static func ranked(_ hits: [SearchHit]) -> [SearchHit] {
-        hits.sorted { a, b in
+        let names = hits.map { StandardOrder.key($0.entry.name) }
+        let order = StandardOrder()
+        return hits.indices.sorted { i, j in
+            let (a, b) = (hits[i], hits[j])
             if a.score != b.score { return a.score > b.score }
-            switch a.entry.name.localizedStandardCompare(b.entry.name) {
-            case .orderedAscending: return true
-            case .orderedDescending: return false
-            case .orderedSame: return a.entry.url.path < b.entry.url.path
+            switch order.compare(names[i], names[j]) {
+            case -1: return true
+            case 1: return false
+            default: return a.entry.url.path < b.entry.url.path
             }
-        }
+        }.map { hits[$0] }
     }
 }
 
@@ -171,18 +181,16 @@ public struct SearchWalk: Sendable {
         var listed = 0
         var batch: [SearchHit] = []
         var lastSend = Date()
-        var kinds: [String: String] = [:]
         let readsProperties = matcher.query.terms.contains { $0.property == .author || $0.property == .title }
         let policy: FileSubject.ContentPolicy = options.fileContents ? .read(cap: options.contentCap) : .off
-        let keys = FolderListing.resourceKeys
         while let dir = pending.popLast() {
             if isCancelled() { return }
-            let urls = (try? FileManager.default.contentsOfDirectory(
-                at: dir, includingPropertiesForKeys: keys, options: options.includeHidden ? [] : [.skipsHiddenFiles])) ?? []
+            // The window's own listing: one bulk read per folder, kinds shared with every window.
+            let entries = (try? FolderListing.list(dir, includeHidden: options.includeHidden)) ?? []
             listed += 1
-            for url in urls {
+            for entry in entries {
                 if isCancelled() { return }
-                let entry = FolderListing.entry(for: url, kinds: &kinds)
+                let url = entry.url
                 if !options.includeHidden && entry.isHidden { continue }
                 let subject = FileSubject(entry: entry, policy: policy, readsProperties: readsProperties)
                 if matcher.matches(subject, trustUnknown: false) {
