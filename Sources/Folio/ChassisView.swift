@@ -112,6 +112,8 @@ final class ChassisView: NSView {
         titleBar.isHidden = true
         titleBar.frame = NSRect(x: 0, y: 0, width: w, height: 0)
         toolbar.frame = NSRect(x: side, y: 0, width: max(0, w - side), height: Self.toolH)
+        // With the navigation pane hidden the traffic lights sit over the toolbar's left end: clear them.
+        toolbar.leadingInset = sidebarShown ? 0 : 78
         tabStrip.isHidden = !tabRowShown
         tabStrip.frame = NSRect(x: side, y: Self.toolH, width: max(0, w - side), height: tabRowShown ? Self.nativeTabH : 0)
         sidebar.isHidden = !sidebarShown

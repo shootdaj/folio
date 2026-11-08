@@ -783,7 +783,7 @@ final class ToolbarView: NSView {
         if native {
             material.material = .titlebar
             material.blendingMode = .behindWindow
-            material.state = .active
+            material.state = .followsWindowActiveState
             material.autoresizingMask = [.width, .height]
             decor.autoresizingMask = [.width, .height]
             decor.toolbar = self
@@ -806,7 +806,10 @@ final class ToolbarView: NSView {
 
     /// Where the address bar starts: 8 pt in, three buttons 4 pt apart (44 pt wide, Native 32), then its
     /// 8 pt margin. Native adds a group gap of 12 pt after them.
-    private var addressX: CGFloat { native ? 8 + 3 * 32 + 2 * 4 + 12 : 156 }
+    private var addressX: CGFloat { native ? leadingInset + 8 + 3 * 32 + 2 * 4 + 12 : 156 }
+
+    /// Native only: room kept free at the left for the traffic lights when the navigation pane is hidden.
+    var leadingInset: CGFloat = 0 { didSet { if leadingInset != oldValue { needsLayout = true; needsDisplay = true } } }
 
     override func layout() {
         super.layout()
@@ -814,9 +817,10 @@ final class ToolbarView: NSView {
         let y = ((bounds.height - 1 - 44) / 2).rounded()
         let cy = ((bounds.height - 1 - buttonH) / 2).rounded()
         let bw = buttonW
-        back.frame = NSRect(x: 8, y: cy, width: bw, height: buttonH)
-        forward.frame = NSRect(x: 8 + bw + 4, y: cy, width: bw, height: buttonH)
-        up.frame = NSRect(x: 8 + 2 * (bw + 4), y: cy, width: bw, height: buttonH)
+        let x0 = native ? leadingInset + 8 : 8
+        back.frame = NSRect(x: x0, y: cy, width: bw, height: buttonH)
+        forward.frame = NSRect(x: x0 + bw + 4, y: cy, width: bw, height: buttonH)
+        up.frame = NSRect(x: x0 + 2 * (bw + 4), y: cy, width: bw, height: buttonH)
         let left = addressX
         // Narrow windows (two side by side) give the search box's room to the address bar.
         let standard: CGFloat = bounds.width < 1180 ? 220 : 280
