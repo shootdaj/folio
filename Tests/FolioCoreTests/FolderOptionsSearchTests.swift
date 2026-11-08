@@ -39,6 +39,19 @@ import Testing
         #expect(titles("show hidden").prefix(2) == ["Don't show hidden files, folders or drives", "Show hidden files, folders and drives"])
     }
 
+    @Test func theTreeHasItsOwnHiddenFoldersBoxApartFromTheList() {
+        let e = FolderOptions.entry(.check(.navPaneShowHidden))
+        #expect(e?.group == "Navigation pane" && e?.title == "Show hidden folders")
+        #expect(titles("hidden").contains("Show hidden folders"))
+        #expect(titles("sidebar hidden") == ["Show hidden folders"])
+        var o = FolderOptions()
+        o.toggle(.hiddenOn)
+        #expect(o.showHidden && !o.navPaneShowHidden, "showing hidden items in the list leaves the tree as it was")
+        o.toggle(.navPaneShowHidden)
+        o.toggle(.hiddenOff)
+        #expect(!o.showHidden && o.navPaneShowHidden)
+    }
+
     @Test func keywordsFindASettingByAnotherName() {
         #expect(titles("dot files").contains("Show hidden files, folders and drives"))
         #expect(titles("spotlight") == [FolderOptions.searchEntries[0].title])

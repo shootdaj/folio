@@ -26,6 +26,8 @@ final class ChassisView: NSView {
     /// The Search options row above the results while a search is shown.
     let searchOptions = SearchOptionsBar(frame: .zero)
     private let handle = SidebarHandle(frame: .zero)
+    /// Native only: the frosted capsule behind the close, minimise and zoom buttons.
+    private let lightsPlate = TrafficLightPlate(frame: .zero)
     var showsSearchOptions = false {
         didSet {
             guard showsSearchOptions != oldValue else { return }
@@ -82,6 +84,9 @@ final class ChassisView: NSView {
         searchOptions.isHidden = true
         // The sidebar's scroll view comes first and the list's second (the VM scripts find them so).
         for view in [sidebar, pane, home, toolbar, status, titleBar, tabStrip, handle, sidePane, searchOptions] as [NSView] { addSubview(view) }
+        // Last, so it sits over the sidebar rows that scroll up under the traffic lights.
+        lightsPlate.isHidden = true
+        addSubview(lightsPlate)
         handle.onDrag = { [weak self] x in
             guard let self else { return }
             self.sideWidth = min(Self.sideMax, max(Self.sideMin, x))
@@ -131,11 +136,37 @@ final class ChassisView: NSView {
         home.frame = NSRect(x: side, y: top, width: max(0, w - side), height: bodyH)
         status.frame = NSRect(x: side, y: h - Self.statusH, width: max(0, w - side), height: Self.statusH)
         (window as? BrowserWindow)?.placeTrafficLights()
+        placeLightsPlate()
     }
+
+    /// Native: the plate follows the buttons wherever macOS draws them. Full screen hides both.
+    func placeLightsPlate() {
+        guard Self.native, let window = window as? BrowserWindow, !window.styleMask.contains(.fullScreen),
+              let lights = window.trafficLightsRect else {
+            lightsPlate.isHidden = true
+            return
+        }
+        let frame = TrafficLightPlate.frame(around: convert(lights, from: nil))
+        if lightsPlate.frame != frame { lightsPlate.frame = frame }
+        lightsPlate.isHidden = false
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didEnterFullScreenNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didExitFullScreenNotification, object: nil)
+        guard let window else { return }
+        for name in [NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification] {
+            NotificationCenter.default.addObserver(self, selector: #selector(fullScreenChanged(_:)), name: name, object: window)
+        }
+    }
+
+    @objc private func fullScreenChanged(_ note: Notification) { needsLayout = true }
 
     override func layout() {
         super.layout()
         if Self.native { layoutNative(); return }
+        lightsPlate.isHidden = true
         let w = bounds.width, h = bounds.height
         titleBar.frame = NSRect(x: 0, y: 0, width: w, height: Self.titleH)
         titleBar.layoutSubtreeIfNeeded()
@@ -195,4 +226,42 @@ final class SidebarHandle: NSView {
             onDrag?(host.convert(next.locationInWindow, from: nil).x)
         }
     }
+}
+
+/// Native: a small frosted capsule behind the traffic lights, so they keep a calm ground when the sidebar
+/// rows scroll up under them or the toolbar shows behind them. It takes no clicks.
+final class TrafficLightPlate: NSVisualEffectView {
+    static let height: CGFloat = 28
+
+    /// A capsule 28 pt high round the three buttons, 8 pt clear of the outer two.
+    static func frame(around lights: NSRect) -> NSRect {
+        NSRect(x: (lights.minX - 8).rounded(), y: (lights.midY - height / 2).rounded(),
+               width: (lights.width + 16).rounded(), height: height)
+    }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        material = .popover
+        blendingMode = .withinWindow
+        state = .active
+        wantsLayer = true
+        layer?.cornerRadius = Self.height / 2
+        layer?.cornerCurve = .continuous
+        layer?.masksToBounds = true
+        layer?.borderWidth = 0.5
+        setAccessibilityElement(false)
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    override var wantsUpdateLayer: Bool { true }
+
+    override func updateLayer() {
+        super.updateLayer()
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.borderColor = NSColor.separatorColor.cgColor
+        }
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }

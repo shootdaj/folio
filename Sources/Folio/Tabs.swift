@@ -309,7 +309,7 @@ extension BrowserWindowController {
 extension BrowserWindowController {
     func wireNavigationPane() {
         let pane = chassis.sidebar.pane
-        pane.tree.showHidden = ListOptions.showHidden
+        pane.tree.showHidden = ListOptions.navPaneShowHidden
         pane.setPlaces(pins.places)
         pane.onNavigate = { [weak self] url in self?.navigate(to: url) }
         pane.onHome = { [weak self] in self?.goHome(nil) }
@@ -361,6 +361,7 @@ extension BrowserWindowController {
     @objc func toggleNavigationPane(_ sender: Any?) { ListOptions.navPaneShown.toggle() }
     @objc func toggleExpandToCurrent(_ sender: Any?) { ListOptions.expandToCurrent.toggle() }
     @objc func toggleHiddenItems(_ sender: Any?) { ListOptions.showHidden.toggle() }
+    @objc func toggleNavPaneHidden(_ sender: Any?) { ListOptions.navPaneShowHidden.toggle() }
 
     @objc func volumesChanged(_ note: Notification) {
         let list = VolumeCenter.shared.volumes

@@ -49,6 +49,17 @@ pushed; the release workflow publishes the section below with that number as the
   D4 Obsidian is unchanged, pixel for pixel. `Folio --uitest` takes `--tabs N`, `--view <mode>` and
   `--extra options|properties|preview|home`, to shoot more of the window.
 
+- **The navigation pane has its own box for hidden folders.** View > Navigation Pane > Show Hidden
+  Folders, also in View > Options... > View > Navigation pane. It is off by default, so hidden folders
+  stay out of the tree when View > Show > Hidden Items (Cmd+Shift+.) shows them in the list. Before,
+  the one setting filled the tree with dot folders. A hidden folder that you open still shows in the
+  tree, on the way to the current folder.
+
+- **A frosted capsule behind the traffic lights (Native).** The close, minimise and zoom buttons sit on a
+  small rounded plate of the popover material, with a hairline edge. Sidebar rows that scroll up under the
+  buttons go behind the plate. The plate follows the buttons when macOS moves them and goes in full screen.
+  The window also puts the buttons back on the toolbar band when macOS lays the title bar out again.
+
 - **Folio asks once for Full Disk Access.** macOS asks again for each protected place (Desktop,
   Documents, Downloads, iCloud Drive, other apps' data, external and network drives). At launch, while
   Full Disk Access is off, Folio offers to open its page in System Settings: Open System Settings, Not

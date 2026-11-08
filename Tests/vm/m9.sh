@@ -498,7 +498,7 @@ clean_defaults() {
              openFolioTo browseFoldersOwnWindow singleClickOpen singleClickUnderline showRecentFiles showFrequentFolders \
              fileIconOnThumbnails folderTipSizes fullPathInTitle hideEmptyDrives hideFolderMergeConflicts hideProtectedFiles \
              showDriveLetters showCompressedInColour showInfoTips showPreviewHandlers showStatusBar typeIntoSearch confirmDelete \
-             navPaneShowAllFolders navPaneShowNetwork navPaneShowThisPC searchDontUseIndex searchZippedFolders \
+             navPaneShowAllFolders navPaneShowNetwork navPaneShowThisPC navPaneShowHidden searchDontUseIndex searchZippedFolders \
              externalFoldersInNewTab reopenWindows keepRunningWithoutWindows; do
         defaults delete com.anshul.folio "$k" >/dev/null 2>&1
     done

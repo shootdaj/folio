@@ -5,6 +5,9 @@ import FolioCore
 final class BrowserWindow: NSWindow {
     /// `--uitest` places the window off every screen so a run never covers what is on the desktop.
     var allowsOffscreen = false
+    /// The close button and its title bar container are watched once: macOS lays the title bar out again
+    /// on its own (a new window, a title change), which puts the buttons back at its default spot.
+    private var watchesLights = false
 
     override func sendEvent(_ event: NSEvent) {
         if let controller = windowController as? BrowserWindowController {
@@ -52,6 +55,16 @@ final class BrowserWindow: NSWindow {
         guard !styleMask.contains(.fullScreen),
               let close = standardWindowButton(.closeButton),
               let container = close.superview?.superview else { return }
+        if !watchesLights {
+            watchesLights = true
+            // The buttons and the title bar container both move, so both are watched.
+            for view in [close, container] {
+                view.postsFrameChangedNotifications = true
+                NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: view, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.placeTrafficLights() }
+                }
+            }
+        }
         // Native centres the lights on the 52 pt toolbar band (there is no title bar).
         let bar = ThemeController.shared.look == .native ? ChassisView.toolH : ChassisView.titleH
         var frame = container.frame
@@ -66,6 +79,17 @@ final class BrowserWindow: NSWindow {
                                  y: (midY - button.frame.height / 2).rounded())
             if button.frame.origin != origin { button.setFrameOrigin(origin) }
         }
+        (contentView as? ChassisView)?.placeLightsPlate()
+    }
+
+    /// The close, minimise and zoom buttons' frames together, in window coordinates.
+    var trafficLightsRect: NSRect? {
+        let rects = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].compactMap { kind -> NSRect? in
+            guard let b = standardWindowButton(kind), !b.isHidden, let holder = b.superview else { return nil }
+            return holder.convert(b.frame, to: nil)
+        }
+        guard let first = rects.first else { return nil }
+        return rects.dropFirst().reduce(first) { $0.union($1) }
     }
 }
 
@@ -1021,8 +1045,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     }
 
     @objc private func listOptionsChanged(_ note: Notification) {
-        if chassis.sidebar.pane.tree.showHidden != ListOptions.showHidden {
-            chassis.sidebar.pane.setShowHidden(ListOptions.showHidden)
+        if chassis.sidebar.pane.tree.showHidden != ListOptions.navPaneShowHidden {
+            chassis.sidebar.pane.setShowHidden(ListOptions.navPaneShowHidden)
         }
         let folderOptions = ListOptions.folder
         if listedWith != (ListOptions.showHidden, folderOptions.hideProtectedOSFiles) {

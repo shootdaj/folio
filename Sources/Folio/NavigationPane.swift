@@ -671,7 +671,7 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
         }
     }
 
-    /// View > Hidden items: every node is read again.
+    /// View > Navigation Pane > Show Hidden Folders: every node is read again.
     func setShowHidden(_ on: Bool) {
         guard tree.showHidden != on else { return }
         tree.showHidden = on

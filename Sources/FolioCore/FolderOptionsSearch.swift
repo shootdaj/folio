@@ -133,6 +133,7 @@ extension FolderOptions {
         case .radio(.typingSearchBox), .radio(.typingSelect): ["type ahead", "keyboard"]
         case .check(.expandToOpenFolder), .check(.showAllFolders), .check(.showNetwork), .check(.showThisPC):
             ["tree", "sidebar"]
+        case .check(.navPaneShowHidden): ["tree", "sidebar", "dot files", "invisible"]
         case .radio(.openToHome), .radio(.openToThisPC): ["start", "new window", "startup folder"]
         case .radio(.sameWindow), .radio(.ownWindow): ["new window"]
         case .radio(.singleClick), .radio(.doubleClick), .radio(.underlineAlways), .radio(.underlineHover): ["mouse", "open"]

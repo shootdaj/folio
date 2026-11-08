@@ -51,6 +51,9 @@ public struct FolderOptions: Equatable, Sendable {
     public var showAllFolders = false
     public var showNetwork = true
     public var showThisPC = true
+    /// Hidden folders in the tree, apart from the list's "Show hidden files": off keeps the tree to the
+    /// folders Finder shows, with hidden items shown in the list.
+    public var navPaneShowHidden = false
 
     // Search
     public var dontUseIndex = false
@@ -128,7 +131,7 @@ public struct FolderOptions: Equatable, Sendable {
         case hiddenOff, hiddenOn, hideEmptyDrives, hideExtensions, hideFolderMergeConflicts, hideProtectedOSFiles
         case showDriveLetters, showCompressedInColour, showPopupDescriptions, showPreviewHandlers, showStatusBar
         case useCheckBoxes, typingSearchBox, typingSelect, confirmDelete
-        case expandToOpenFolder, showAllFolders, showNetwork, showThisPC
+        case expandToOpenFolder, showAllFolders, showNetwork, showThisPC, navPaneShowHidden
         case dontUseIndex, includeSystemDirectories, includeCompressedFiles, alwaysSearchContents
     }
 
@@ -170,6 +173,7 @@ public struct FolderOptions: Equatable, Sendable {
         case .showAllFolders: showAllFolders
         case .showNetwork: showNetwork
         case .showThisPC: showThisPC
+        case .navPaneShowHidden: navPaneShowHidden
         case .dontUseIndex: dontUseIndex
         case .includeSystemDirectories: includeSystemDirectories
         case .includeCompressedFiles: includeCompressedFiles
@@ -216,6 +220,7 @@ public struct FolderOptions: Equatable, Sendable {
         case .showAllFolders: showAllFolders.toggle()
         case .showNetwork: showNetwork.toggle()
         case .showThisPC: showThisPC.toggle()
+        case .navPaneShowHidden: navPaneShowHidden.toggle()
         case .dontUseIndex: dontUseIndex.toggle()
         case .includeSystemDirectories: includeSystemDirectories.toggle()
         case .includeCompressedFiles: includeCompressedFiles.toggle()
@@ -255,6 +260,8 @@ public struct FolderOptions: Equatable, Sendable {
         Row("Navigation pane", .heading, nil, indent: 0),
         Row("Expand to open folder", .check, .expandToOpenFolder),
         Row("Show all folders", .check, .showAllFolders, note: "Roots the tree at the top of the Mac: Home, drives, Network and the Recycle Bin"),
+        Row("Show hidden folders", .check, .navPaneShowHidden,
+            note: "Dot folders and hidden folders in the tree. The list follows Hidden files and folders"),
         Row("Show libraries", .check, nil),
         Row("Show Network", .check, .showNetwork),
         Row("Show This PC", .check, .showThisPC),
@@ -274,7 +281,7 @@ public struct FolderOptionsStore {
         "showThumbnails", "fileIconOnThumbnails", "folderTipSizes", "fullPathInTitle", "showHiddenItems", "hideEmptyDrives",
         "showFileExtensions", "hideFolderMergeConflicts", "hideProtectedFiles", "showDriveLetters", "showCompressedInColour",
         "showInfoTips", "showPreviewHandlers", "showStatusBar", "itemCheckBoxes", "typeIntoSearch", "confirmDelete",
-        "navPaneExpandToCurrent", "navPaneShowAllFolders", "navPaneShowNetwork", "navPaneShowThisPC",
+        "navPaneExpandToCurrent", "navPaneShowAllFolders", "navPaneShowNetwork", "navPaneShowThisPC", "navPaneShowHidden",
         "searchDontUseIndex", "searchSystemFiles", "searchZippedFolders", "searchFileContents",
     ]
 
@@ -295,6 +302,7 @@ public struct FolderOptionsStore {
             "showStatusBar": o.showStatusBar, "itemCheckBoxes": o.useCheckBoxes, "typeIntoSearch": o.typing == .searchBox,
             "confirmDelete": o.confirmDelete, "navPaneExpandToCurrent": o.expandToOpenFolder,
             "navPaneShowAllFolders": o.showAllFolders, "navPaneShowNetwork": o.showNetwork, "navPaneShowThisPC": o.showThisPC,
+            "navPaneShowHidden": o.navPaneShowHidden,
             "searchDontUseIndex": o.dontUseIndex, "searchSystemFiles": o.includeSystemDirectories,
             "searchZippedFolders": o.includeCompressedFiles, "searchFileContents": o.alwaysSearchContents,
         ]
@@ -333,6 +341,7 @@ public struct FolderOptionsStore {
         o.showAllFolders = bool("navPaneShowAllFolders", o.showAllFolders)
         o.showNetwork = bool("navPaneShowNetwork", o.showNetwork)
         o.showThisPC = bool("navPaneShowThisPC", o.showThisPC)
+        o.navPaneShowHidden = bool("navPaneShowHidden", o.navPaneShowHidden)
         o.dontUseIndex = bool("searchDontUseIndex", o.dontUseIndex)
         o.includeSystemDirectories = bool("searchSystemFiles", o.includeSystemDirectories)
         o.includeCompressedFiles = bool("searchZippedFolders", o.includeCompressedFiles)

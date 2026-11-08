@@ -26,7 +26,7 @@ import Testing
         #expect(o.hideFolderMergeConflicts && o.hideProtectedOSFiles)
         #expect(o.showPopupDescriptions && o.showPreviewHandlers && o.showStatusBar && !o.useCheckBoxes)
         #expect(o.typing == .selectItem && !o.confirmDelete)
-        #expect(o.expandToOpenFolder && !o.showAllFolders && o.showNetwork && o.showThisPC)
+        #expect(o.expandToOpenFolder && !o.showAllFolders && o.showNetwork && o.showThisPC && !o.navPaneShowHidden)
         #expect(!o.dontUseIndex && !o.includeSystemDirectories && !o.includeCompressedFiles && !o.alwaysSearchContents)
     }
 
@@ -63,6 +63,7 @@ import Testing
         o.showAllFolders = true
         o.showNetwork = false
         o.showThisPC = false
+        o.navPaneShowHidden = true
         o.dontUseIndex = true
         o.includeSystemDirectories = true
         o.includeCompressedFiles = true
@@ -71,7 +72,7 @@ import Testing
         #expect(s.load() == o)
         for key in FolderOptionsStore.keys { #expect(d.object(forKey: key) != nil, "\(key) is written") }
         #expect(Set(FolderOptionsStore.keys).count == FolderOptionsStore.keys.count)
-        #expect(FolderOptionsStore.keys.count == 34)
+        #expect(FolderOptionsStore.keys.count == 35)
         // Every field differs from the default, so a field the store forgot would come back as the default.
         #expect(FolderOptions.allChanged(from: FolderOptions(), to: o).count == FolderOptionsStore.keys.count)
     }

@@ -9,6 +9,7 @@ enum ListOptions {
     private static let key = "itemCheckBoxes"
     static let hiddenKey = "showHiddenItems"
     static let expandKey = "navPaneExpandToCurrent"
+    static let navHiddenKey = "navPaneShowHidden"
     static let navPaneKey = "navPaneShown"
     static let extensionsKey = "showFileExtensions"
     static let thumbnailsKey = "showThumbnails"
@@ -49,10 +50,16 @@ enum ListOptions {
         set { set(newValue, key) }
     }
 
-    /// View > Hidden items: dot files and flagged items in the list and the tree.
+    /// View > Show > Hidden Items: dot files and flagged items in the list (the tree has its own box).
     static var showHidden: Bool {
         get { UserDefaults.standard.bool(forKey: hiddenKey) }
         set { set(newValue, hiddenKey) }
+    }
+
+    /// View > Navigation Pane > Show Hidden Folders: hidden folders in the tree, off unless turned on.
+    static var navPaneShowHidden: Bool {
+        get { UserDefaults.standard.bool(forKey: navHiddenKey) }
+        set { set(newValue, navHiddenKey) }
     }
 
     /// Explorer's "Expand to open folder": on unless turned off.
@@ -488,6 +495,9 @@ extension BrowserWindowController: FileListDelegate {
             return true
         case #selector(toggleExpandToCurrent(_:)):
             item.state = ListOptions.expandToCurrent ? .on : .off
+            return true
+        case #selector(toggleNavPaneHidden(_:)):
+            item.state = ListOptions.navPaneShowHidden ? .on : .off
             return true
         case #selector(expandToCurrentFolder(_:)):
             return !history.isHome

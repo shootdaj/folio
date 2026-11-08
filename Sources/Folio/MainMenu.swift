@@ -111,6 +111,7 @@ enum MainMenu {
                 item("Navigation Pane", #selector(BrowserWindowController.toggleNavigationPane(_:))),
                 item("Expand to Current Folder", #selector(BrowserWindowController.expandToCurrentFolder(_:)), "e", [.control, .shift]),
                 item("Always Expand to Current Folder", #selector(BrowserWindowController.toggleExpandToCurrent(_:))),
+                item("Show Hidden Folders", #selector(BrowserWindowController.toggleNavPaneHidden(_:))),
             ]),
             .separator(),
             // Explorer's F11; macOS keeps F11 for Show Desktop, so Ctrl+Cmd+F is the key here.
