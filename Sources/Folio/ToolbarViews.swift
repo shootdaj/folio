@@ -118,9 +118,9 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
     private func recrumb() {
         crumbs = isHome ? [Crumb(title: "Home", path: NavigationHistory.homePath, isCurrent: true, isVolume: true)]
             : Breadcrumbs.crumbs(for: folder, volumes: volumes)
-        // The Trash reads as Explorer's Recycle Bin.
+        // The Trash reads as Explorer's Recycle Bin in D4.
         if let last = crumbs.last, RecycleBin.isTrash(URL(fileURLWithPath: last.path), home: FileManager.default.homeDirectoryForCurrentUser) {
-            crumbs[crumbs.count - 1] = Crumb(title: "Recycle Bin", path: last.path, isCurrent: last.isCurrent)
+            crumbs[crumbs.count - 1] = Crumb(title: PlaceNames.recycleBin, path: last.path, isCurrent: last.isCurrent)
         }
         rebuildAccessibility()
         needsDisplay = true

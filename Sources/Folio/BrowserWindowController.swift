@@ -574,7 +574,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
 
     func displayName(_ url: URL) -> String {
         if NavigationHistory.isHome(url) { return "Home" }
-        if RecycleBin.isTrash(url, home: FileManager.default.homeDirectoryForCurrentUser) { return "Recycle Bin" }
+        if RecycleBin.isTrash(url, home: FileManager.default.homeDirectoryForCurrentUser) { return PlaceNames.recycleBin }
         return url.path == "/" ? (toolbar.address.volumes.first { $0.path == "/" }?.name ?? Breadcrumbs.rootTitle)
             : FileManager.default.displayName(atPath: url.path)
     }
@@ -779,7 +779,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             if !keepingState { addressHistory.record(folder.path) }
         case .failure(let error):
             loadError = isTrashView && (error as NSError).code == NSFileReadNoPermissionError
-                ? "Folio needs Full Disk Access to show the Recycle Bin (Folio > Full Disk Access...)"
+                ? "Folio needs Full Disk Access to show the \(PlaceNames.recycleBin) (Folio > Full Disk Access...)"
                 : error.localizedDescription
             listing = []
             arrangedWith = key

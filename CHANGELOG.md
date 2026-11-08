@@ -87,6 +87,12 @@ pushed; the release workflow publishes the section below with that number as the
 
 ### Changed
 
+- **Native uses Finder's names for places.** The navigation pane's sections are Favorites and Locations,
+  and the Trash is "Trash" everywhere in Native: its row, the address bar, the tab, Empty Trash, and Move
+  to Trash. A search of the whole Mac is "This Mac". D4 Obsidian keeps Explorer's names (Quick access,
+  This PC, Recycle Bin). The Details section's "Select an item..." text now breaks between words, not
+  inside one.
+
 - **Folders open faster, and the navigation pane no longer holds up a move.** Measured with the new
   `Folio --bench <folder>` on a folder of 20,331 items:
   - The listing took 255 ms. It now reads the folder with `getattrlistbulk` (name, type, date, size and

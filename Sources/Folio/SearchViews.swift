@@ -468,7 +468,7 @@ final class SearchOptionsBar: NSView {
 
 /// Under the results: "Search again in:" This PC and Home, Windows 7's links for a wider search.
 final class SearchFooterView: NSView {
-    let thisPC = OSButton("This PC", glyph: .pc, style: .ghost)
+    let thisPC = OSButton(PlaceNames.thisComputer, glyph: .pc, style: .ghost)
     let home = OSButton("Home", glyph: .home, style: .ghost)
     static let height: CGFloat = 40
 

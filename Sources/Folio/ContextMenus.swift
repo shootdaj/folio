@@ -212,7 +212,7 @@ extension BrowserWindowController {
         for item in MainMenu.newItems() { item.target = self; new.addItem(item) }
         submenu(menu, "New", new)
         add(menu, "Open in Terminal", #selector(openInTerminal(_:)))
-        if isTrashView { add(menu, "Empty Recycle Bin", #selector(emptyRecycleBin(_:))) }
+        if isTrashView { add(menu, "Empty " + PlaceNames.recycleBin, #selector(emptyRecycleBin(_:))) }
         if !isTrashView {
             let access = styled("Give access to")
             add(access, "Share on the network...", #selector(shareOnNetwork(_:)))

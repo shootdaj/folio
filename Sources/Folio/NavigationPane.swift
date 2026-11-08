@@ -128,10 +128,10 @@ final class SideNode: NSObject, @unchecked Sendable {
 
     var url: URL? { path.map { URL(fileURLWithPath: $0, isDirectory: true) } }
 
-    var title: String {
+    @MainActor var title: String {
         switch kind {
-        case .header(.quickAccess): "Quick access"
-        case .header(.thisPC): "This PC"
+        case .header(.quickAccess): PlaceNames.quickAccess
+        case .header(.thisPC): PlaceNames.thisPC
         case .header(.network): "Network"
         case .header(.allFolders): "All folders"
         case .header(.details): "Details"
@@ -140,7 +140,7 @@ final class SideNode: NSObject, @unchecked Sendable {
         case .home: "Home"
         case .pin(let place, _): place.title
         case .cloud(let c): c.name
-        case .recycle: "Recycle Bin"
+        case .recycle: PlaceNames.recycleBin
         case .volume(let v), .share(let v): v.name
         case .folder(let f): f.name
         case .browse: "Browse network"
@@ -827,7 +827,7 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
             guard !urls.isEmpty else { clearDrop(); return [] }
             outline.dropRow = row
             host.springLoad(nil)
-            host.showTip("Move to Recycle Bin", accentFrom: 8, info: info)
+            host.showTip("Move to " + PlaceNames.recycleBin, accentFrom: 8, info: info)
             outline.setDropItem(node, dropChildIndex: NSOutlineViewDropOnItemIndex)
             return info.draggingSourceOperationMask.contains(.move) ? .move : .generic
         }
@@ -1381,7 +1381,7 @@ final class SideRowView: NSTableRowView {
         case .cloud(let c):
             drawLine(c.name, font: font, color: label, x: textX, midY: mid, maxWidth: bounds.width - textX - 20)
         case .recycle:
-            drawLine("Recycle Bin", font: font, color: label, x: textX, midY: mid, maxWidth: bounds.width - textX - 20)
+            drawLine(PlaceNames.recycleBin, font: font, color: label, x: textX, midY: mid, maxWidth: bounds.width - textX - 20)
         case .volume(let v), .share(let v):
             drawNativeVolume(v, textX: textX, mid: mid, label: label, secondary: secondary, onAccent: onAccent, p)
         case .folder(let f):
@@ -1462,7 +1462,7 @@ final class SideRowView: NSTableRowView {
             drawLine(c.name, font: font, color: label, x: textX, midY: mid, maxWidth: room)
         case .recycle:
             Glyph.trash.draw(in: icon, color: glyph)
-            drawLine("Recycle Bin", font: font, color: label, x: textX, midY: mid, maxWidth: room)
+            drawLine(PlaceNames.recycleBin, font: font, color: label, x: textX, midY: mid, maxWidth: room)
         case .volume(let v): drawVolume(v, glyph: .drive, on: on, hovered: hovered, hue: hue, node: node, p)
         case .share(let v): drawVolume(v, glyph: .server, on: on, hovered: hovered, hue: hue, node: node, p)
         case .folder(let f):
@@ -1553,9 +1553,10 @@ enum DetailsCardDrawing {
     private static var valueFont: NSFont { Typeface.mono(12) }
     private static var nameFont: NSFont { Typeface.ui(14, weight: 600) }
 
-    private static func textHeight(_ text: String, font: NSFont, width: CGFloat) -> CGFloat {
+    /// Values (paths, names) break anywhere; a sentence breaks between words.
+    private static func textHeight(_ text: String, font: NSFont, width: CGFloat, wrap: NSLineBreakMode = .byCharWrapping) -> CGFloat {
         let style = NSMutableParagraphStyle()
-        style.lineBreakMode = .byCharWrapping
+        style.lineBreakMode = wrap
         style.lineHeightMultiple = 1.1
         let r = NSAttributedString(string: text, attributes: [.font: font, .paragraphStyle: style])
             .boundingRect(with: NSSize(width: max(10, width), height: 1000), options: [.usesLineFragmentOrigin])
@@ -1565,7 +1566,7 @@ enum DetailsCardDrawing {
     /// Height of the body for a card `width` wide.
     static func height(_ card: DetailsCard, width: CGFloat) -> CGFloat {
         let w = width - 2 * pad
-        if card.isEmpty { return textHeight(card.title, font: Typeface.ui(12), width: w) + 12 }
+        if card.isEmpty { return textHeight(card.title, font: Typeface.ui(12), width: w, wrap: .byWordWrapping) + 12 }
         var h: CGFloat = 2 + 34 + 12
         for f in card.fields { h += 17 + 3 + textHeight(f.value, font: valueFont, width: w) + 7 }
         return h - (card.fields.isEmpty ? 12 : 7) + 10
@@ -1574,7 +1575,8 @@ enum DetailsCardDrawing {
     static func draw(_ card: DetailsCard, in r: NSRect, _ p: ThemeColors) {
         let x = r.minX + pad, w = r.width - 2 * pad
         if card.isEmpty {
-            draw(card.title, font: Typeface.ui(12), color: p.muted, in: NSRect(x: x, y: r.minY, width: w, height: r.height))
+            draw(card.title, font: Typeface.ui(12), color: p.muted, in: NSRect(x: x, y: r.minY, width: w, height: r.height),
+                 wrap: .byWordWrapping)
             return
         }
         let icon = NSRect(x: x, y: r.minY + 2, width: 34, height: 34)
@@ -1595,9 +1597,9 @@ enum DetailsCardDrawing {
         }
     }
 
-    private static func draw(_ text: String, font: NSFont, color: NSColor, in rect: NSRect) {
+    private static func draw(_ text: String, font: NSFont, color: NSColor, in rect: NSRect, wrap: NSLineBreakMode = .byCharWrapping) {
         let style = NSMutableParagraphStyle()
-        style.lineBreakMode = .byCharWrapping
+        style.lineBreakMode = wrap
         style.lineHeightMultiple = 1.1
         NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: color.ns, .paragraphStyle: style])
             .draw(with: rect, options: [.usesLineFragmentOrigin])

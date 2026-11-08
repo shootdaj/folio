@@ -23,7 +23,7 @@ extension BrowserWindowController {
         updateWatches()
         let items = tabs.tabs.map { tab in
             var item = TabItem(id: tab.id, title: tab.history.search.map { s in
-                                   "Search Results in " + (s.everywhere ? "This PC" : displayName(tab.current))
+                                   "Search Results in " + (s.everywhere ? PlaceNames.thisComputer : displayName(tab.current))
                                } ?? tabTitle(tab), isHome: tab.history.isHome,
                                folder: tab.history.isHome ? nil : tab.current)
             item.isSearch = tab.history.search != nil
@@ -715,9 +715,9 @@ extension BrowserWindowController {
         guard !items.isEmpty, let window else { NSSound.beep(); return }
         let alert = NSAlert()
         alert.messageText = "Permanently delete these \(items.count) items?"
-        alert.informativeText = "Everything in the Recycle Bin goes for good. This can't be undone."
+        alert.informativeText = "Everything in the \(PlaceNames.recycleBin) goes for good. This can't be undone."
         alert.alertStyle = .critical
-        alert.addButton(withTitle: "Empty Recycle Bin")
+        alert.addButton(withTitle: "Empty " + PlaceNames.recycleBin)
         alert.addButton(withTitle: "Cancel")
         alert.buttons.first?.hasDestructiveAction = true
         alert.beginSheetModal(for: window) { response in

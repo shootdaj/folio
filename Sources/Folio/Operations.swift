@@ -213,9 +213,9 @@ final class OperationCenter {
         // Folder Options > Display delete confirmation dialog (off by default, as in Explorer).
         if ListOptions.folder.confirmDelete, let window {
             let alert = NSAlert()
-            alert.messageText = urls.count == 1 ? "Move \u{201C}\(urls[0].lastPathComponent)\u{201D} to the Recycle Bin?"
-                : "Move these \(urls.count) items to the Recycle Bin?"
-            alert.addButton(withTitle: "Move to Recycle Bin")
+            alert.messageText = urls.count == 1 ? "Move \u{201C}\(urls[0].lastPathComponent)\u{201D} to the \(PlaceNames.recycleBin)?"
+                : "Move these \(urls.count) items to the \(PlaceNames.recycleBin)?"
+            alert.addButton(withTitle: "Move to " + PlaceNames.recycleBin)
             alert.addButton(withTitle: "Cancel")
             alert.beginSheetModal(for: window) { response in
                 guard response == .alertFirstButtonReturn else { return }

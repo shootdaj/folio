@@ -53,7 +53,7 @@ extension BrowserWindowController {
 
     /// "work", "Home", "This PC".
     var searchScopeName: String {
-        history.search?.everywhere == true ? "This PC" : displayName(history.current)
+        history.search?.everywhere == true ? PlaceNames.thisComputer : displayName(history.current)
     }
 
     var searchTitle: String { "Search Results in " + searchScopeName }
