@@ -82,6 +82,12 @@ final class HomeView: NSView {
 
     private static let pad: CGFloat = 18, headerH: CGFloat = 36, rowH: CGFloat = 30
     private static let tileW: CGFloat = 214, tileH: CGFloat = 62, tileGap: CGFloat = 10
+    /// Native metrics: no cards, a 20 pt margin, rows inset 8 pt, Quick access as icon-over-label tiles.
+    private enum NativeMetrics {
+        static let pad: CGFloat = 20, headerH: CGFloat = 28, rowH: CGFloat = 28, rowInset: CGFloat = 8
+        static let tileW: CGFloat = 96, tileH: CGFloat = 82, tileGap: CGFloat = 4, sectionGap: CGFloat = 12, top: CGFloat = 52
+    }
+    private var native: Bool { ThemeController.shared.isNative }
 
     override init(frame: NSRect) {
         collapsed = Set(UserDefaults.standard.stringArray(forKey: Self.collapsedKey) ?? [])
@@ -109,7 +115,7 @@ final class HomeView: NSView {
 
     func fittingHeight(width: CGFloat) -> CGFloat {
         layoutHits(width: width)
-        return (panels.last?.1.maxY ?? 0) + Self.pad
+        return (panels.last?.1.maxY ?? 0) + (native ? NativeMetrics.pad : Self.pad)
     }
 
     private func items(_ s: Section) -> [(URL, Bool, String)] {
@@ -127,7 +133,44 @@ final class HomeView: NSView {
             && !((try? url.resourceValues(forKeys: [.isPackageKey]))?.isPackage ?? false)
     }
 
+    /// Native layout: the same targets as D4, with no card borders and tighter rows.
+    private func layoutHitsNative(width: CGFloat) {
+        typealias M = NativeMetrics
+        var out: [Hit] = []
+        var boxes: [(Section, NSRect)] = []
+        var y = M.top
+        let x = M.pad, w = max(200, width - 2 * M.pad)
+        for s in Section.allCases {
+            let list = items(s)
+            var h = M.headerH
+            out.append(Hit(rect: NSRect(x: x - M.rowInset, y: y, width: w + 2 * M.rowInset, height: M.headerH), target: .header(s)))
+            if !collapsed.contains(s.rawValue) {
+                if s == .quickAccess {
+                    let cols = max(1, Int((w + M.tileGap) / (M.tileW + M.tileGap)))
+                    for (i, item) in list.enumerated() {
+                        let r = NSRect(x: x + CGFloat(i % cols) * (M.tileW + M.tileGap),
+                                       y: y + h + CGFloat(i / cols) * (M.tileH + M.tileGap), width: M.tileW, height: M.tileH)
+                        out.append(Hit(rect: r, target: .item(item.0, isFolder: true, label: item.2)))
+                    }
+                    h += list.isEmpty ? M.rowH : CGFloat((list.count + cols - 1) / cols) * (M.tileH + M.tileGap)
+                } else {
+                    for (i, item) in list.enumerated() {
+                        let r = NSRect(x: x - M.rowInset, y: y + h + CGFloat(i) * M.rowH, width: w + 2 * M.rowInset, height: M.rowH)
+                        out.append(Hit(rect: r, target: .item(item.0, isFolder: item.1, label: item.2)))
+                    }
+                    h += CGFloat(max(1, list.count)) * M.rowH
+                }
+            }
+            boxes.append((s, NSRect(x: x, y: y, width: w, height: h)))
+            y += h + M.sectionGap
+        }
+        hits = out
+        panels = boxes
+        rebuildAccessibility()
+    }
+
     private func layoutHits(width: CGFloat) {
+        if native { layoutHitsNative(width: width); return }
         var out: [Hit] = []
         var boxes: [(Section, NSRect)] = []
         var y: CGFloat = 54
@@ -174,7 +217,70 @@ final class HomeView: NSView {
         return f
     }()
 
+    private static let nativeDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .short
+        return f
+    }()
+
+    private func emptyText(_ s: Section) -> String {
+        switch s {
+        case .quickAccess: "Nothing pinned: right-click a folder and pick Pin to Quick access"
+        case .favorites: "No favorites yet: right-click a file and pick Add to Favorites"
+        case .recentFiles: "Files you open from Folio show here"
+        case .recentLocations: "Folders you visit show here"
+        }
+    }
+
+    /// Native drawing: a plain list on the pane colour, with Finder's type and colours.
+    private func drawNative() {
+        typealias M = NativeMetrics
+        drawLine("Home", font: .systemFont(ofSize: 20, weight: .semibold), color: .labelColor, x: M.pad, midY: 28)
+        for (s, r) in panels {
+            let shut = collapsed.contains(s.rawValue)
+            let mid = r.minY + M.headerH / 2
+            Glyph.chevronDown.draw(in: NSRect(x: r.minX - 4, y: mid - 7, width: 14, height: 14), color: .secondaryLabelColor,
+                                   rotation: shut ? -.pi / 2 : 0)
+            let tw = drawLine(s.title, font: .systemFont(ofSize: 11, weight: .semibold), color: .secondaryLabelColor, x: r.minX + 14, midY: mid)
+            drawLine("\(items(s).count)", font: .systemFont(ofSize: 11), color: .tertiaryLabelColor, x: r.minX + 14 + tw + 6, midY: mid)
+            if !shut, items(s).isEmpty {
+                drawLine(emptyText(s), font: .systemFont(ofSize: 13), color: .secondaryLabelColor, x: r.minX,
+                         midY: r.minY + M.headerH + M.rowH / 2, maxWidth: r.width)
+            }
+        }
+        for (i, hit) in hits.enumerated() {
+            guard case .item(let url, let isFolder, let label) = hit.target else { continue }
+            let r = hit.rect
+            if hovered == i { fillRounded(r, radius: 6, .quaternarySystemFill) }
+            if r.height == M.tileH {
+                FinderIcon.draw(name: url.lastPathComponent, isDir: true, isLink: false,
+                                in: NSRect(x: r.midX - 20, y: r.minY + 8, width: 40, height: 40))
+                let font = NSFont.systemFont(ofSize: 12)
+                let lw = min(textWidth(label, font: font), r.width - 8)
+                drawLine(label, font: font, color: .labelColor, x: r.midX - lw / 2, midY: r.minY + 62, maxWidth: r.width - 8)
+            } else {
+                let mid = r.midY
+                FinderIcon.draw(name: url.lastPathComponent, isDir: isFolder, isLink: false,
+                                in: NSRect(x: r.minX + M.rowInset, y: mid - 9, width: 18, height: 18))
+                let dateW: CGFloat = 150
+                let left = r.minX + M.rowInset + 18 + 8
+                let nameW = drawLine(label, font: .systemFont(ofSize: 13), color: .labelColor, x: left, midY: mid,
+                                     maxWidth: (r.width - 34) * 0.45)
+                let folder = (isFolder ? url.path : (url.path as NSString).deletingLastPathComponent)
+                    .replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~")
+                drawLine(folder, font: .systemFont(ofSize: 13), color: .secondaryLabelColor, x: left + nameW + 12, midY: mid,
+                         maxWidth: r.maxX - dateW - (left + nameW + 12) - M.rowInset)
+                if !isFolder, let date = (try? url.resourceValues(forKeys: [.contentAccessDateKey]))?.contentAccessDate {
+                    drawLine(Self.nativeDateFormatter.string(from: date), font: .systemFont(ofSize: 13), color: .secondaryLabelColor,
+                             x: r.maxX - M.rowInset, midY: mid, alignRight: true)
+                }
+            }
+        }
+    }
+
     override func draw(_ dirtyRect: NSRect) {
+        if native { drawNative(); return }
         let p = ThemeColors.current
         // Title strip: Home and what it holds, in mono labels.
         let titleW = drawLine("Home", font: Typeface.ui(18, weight: 700), color: p.text, x: Self.pad, midY: 28)
