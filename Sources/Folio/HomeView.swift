@@ -66,7 +66,19 @@ final class HomeView: NSView {
         }
     }
 
-    var content = HomeContent() { didSet { relayout() } }
+    var content = HomeContent() {
+        didSet {
+            // Worked out once per change, not at each draw (a hover redraws Home).
+            itemsBySection = Dictionary(uniqueKeysWithValues: Section.allCases.map { ($0, makeItems($0)) })
+            accessDates = [:]
+            for url in content.recentFiles {
+                accessDates[url] = (try? url.resourceValues(forKeys: [.contentAccessDateKey]))?.contentAccessDate
+            }
+            relayout()
+        }
+    }
+    private var itemsBySection: [Section: [(URL, Bool, String)]] = [:]
+    private var accessDates: [URL: Date?] = [:]
     var onOpenFolder: ((URL) -> Void)?
     var onOpenFile: ((URL) -> Void)?
     var menuProvider: ((URL) -> NSMenu?)?
@@ -118,7 +130,11 @@ final class HomeView: NSView {
         return (panels.last?.1.maxY ?? 0) + (native ? NativeMetrics.pad : Self.pad)
     }
 
-    private func items(_ s: Section) -> [(URL, Bool, String)] {
+    private func items(_ s: Section) -> [(URL, Bool, String)] { itemsBySection[s] ?? [] }
+
+    private func accessDate(_ url: URL) -> Date? { accessDates[url] ?? nil }
+
+    private func makeItems(_ s: Section) -> [(URL, Bool, String)] {
         switch s {
         case .quickAccess: content.pins.map { (URL(fileURLWithPath: $0.path, isDirectory: true), true, $0.title) }
         case .favorites: content.favorites.map { ($0, Self.isFolder($0), $0.lastPathComponent) }
@@ -271,7 +287,7 @@ final class HomeView: NSView {
                     .replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~")
                 drawLine(folder, font: .systemFont(ofSize: 13), color: .secondaryLabelColor, x: left + nameW + 12, midY: mid,
                          maxWidth: r.maxX - dateW - (left + nameW + 12) - M.rowInset)
-                if !isFolder, let date = (try? url.resourceValues(forKeys: [.contentAccessDateKey]))?.contentAccessDate {
+                if !isFolder, let date = accessDate(url) {
                     drawLine(Self.nativeDateFormatter.string(from: date), font: .systemFont(ofSize: 13), color: .secondaryLabelColor,
                              x: r.maxX - M.rowInset, midY: mid, alignRight: true)
                 }
@@ -351,7 +367,7 @@ final class HomeView: NSView {
             .replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~")
         drawLine(folder, font: Typeface.mono(12), color: p.muted, x: r.minX + 38 + nameW + 14, midY: mid,
                  maxWidth: r.maxX - dateW - (r.minX + 38 + nameW + 14) - 8)
-        if !isFolder, let date = (try? url.resourceValues(forKeys: [.contentAccessDateKey]))?.contentAccessDate {
+        if !isFolder, let date = accessDate(url) {
             drawLine(Self.dateFormatter.string(from: date), font: Typeface.mono(12), color: p.text2, x: r.maxX - 10, midY: mid, alignRight: true)
         }
     }

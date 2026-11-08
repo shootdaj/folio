@@ -165,7 +165,9 @@ enum BulkListing {
                 size: raw.type == VREG.rawValue ? raw.size : nil,
                 kind: FolderListing.kind(of: url, key: kindKey, cache: &kinds),
                 isHidden: hidden,
-                isLink: isAlias))
+                isLink: isAlias,
+                finderFlags: raw.finderFlags,
+                bsdFlags: raw.flags))
         }
         return out
     }

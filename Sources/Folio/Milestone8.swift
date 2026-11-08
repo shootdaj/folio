@@ -16,6 +16,17 @@ final class ItemDecorCache {
         icons = [:]
     }
 
+    /// Forgets what was read for the items in `folder` and below (a load or refresh of that folder);
+    /// other windows' rows keep theirs.
+    func clear(under folder: URL) {
+        // Rows read in other folders stay, up to a bound.
+        if tags.count + flags.count + icons.count > 20_000 { clear(); return }
+        let prefix = folder.path == "/" ? "/" : folder.path + "/"
+        tags = tags.filter { !$0.key.hasPrefix(prefix) }
+        flags = flags.filter { !$0.key.hasPrefix(prefix) }
+        icons = icons.filter { !$0.key.hasPrefix(prefix) }
+    }
+
     func forget(_ url: URL) {
         tags[url.path] = nil
         flags[url.path] = nil
@@ -29,16 +40,23 @@ final class ItemDecorCache {
         return colors
     }
 
-    /// Locked (uchg) or compressed (APFS/HFS compression).
-    func lockedOrCompressed(_ url: URL) -> Bool {
+    private static let lockedOrCompressedMask = UInt32(UF_IMMUTABLE | UF_COMPRESSED | SF_IMMUTABLE)
+
+    /// Locked (uchg) or compressed (APFS/HFS compression). The listing's flags answer without a disk read.
+    func lockedOrCompressed(_ entry: FileEntry) -> Bool {
+        if let f = entry.bsdFlags { return f & Self.lockedOrCompressedMask != 0 }
+        let url = entry.url
         if let known = flags[url.path] { return known }
         var st = stat()
-        let on = lstat(url.path, &st) == 0 && st.st_flags & UInt32(UF_IMMUTABLE | UF_COMPRESSED | SF_IMMUTABLE) != 0
+        let on = lstat(url.path, &st) == 0 && st.st_flags & Self.lockedOrCompressedMask != 0
         flags[url.path] = on
         return on
     }
 
-    func customIcon(_ url: URL) -> NSImage? {
+    /// A folder's own icon. The listing's Finder flags rule out most folders without a disk read.
+    func customIcon(_ entry: FileEntry) -> NSImage? {
+        guard entry.mayHaveCustomIcon else { return nil }
+        let url = entry.url
         if let known = icons[url.path] { return known }
         let icon = FolderIcon.hasCustomIcon(url) ? NSWorkspace.shared.icon(forFile: url.path) : nil
         icons[url.path] = icon
@@ -72,8 +90,8 @@ extension BrowserWindowController {
         let real = !isInZip
         cell.tagColors = real ? decor.tagColors(entry.url) : []
         cell.underline = o.singleClickOpens ? o.underline : nil
-        cell.isFlagDimmed = real && o.showCompressedInColour && decor.lockedOrCompressed(entry.url)
-        cell.customIcon = real && entry.isFolder ? decor.customIcon(entry.url) : nil
+        cell.isFlagDimmed = real && o.showCompressedInColour && decor.lockedOrCompressed(entry)
+        cell.customIcon = real && entry.isFolder ? decor.customIcon(entry) : nil
         cell.tip = o.showPopupDescriptions ? { [weak self] in self?.infoTip(entry) } : nil
     }
 
@@ -82,7 +100,7 @@ extension BrowserWindowController {
         let decor = ItemDecorCache.shared
         cell.showsTypeBadge = o.fileIconOnThumbnails
         cell.tagColors = isInZip ? [] : decor.tagColors(entry.url)
-        cell.isFlagDimmed = !isInZip && o.showCompressedInColour && decor.lockedOrCompressed(entry.url)
+        cell.isFlagDimmed = !isInZip && o.showCompressedInColour && decor.lockedOrCompressed(entry)
         cell.tip = o.showPopupDescriptions ? { [weak self] in self?.infoTip(entry) } : nil
     }
 
@@ -125,7 +143,7 @@ extension BrowserWindowController {
     private func watchedFoldersChanged(_ keys: Set<String>) {
         guard !history.isHome, !isInZip, !isSearching else { return }
         guard keys.contains(FilePaths.folderKey(history.current)) || !keys.isDisjoint(with: expandedFolders) else { return }
-        ItemDecorCache.shared.clear()
+        ItemDecorCache.shared.clear(under: history.current)
         perfLog.notice("auto-refresh: \(self.history.current.path, privacy: .public) changed on disk")
         reloadContents()
     }

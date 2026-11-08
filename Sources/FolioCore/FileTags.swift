@@ -42,6 +42,9 @@ public enum FileTags {
 
     public static func read(_ url: URL) -> [FileTag] { rawValues(url).map(parse) }
 
+    /// Whether the item has any tags: one `getxattr` for the size, nothing read.
+    public static func hasTags(_ url: URL) -> Bool { getxattr(url.path, attribute, nil, 0, 0, XATTR_NOFOLLOW) > 0 }
+
     /// The stored strings ("Red\n6").
     public static func rawValues(_ url: URL) -> [String] {
         let size = getxattr(url.path, attribute, nil, 0, 0, XATTR_NOFOLLOW)

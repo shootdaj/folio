@@ -49,6 +49,11 @@ enum Bench {
         time("volume figures", runs) { _ = VolumeCapacity.read(folder) }
         time("tree: this folder", runs) { _ = FolderTree.subfolders(of: folder.path) }
         time("tree: every folder from /", runs) { for p in chain { _ = FolderTree.subfolders(of: p) } }
+        // The live search walk over the folder and everything below it, for a word few names hold.
+        if let query = try? SearchQuery.parse("zqx") {
+            let walk = SearchWalk(roots: [folder], matcher: SearchMatcher(query), options: SearchWalk.Options())
+            time("search walk (all below)", max(1, runs / 2)) { walk.run(isCancelled: { false }, onBatch: { _, _ in }) }
+        }
         return 0
     }
 

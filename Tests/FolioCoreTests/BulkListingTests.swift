@@ -41,6 +41,10 @@ import Testing
             name = e.name; kind = e.kind; isFolder = e.isFolder; isHidden = e.isHidden; isLink = e.isLink
             size = e.size; modified = e.modified
         }
+        func sameExceptDate(_ o: Row) -> Bool {
+            path == o.path && name == o.name && kind == o.kind && isFolder == o.isFolder && isHidden == o.isHidden
+                && isLink == o.isLink && size == o.size
+        }
         var description: String { "\(name) kind=\(kind) folder=\(isFolder) hidden=\(isHidden) link=\(isLink) size=\(size.map(String.init) ?? "nil") modified=\(modified.map { "\($0.timeIntervalSince1970)" } ?? "nil")" }
     }
 
@@ -56,6 +60,10 @@ import Testing
         #expect(Set(a.keys) == Set(b.keys), "\(folder.path) hidden=\(hidden): the same items")
         for (path, row) in b {
             guard let mine = a[path] else { continue }
+            // A live folder (home, its Trash) can change between the two reads: a new date on an item
+            // touched in the last two minutes is that change, not a difference in the reads.
+            let recent = [mine.modified, row.modified].compactMap { $0 }.contains { Date().timeIntervalSince($0) < 120 }
+            if recent, mine.sameExceptDate(row) { continue }
             #expect(mine == row, "\(path)\n bulk: \(mine)\n  url: \(row)")
         }
     }

@@ -20,7 +20,7 @@ enum FileClipboard {
             pb.setString("1", forType: cutMarker)
         }
         cutChangeCount = cut ? pb.changeCount : -1
-        cutPaths = cut ? Set(urls.map(FilePaths.itemKey)) : []
+        cutPaths = cut ? Set(FilePaths.itemKeys(urls)) : []
         NotificationCenter.default.post(name: didChange, object: nil)
     }
 
@@ -31,9 +31,17 @@ enum FileClipboard {
         return (urls, pb.types?.contains(cutMarker) == true)
     }
 
+    /// Asked on every selection change (the Paste button): the answer is read again only when the
+    /// pasteboard changed.
     static var hasFiles: Bool {
-        NSPasteboard.general.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true])
+        let count = NSPasteboard.general.changeCount
+        if count == hasFilesAt { return hasFilesAnswer }
+        hasFilesAnswer = NSPasteboard.general.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true])
+        hasFilesAt = count
+        return hasFilesAnswer
     }
+    private static var hasFilesAt = Int.min
+    private static var hasFilesAnswer = false
 
     /// Item keys drawn dimmed: the pending cut, unless something else was copied since.
     static var dimmedPaths: Set<String> {
@@ -115,7 +123,8 @@ final class OperationCenter {
         if result.state == .cancelled { progress.reveal(near: anchorWindow) }
         // An archive bsdtar could not read or write says why.
         if result.state == .cancelled, let message = job.errorMessage { present(FileOpError.system(message), window: anchorWindow) }
-        postChanged(select: result.placed)
+        // A move empties its sources' folders too; a copy's sources stay as they were.
+        postChanged(select: result.placed, touched: job.kind == .move ? job.sources : [])
         tick()
     }
 
@@ -188,6 +197,12 @@ final class OperationCenter {
             timer?.invalidate()
             timer = nil
             progress.closeIfEmpty()
+        } else if jobs.allSatisfy({ snapshots[$0.id]?.state == .cancelled }) {
+            // Cancelled jobs wait for their panel to be closed: nothing moves, so no 30 Hz tick.
+            timer?.invalidate()
+            timer = nil
+        } else {
+            startTimer()
         }
     }
 
@@ -244,7 +259,7 @@ final class OperationCenter {
                         self.present(error, window: window)
                     }
                 }
-                self.postChanged(select: [])
+                self.postChanged(select: [], touched: urls, folders: [self.trashFolder])
             }
         }
     }
@@ -254,7 +269,7 @@ final class OperationCenter {
             let result = Result { try FileOps.deletePermanently(urls) }
             await MainActor.run {
                 if case .failure(let error) = result { self.present(error, window: window) }
-                self.postChanged(select: [])
+                self.postChanged(select: [], touched: urls)
             }
         }
     }
@@ -304,10 +319,18 @@ final class OperationCenter {
         }
     }
 
-    func postChanged(select: [URL]) {
-        NotificationCenter.default.post(name: Self.filesChanged, object: nil,
-                                        userInfo: ["select": select.map(\.path)])
+    /// Files changed: windows on the folders of `select` (the items to select) and of `touched` (other
+    /// items the operation moved or removed), and `folders` themselves, list again. With none of them,
+    /// every window does, as the change is not known (a failed step).
+    func postChanged(select: [URL], touched: [URL] = [], folders: [URL] = []) {
+        var info: [String: Any] = ["select": select.map(\.path)]
+        let parents = (select + touched).map { $0.deletingLastPathComponent() } + folders
+        if !parents.isEmpty { info["folders"] = Set(parents.map(FilePaths.folderKey)) }
+        NotificationCenter.default.post(name: Self.filesChanged, object: nil, userInfo: info)
     }
+
+    /// The Trash, for an operation that put items there or took them out.
+    private var trashFolder: URL { RecycleBin.trashFolder(home: FileManager.default.homeDirectoryForCurrentUser) }
 
     func present(_ error: Error, window: NSWindow?) {
         let alert = NSAlert()

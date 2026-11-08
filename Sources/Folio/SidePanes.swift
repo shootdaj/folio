@@ -266,7 +266,7 @@ final class SidePaneView: NSView, NSTextFieldDelegate {
             thumbnail.draw(in: NSRect(x: icon.midX - w / 2, y: icon.maxY - h, width: w, height: h), from: .zero,
                            operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
         } else {
-            let image = entry.map { FinderIconCache.shared.icon(url: $0.url, isDir: summary.isFolder) }
+            let image = entry.map { FinderIconCache.shared.icon(url: $0.url, isDir: summary.isFolder, modified: $0.modified) }
                 ?? FinderIconCache.shared.icon(name: "", isDir: true)
             image.draw(in: icon, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
         }

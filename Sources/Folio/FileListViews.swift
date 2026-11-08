@@ -895,7 +895,7 @@ final class NameCellView: NSTableCellView, RowCellView, ThemeAware, NSViewToolTi
         } else {
             if native {
                 // Apps and packages upgrade to their own icon off the main thread, then redraw.
-                FinderIcon.draw(url: entry.url, isDir: entry.isFolder, isLink: false, in: icon)
+                FinderIcon.draw(url: entry.url, isDir: entry.isFolder, modified: entry.modified, isLink: false, in: icon)
             } else {
                 ItemIcon.draw(name: entry.name, isFolder: entry.isFolder, in: icon, palette: p, glow: selected || hovered)
             }

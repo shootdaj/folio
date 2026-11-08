@@ -391,9 +391,9 @@ extension BrowserWindowController {
     /// Folders that changed on disk: their tree nodes are read again.
     func refreshTree(_ note: Notification) {
         var folders = (note.userInfo?["folders"] as? Set<String>) ?? []
-        for path in (note.userInfo?["select"] as? [String]) ?? [] {
-            folders.insert(FilePaths.folderKey(URL(fileURLWithPath: path).deletingLastPathComponent()))
-        }
+        // Each pasted item's folder, resolved once per folder (a paste of thousands shares a few).
+        let parents = Set(((note.userInfo?["select"] as? [String]) ?? []).map { ($0 as NSString).deletingLastPathComponent })
+        for parent in parents { folders.insert(FilePaths.folderKey(URL(fileURLWithPath: parent))) }
         if folders.isEmpty, !history.isHome { folders.insert(FilePaths.folderKey(history.current)) }
         chassis.sidebar.pane.refresh(folders: folders)
     }

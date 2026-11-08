@@ -5,7 +5,9 @@ import FolioCore
 /// This PC (every volume with its capacity bar, each the root of a folder tree), Details (the selected
 /// item) and Network (mounted shares, servers found on the network, Connect to server).
 final class SidebarView: NSView {
-    let outline = SidebarOutlineView(frame: .zero)
+    /// D4 draws its cards behind the rows; Native draws no background of its own (SidebarOutlineView).
+    let outline: SidebarOutlineView = ThemeController.shared.isNative ? SidebarOutlineView(frame: .zero)
+        : CardSidebarOutlineView(frame: .zero)
     let pane = NavigationPane()
     private let scroll = NSScrollView()
     /// Native: the sidebar material, behind the scroll view. Hidden in D4.
@@ -193,8 +195,16 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
         didSet {
             guard details != oldValue, let outline else { return }
             let row = outline.row(forItem: detailsNode)
-            if row >= 0 { outline.noteHeightOfRows(withIndexesChanged: IndexSet(integer: row)) }
-            outline.redrawRows()
+            guard row >= 0 else { return }
+            let before = outline.rect(ofRow: row).height
+            outline.noteHeightOfRows(withIndexesChanged: IndexSet(integer: row))
+            // A new height moves the rows and cards below: all redraw. Otherwise only the card does.
+            if outline.rect(ofRow: row).height != before {
+                outline.redrawRows()
+            } else {
+                outline.setNeedsDisplay(outline.rect(ofRow: row))
+                outline.rowView(atRow: row, makeIfNecessary: false)?.needsDisplay = true
+            }
         }
     }
     private let connectNode = SideNode(.connect)
@@ -899,11 +909,11 @@ extension SideNode {
 
 /// The outline: no header, no native disclosure triangles (the rows draw their own chevrons), D4's cards
 /// behind the groups, an insertion line for pins, and the tree keys.
-final class SidebarOutlineView: NSOutlineView {
+class SidebarOutlineView: NSOutlineView {
     weak var pane: NavigationPane?
     private(set) var hoveredRow = -1
     var dropRow: Int? { didSet { if dropRow != oldValue { redrawRows() } } }
-    var insertY: CGFloat? { didSet { if insertY != oldValue { overlay.y = insertY; overlay.needsDisplay = true } } }
+    var insertY: CGFloat? { didSet { if insertY != oldValue { placeOverlay() } } }
     private let overlay = InsertionOverlay()
     private var navigateTimer: Timer?
 
@@ -930,6 +940,7 @@ final class SidebarOutlineView: NSOutlineView {
         setDraggingSourceOperationMask([.copy, .move, .link, .generic], forLocal: false)
         draggingDestinationFeedbackStyle = .none
         setAccessibilityLabel("Quick access, This PC and Network")
+        overlay.isHidden = true
         addSubview(overlay)
     }
 
@@ -946,7 +957,20 @@ final class SidebarOutlineView: NSOutlineView {
 
     override func layout() {
         super.layout()
-        overlay.frame = bounds
+        placeOverlay()
+    }
+
+    /// The insertion line's view is a thin strip at the line, hidden with no line. Sized to the whole
+    /// outline (128,000 pt tall over a big tree), each redisplay cleared a backing store of over 100
+    /// million pixels on the main thread.
+    private func placeOverlay() {
+        guard let y = insertY else {
+            overlay.isHidden = true
+            return
+        }
+        overlay.frame = NSRect(x: 0, y: y - InsertionOverlay.half, width: bounds.width, height: 2 * InsertionOverlay.half)
+        overlay.isHidden = false
+        overlay.needsDisplay = true
     }
 
     func redrawRows() {
@@ -954,16 +978,6 @@ final class SidebarOutlineView: NSOutlineView {
         enumerateAvailableRowViews { view, _ in view.needsDisplay = true }
     }
 
-    /// `.scard.os-card`: s1, a hairline, radius 12; no hover effect on the card itself.
-    override func drawBackground(inClipRect clipRect: NSRect) {
-        let p = ThemeColors.current
-        for r in pane?.panelRects() ?? [] {
-            fillRounded(r, radius: 12, p.s1)
-            strokeRounded(r, radius: 12, p.line)
-        }
-    }
-
-    override func drawGrid(inClipRect clipRect: NSRect) {}
 
     // MARK: Mouse
 
@@ -1167,11 +1181,12 @@ final class SidebarOutlineView: NSOutlineView {
 
     /// The accent line where a dropped folder would be pinned.
     private final class InsertionOverlay: NSView {
-        var y: CGFloat?
+        /// Half the strip's height: the line and its dot, centred.
+        static let half: CGFloat = 4
         override var isFlipped: Bool { true }
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func draw(_ dirtyRect: NSRect) {
-            guard let y else { return }
+            let y = Self.half
             let p = ThemeColors.current
             let line = NSRect(x: 24, y: y - 1, width: bounds.width - 48, height: 2)
             fillRect(line, p.accent)
@@ -1186,6 +1201,24 @@ final class SidebarOutlineView: NSOutlineView {
             addSubview(overlay, positioned: .above, relativeTo: nil)
         }
     }
+}
+
+/// D4's sidebar outline: the spotlight cards behind the rows.
+///
+/// Only D4 overrides the table's background drawing. A table that overrides it draws its background
+/// into its own layer for its whole height, and an outline opened over a folder of thousands of
+/// subfolders is over 100,000 pt tall: Native's sidebar took a quarter of a second of drawing to show.
+final class CardSidebarOutlineView: SidebarOutlineView {
+    /// `.scard.os-card`: s1, a hairline, radius 12; no hover effect on the card itself.
+    override func drawBackground(inClipRect clipRect: NSRect) {
+        let p = ThemeColors.current
+        for r in pane?.panelRects() ?? [] {
+            fillRounded(r, radius: 12, p.s1)
+            strokeRounded(r, radius: 12, p.line)
+        }
+    }
+
+    override func drawGrid(inClipRect clipRect: NSRect) {}
 }
 
 /// Where Native's sidebar puts things. `chevronRect` and the row drawing both read these.

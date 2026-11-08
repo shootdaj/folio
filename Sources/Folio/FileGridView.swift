@@ -13,10 +13,19 @@ final class ThumbnailCache {
     init() { cache.countLimit = 2000 }
 
     /// Explorer thumbnails images, videos and PDFs; everything else keeps its type icon.
+    /// The answer is kept per extension: every cell asks while it is configured.
     static func wants(_ entry: FileEntry) -> Bool {
-        guard !entry.isFolder, let type = UTType(filenameExtension: entry.url.pathExtension) else { return false }
-        return type.conforms(to: .image) || type.conforms(to: .audiovisualContent) || type.conforms(to: .pdf)
+        guard !entry.isFolder else { return false }
+        let ext = (entry.name as NSString).pathExtension.lowercased()
+        if let known = wantsByExtension[ext] { return known }
+        let answer = UTType(filenameExtension: ext).map {
+            $0.conforms(to: .image) || $0.conforms(to: .audiovisualContent) || $0.conforms(to: .pdf)
+        } ?? false
+        wantsByExtension[ext] = answer
+        return answer
     }
+
+    private static var wantsByExtension: [String: Bool] = [:]
 
     private func key(_ entry: FileEntry, _ size: CGFloat) -> String {
         "\(entry.url.path)|\(entry.modified?.timeIntervalSince1970 ?? 0)|\(Int(size))"
@@ -269,7 +278,7 @@ final class GridCellView: NSView, NSViewToolTipOwner {
                 }
             }
         } else if isNative {
-            FinderIcon.draw(url: entry.url, isDir: entry.isFolder, isLink: false, in: icon)
+            FinderIcon.draw(url: entry.url, isDir: entry.isFolder, modified: entry.modified, isLink: false, in: icon)
         } else if entry.isFolder {
             let h = icon.width * 16 / 20
             ItemIcon.drawFolder(in: NSRect(x: icon.minX, y: icon.midY - h / 2, width: icon.width, height: h), palette: p, lit: isSelected && !isNative)

@@ -93,6 +93,36 @@ pushed; the release workflow publishes the section below with that number as the
   This PC, Recycle Bin). The Details section's "Select an item..." text now breaks between words, not
   inside one.
 
+- **Less work everywhere else, too.**
+  - **File operations:** a copy, move, trash or rename lists again only the windows on the folders it
+    touched; before, every window listed its folder again. The decorations (tags, locked, custom
+    icons) are forgotten only for the folder that was read, not for every window. A big paste resolves
+    each folder once, not each pasted item twice.
+  - **Rows:** custom folder icons and locked or compressed items come from the flags the listing
+    already read: no disk read per row. App icons no longer read the app's date on every draw, and a
+    batch of app icons that loads redraws the list once, not once per icon.
+  - **Search:** streaming results are arranged at most 4 times a second (and at once at the end),
+    ranked with the fast name order, and the tab strip updates only when the title changes. The live
+    walk lists folders with the bulk read and checks tags with one `getxattr`: about twice as fast
+    (20,330 items: 0.9 s to 0.5 s). Closing a window stops its search and its timer.
+  - **Selection:** the session file keeps at most 1,000 selected items per tab and is written off the
+    main thread (after Cmd+A in a big folder it wrote every path after each pause). The status bar
+    updates once per change, the Paste button asks the pasteboard only when it changed, the sidebar
+    redraws only the Details card, and the Preview pane, Gallery and Quick Look follow held arrow keys
+    at most every 0.1 s.
+  - **Sidebar:** the drop line is a thin strip, hidden when there is none, not a view the height of
+    the whole tree. Native's outline has no background drawing of its own, so AppKit no longer draws
+    one for its full height (over 100,000 pt with a big folder open in the tree). D4 keeps its cards.
+  - **Watchers:** the folder watcher asks FSEvents for folder events, not one per file anywhere under
+    the folder (a tab on ~ was sent every write in the home folder), and drops what is pending when it
+    stops. A cancelled job no longer keeps a 30 Hz timer running, and the progress panel redraws only
+    when something on it moved.
+  - **Smaller things:** grouping by date works out the date edges once per arrange, not per item;
+    Group by Name skips Unicode folding for plain letters; folder tips and the address bar's folder
+    menus use the fast readers; the icon grid is not reloaded while hidden; Home works out its rows and
+    dates once per change, not at each draw; and mapped shares already mounted are not mounted again
+    at launch.
+
 - **Folders open faster, and the navigation pane no longer holds up a move.** Measured with the new
   `Folio --bench <folder>` on a folder of 20,331 items:
   - The listing took 255 ms. It now reads the folder with `getattrlistbulk` (name, type, date, size and

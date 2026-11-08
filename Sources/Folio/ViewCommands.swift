@@ -364,6 +364,25 @@ extension BrowserWindowController: GridHost {
         let selected = selectedEntries
         sessionChanged()
         chassis.sidebar.pane.details = DetailsCard.make(history.isHome ? [] : selected)
+        updatePreviewsSoon()
+    }
+
+    /// The Preview pane, Gallery and Quick Look follow the selection. A held arrow key changes it 30
+    /// times a second; each preview loads a file, so they follow at most every 0.1 s, and once more when
+    /// the keys stop. A single click shows at once.
+    func updatePreviewsSoon() {
+        previewWork?.cancel()
+        let wait = 0.1 - (CACurrentMediaTime() - lastPreviewUpdate)
+        guard wait > 0 else { updatePreviews(); return }
+        let work = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.updatePreviews() } }
+        previewWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + wait, execute: work)
+    }
+
+    private func updatePreviews() {
+        previewWork = nil
+        lastPreviewUpdate = CACurrentMediaTime()
+        let selected = selectedEntries
         if ListOptions.sidePane != .none, !history.isHome {
             var meta: ItemMetadata?
             if selected.count == 1, let one = selected.first {

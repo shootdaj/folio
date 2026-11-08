@@ -360,6 +360,7 @@ final class JobPanelView: NSView {
     /// Takes a new snapshot; true when the panel's height changed.
     func update(_ s: JobSnapshot, dt: Double) -> Bool {
         let before = preferredHeight
+        let (oldSnap, oldShown) = (snap, shown)
         if let c = s.conflict, c.id != lastConflictID {
             lastConflictID = c.id
             resolution = nil
@@ -374,11 +375,14 @@ final class JobPanelView: NSView {
         if s.state == .running, s.speed > 0, t - lastSample > 0.09 {
             lastSample = t
             samples.append((s.fraction, s.speed))
+            // The speed graph spans the whole copy: a long one keeps every other sample, not all of them.
+            if samples.count > 2000 { samples = stride(from: 0, to: samples.count, by: 2).map { samples[$0] } }
         }
         if let armedAt, t - armedAt > 3 { self.armedAt = nil }
         applyState(s)
         if ThemeController.shared.isNative { refreshNative(s) }
-        needsDisplay = true
+        // Ticks come 30 times a second: the panel draws again only when something on it moved.
+        if s != oldSnap || shown != oldShown { needsDisplay = true }
         if preferredHeight != before { needsLayout = true; return true }
         return false
     }

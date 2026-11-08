@@ -247,6 +247,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     var requestID = 0
     /// The folder read in flight (`load`), cancelled when a newer one starts.
     private var loadTask: Task<Void, Never>?
+    /// The Preview pane, Gallery and Quick Look follow the selection at this pace (updatePreviewsSoon).
+    var previewWork: DispatchWorkItem?
+    var lastPreviewUpdate: CFTimeInterval = 0
+    /// Streaming search results are arranged at a pace (arrangeSearchSoon).
+    var searchArrangeWork: DispatchWorkItem?
+    var lastSearchArrange: CFTimeInterval = 0
+    var lastSearchTitle = ""
     private var isFittingColumns = false
     /// The one dropdown this window shows at a time (typeahead, history, crumb folders, Back list).
     let dropdown = Dropdown()
@@ -697,7 +704,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         }
         let started = Date()
         // Tags, flags and custom icons are read again for what the list shows next.
-        ItemDecorCache.shared.clear()
+        ItemDecorCache.shared.clear(under: folder)
         // A newer load replaces this one: the old one stops at its next step instead of finishing unseen.
         loadTask?.cancel()
         loadTask = Task.detached(priority: .userInitiated) { [weak self] in
@@ -929,6 +936,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     var selectedKeys: [String] { selection.rows.compactMap { entryKeys.indices.contains($0) ? entryKeys[$0] : nil } }
 
     func show(_ arranged: ListLayout, selecting selected: Set<String>) {
+        let started = DispatchTime.now().uptimeNanoseconds
+        defer {
+            let ms = Double(DispatchTime.now().uptimeNanoseconds - started) / 1_000_000
+            if ms >= 4 { perfLog.notice("show: \(arranged.items.count, privacy: .public) items in \(ms, format: .fixed(precision: 1), privacy: .public) ms on the main thread") }
+        }
         layout = arranged
         entries = arranged.items
         entryKeys = arranged.keys ?? FilePaths.itemKeys(entries.map(\.url))
@@ -938,7 +950,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         selection.adopt(rows, focus: rows.first)
         applyingSelection = true
         tableView.reloadData()
-        grid.reloadData()
+        // The grid is hidden in Details: it reloads when an icon view shows it (applyViewMode).
+        if !viewMode.usesTable { grid.reloadData() }
         tableView.selectRowIndexes(tableRows(of: rows), byExtendingSelection: false)
         applyingSelection = false
         header.filtered = Set(filters.columns)
@@ -1077,8 +1090,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         // A periodic refresh while a job runs only concerns windows on its destination (or a folder open in place).
         let here = FilePaths.folderKey(history.current)
         if let folders = note.userInfo?["folders"] as? Set<String>, !folders.contains(here), folders.isDisjoint(with: expandedFolders) { return }
-        let mine = ((note.userInfo?["select"] as? [String]) ?? [])
-            .map { FilePaths.itemKey(URL(fileURLWithPath: $0)) }
+        let mine = FilePaths.itemKeys(((note.userInfo?["select"] as? [String]) ?? []).map { URL(fileURLWithPath: $0) })
             .filter { FilePaths.parentKey(ofItemKey: $0) == here || expandedFolders.contains(FilePaths.parentKey(ofItemKey: $0)) }
         reloadContents(select: mine.isEmpty ? nil : Set(mine))
     }
@@ -1116,7 +1128,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         chassis.sidePaneKind = ListOptions.sidePane
         if !entries.isEmpty {
             tableView.reloadData(forRowIndexes: IndexSet(integersIn: 0..<layout.rows.count), columnIndexes: IndexSet(tableView.tableColumns.indices))
-            grid.reloadData()
+            if !viewMode.usesTable { grid.reloadData() }
         }
         updateStatus()
         selectionDidChange()
@@ -1417,8 +1429,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             updateFocusRow()
             grid.forEachVisibleCell { cell, i in cell.isSelected = items.contains(i) }
             selectionDidChange()
+            updateStatus()
         }
-        updateStatus()
+        // A change the window made itself (applySelection, show) updates the status bar there, once.
     }
 
     /// Dragging a divider gives or takes the space from Name; the width is kept for every folder.
@@ -1526,6 +1539,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     }
 
     func windowWillClose(_ notification: Notification) {
+        // A search in a closed window stops: the walk, Spotlight, its ticker and a pending arrange.
+        searchEngine?.cancel()
+        searchTicker?.invalidate()
+        searchArrangeWork?.cancel()
         dropdown.close()
         renamer.end()
         // Cmd+Shift+T can bring back the tabs of a closed window too (not when View > Theme rebuilt it).
