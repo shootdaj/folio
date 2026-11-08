@@ -126,6 +126,17 @@ final class GridCellView: NSView, NSViewToolTipOwner {
 
     private var isNative: Bool { ThemeController.shared.look == .native }
 
+    /// F2's box. Native anchors it to the cell, not the centred pill, so a short name cannot run past the cell.
+    var renameRect: NSRect {
+        let name = nameRect
+        switch mode {
+        case .smallIcons, .list, .tiles, .content: return name
+        default:
+            guard isNative else { return name }
+            return NSRect(x: 4, y: name.minY, width: bounds.width - 8, height: name.height)
+        }
+    }
+
     /// Native: the selected-name pill hugs the name, up to two lines. F2's box is the same rect.
     private var namePillRect: NSRect? {
         guard let entry else { return nil }
@@ -432,6 +443,24 @@ final class FileGridView: NSCollectionView {
 
     override var acceptsFirstResponder: Bool { true }
     override var isFlipped: Bool { true }
+
+    // Native draws the selection in the accent only while the grid has focus, so redraw when that changes.
+    override func becomeFirstResponder() -> Bool {
+        let ok = super.becomeFirstResponder()
+        redrawSelectedCells()
+        return ok
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let ok = super.resignFirstResponder()
+        redrawSelectedCells()
+        return ok
+    }
+
+    private func redrawSelectedCells() {
+        guard ThemeController.shared.isNative else { return }
+        forEachVisibleCell { cell, _ in if cell.isSelected { cell.needsDisplay = true } }
+    }
 
     private var layoutModel: ListLayout { host?.gridLayout ?? ListLayout(items: []) }
 
