@@ -27,8 +27,27 @@ pushed; the release workflow publishes the section below with that number as the
   system colours (light, dark and Increase Contrast follow the Mac), and the accent and highlight
   colours from System Settings > Appearance, so the title bar's accent swatch is hidden. Labels keep
   their case and menus use the system menu font. D4 Obsidian is unchanged, pixel for pixel. Native's
-  reference is docs/design/native.md; icons, the list, the sidebar and the window chrome follow in
-  the next releases.
+  reference is docs/design/native.md.
+
+- **Native looks like a Mac app all through.** In the Native theme:
+  - **Icons:** Finder's file icons, and SF Symbols for every glyph.
+  - **Details list:** an inset rounded selection in the accent colour (grey when the list is not
+    focused), white text in every column of a selected row, alternating rows, a 24 pt header with a
+    chevron on the sorted column, and slim disclosure triangles.
+  - **Window:** the sidebar runs the full height under the traffic lights, on the sidebar material. It
+    has sentence-case section heads, accent symbols, a rounded selection and thin drive bars.
+  - **Toolbar:** a material band with plain symbol buttons, a rounded address field and a real search
+    field.
+  - **Tabs:** they show only with two or more tabs, flat, with equal widths.
+  - **Status bar:** 22 pt, with plain grey text.
+  - **Icon views:** a plate behind the selected icon and an accent pill under its name.
+  - **Dialogs and panels:** menus and drop-down panels on the menu material, the header filter on the
+    popover material, and a context menu without the icon row. Home is a plain list. Folder Options,
+    Properties ("Info"), the progress window and Choose Details use titled windows with real bezel
+    buttons, check boxes and radios, and no cards.
+
+  D4 Obsidian is unchanged, pixel for pixel. `Folio --uitest` takes `--tabs N`, `--view <mode>` and
+  `--extra options|properties|preview|home`, to shoot more of the window.
 
 - **Folio asks once for Full Disk Access.** macOS asks again for each protected place (Desktop,
   Documents, Downloads, iCloud Drive, other apps' data, external and network drives). At launch, while
