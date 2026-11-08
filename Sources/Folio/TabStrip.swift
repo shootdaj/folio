@@ -238,6 +238,8 @@ final class TabStripView: NSView, NSDraggingSource {
             let icon = NSRect(x: iconX, y: mid - 7.5, width: 15, height: 15)
             if item.page == .home {
                 Glyph.home.draw(in: icon, color: p.accent.ns)
+            } else if item.page == .suggestions {
+                Glyph.sparkles.draw(in: icon, color: p.accent.ns)
             } else if item.isSearch {
                 Glyph.search.draw(in: icon, color: p.accent.ns)
             } else {

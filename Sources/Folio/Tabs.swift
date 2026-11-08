@@ -730,3 +730,28 @@ extension BrowserWindowController {
         }
     }
 }
+
+// MARK: - Suggestions
+
+extension BrowserWindowController {
+    /// The tab shows Suggestions: no listing, the list pane swaps for the Suggestions page.
+    func showSuggestions() {
+        requestID += 1
+        isLoading = false
+        loadError = nil
+        statusMessage = nil
+        pendingSelect = nil
+        renamer.cancel()
+        dropdown.close()
+        showEmptyList()
+        chassis.page = .suggestions
+        chassis.suggestions.needsLayout = true
+        updateChrome()
+        didNavigate()
+    }
+
+    var suggestionsStatusText: String { PlaceNames.suggestions }
+
+    /// F5 on the page. Slice B4 replaces this with `SuggestionsCenter.shared.rescan()`.
+    func rescanSuggestions() {}
+}

@@ -39,6 +39,7 @@ item show only one key, or the key would take keys away from text fields).
 | F5, Ctrl+R | Refresh | F5, Cmd+R, Ctrl+R | F5, Fn+R | Go > Refresh |
 | Mouse 4, 5 | Back, Forward | buttons 4 and 5 | buttons 4 and 5 | window |
 | | Home | Cmd+Shift+H | Fn+Shift+H | Go > Home |
+| | Suggestions | Cmd+Shift+S | Fn+Shift+S | Go > Suggestions |
 
 ## Search
 

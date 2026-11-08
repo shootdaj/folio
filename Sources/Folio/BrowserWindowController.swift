@@ -537,8 +537,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     @objc func goUp(_ sender: Any?) { if history.goUp() != nil { load() } }
     /// Go > Home (Cmd+Shift+H) and Quick access's Home: the Home view.
     @objc func goHome(_ sender: Any?) { navigate(to: NavigationHistory.home) }
+    /// Go > Suggestions (Cmd+Shift+S) and the sidebar's Suggestions row: the page of things to clean up.
+    @objc func goSuggestions(_ sender: Any?) { navigate(to: NavigationHistory.suggestions) }
     @objc func goHomeFolder(_ sender: Any?) { navigate(to: FileManager.default.homeDirectoryForCurrentUser) }
-    @objc func refresh(_ sender: Any?) { load() }
+    @objc func refresh(_ sender: Any?) {
+        if history.isSuggestions && !isSearching { rescanSuggestions() }
+        load()
+    }
 
     /// Cmd+L, and Option+D (Anshul's Cmd+D): the crumbs become an editable path.
     @objc func focusAddressBar(_ sender: Any?) { toolbar.address.beginEditing() }
@@ -580,7 +585,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     }
 
     func displayName(_ url: URL) -> String {
-        if NavigationHistory.isHome(url) { return "Home" }
+        if let place = NavigationHistory.special(url) { return PlaceNames.title(place) }
         if RecycleBin.isTrash(url, home: FileManager.default.homeDirectoryForCurrentUser) { return PlaceNames.recycleBin }
         return url.path == "/" ? (toolbar.address.volumes.first { $0.path == "/" }?.name ?? Breadcrumbs.rootTitle)
             : FileManager.default.displayName(atPath: url.path)
@@ -659,6 +664,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         if searchUIShown { leaveSearchMode() }
         if history.isHome {
             if !keepingState { showHome() }
+            return
+        }
+        if history.isSuggestions {
+            if !keepingState { showSuggestions() }
             return
         }
         chassis.page = .list
@@ -1008,7 +1017,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         toolbar.forward.isEnabled = history.canGoForward
         toolbar.up.isEnabled = history.canGoUp
         toolbar.address.show(folder)
-        toolbar.search.folderName = name
+        // A search from a special place looks in Home.
+        toolbar.search.folderName = history.isSpecial ? PlaceNames.title(.home) : name
         if !isSearching {
             toolbar.address.searchTitle = nil
             if !toolbar.search.isEditing { toolbar.search.text = "" }
@@ -1037,6 +1047,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
                                                         total: filters.isEmpty ? nil : listing.count)
         } else if history.isHome {
             chassis.status.countText = homeStatusText
+        } else if history.isSuggestions {
+            chassis.status.countText = suggestionsStatusText
         } else if isLoading {
             chassis.status.countText = "Loading " + (path as NSString).lastPathComponent
         } else {

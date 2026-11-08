@@ -132,6 +132,7 @@ enum MainMenu {
             item("Forward", #selector(BrowserWindowController.goForward(_:)), key(NSRightArrowFunctionKey), .option),
             item("Up", #selector(BrowserWindowController.goUp(_:)), key(NSUpArrowFunctionKey), .option),
             item("Home", #selector(BrowserWindowController.goHome(_:)), "h", [.command, .shift]),
+            item("Suggestions", #selector(BrowserWindowController.goSuggestions(_:)), "s", [.command, .shift]),
             item("Home Folder", #selector(BrowserWindowController.goHomeFolder(_:))),
             item("Refresh", #selector(BrowserWindowController.refresh(_:)), key(NSF5FunctionKey), []),
             .separator(),

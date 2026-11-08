@@ -20,6 +20,8 @@ final class ChassisView: NSView {
     let sidebar = SidebarView(frame: .zero)
     let pane = ListPaneView(frame: .zero)
     let home = HomePaneView(frame: .zero)
+    /// The Suggestions page. It is the last subview (the VM scripts find views by their order).
+    let suggestions = SuggestionsPaneView(frame: .zero)
     /// Option+P's Preview pane or Option+Shift+P's Details pane, right of the list.
     let sidePane = SidePaneView(frame: .zero)
     let status = StatusBarView(frame: .zero)
@@ -74,6 +76,7 @@ final class ChassisView: NSView {
             guard page != oldValue else { return }
             pane.isHidden = page != .list
             home.isHidden = page != .home
+            suggestions.isHidden = page != .suggestions
             needsLayout = true
         }
     }
@@ -85,10 +88,11 @@ final class ChassisView: NSView {
         self.toolbar = toolbar
         super.init(frame: .zero)
         home.isHidden = true
+        suggestions.isHidden = true
         sidePane.isHidden = true
         searchOptions.isHidden = true
         // The sidebar's scroll view comes first and the list's second (the VM scripts find them so).
-        for view in [sidebar, pane, home, toolbar, status, titleBar, tabStrip, handle, sidePane, searchOptions, sidePaneHandle] as [NSView] {
+        for view in [sidebar, pane, home, toolbar, status, titleBar, tabStrip, handle, sidePane, searchOptions, sidePaneHandle, suggestions] as [NSView] {
             addSubview(view)
         }
         sidePaneHandle.onDrag = { [weak self] x in
@@ -152,6 +156,7 @@ final class ChassisView: NSView {
         // Inside the pane's edge, so the list's scroller keeps every point of its own.
         sidePaneHandle.frame = NSRect(x: side + mainW, y: top, width: 5, height: bodyH)
         home.frame = NSRect(x: side, y: top, width: max(0, w - side), height: bodyH)
+        suggestions.frame = home.frame
         status.frame = NSRect(x: side, y: h - Self.statusH, width: max(0, w - side), height: Self.statusH)
         (window as? BrowserWindow)?.placeTrafficLights()
     }
@@ -185,6 +190,7 @@ final class ChassisView: NSView {
         // Inside the pane's edge, so the list's scroller keeps every point of its own.
         sidePaneHandle.frame = NSRect(x: side + mainW, y: top, width: 5, height: bodyH)
         home.frame = NSRect(x: side, y: top, width: max(0, w - side), height: bodyH)
+        suggestions.frame = home.frame
         status.frame = NSRect(x: 0, y: h - Self.statusH, width: w, height: Self.statusH)
     }
 

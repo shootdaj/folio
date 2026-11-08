@@ -110,13 +110,13 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
 
     private var special: SpecialPlace? { NavigationHistory.special(folder) }
 
-    /// The folder a crumb opens (Home's one crumb is Home).
+    /// The folder a crumb opens (a special place's one crumb is its name).
     private func crumbURL(_ i: Int) -> URL {
         SpecialPlace(path: crumbs[i].path)?.url ?? URL(fileURLWithPath: crumbs[i].path, isDirectory: true)
     }
 
     private func recrumb() {
-        crumbs = special.map { [Crumb(title: $0 == .home ? "Home" : "Suggestions", path: $0.path, isCurrent: true, isVolume: true)] }
+        crumbs = special.map { [Crumb(title: PlaceNames.title($0), path: $0.path, isCurrent: true, isVolume: true)] }
             ?? Breadcrumbs.crumbs(for: folder, volumes: volumes)
         // The Trash reads as Explorer's Recycle Bin in D4.
         if let last = crumbs.last, RecycleBin.isTrash(URL(fileURLWithPath: last.path), home: FileManager.default.homeDirectoryForCurrentUser) {

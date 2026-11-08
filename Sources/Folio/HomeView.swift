@@ -434,3 +434,12 @@ final class HomeView: NSView {
 
     override func accessibilityChildren() -> [Any]? { axParts }
 }
+
+/// Suggestions in the list's place. For now only the pane colour; the cards come in a later slice.
+final class SuggestionsPaneView: NSView {
+    override var isFlipped: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        fillRect(bounds, ThemeColors.current.pane)
+    }
+}
