@@ -53,7 +53,7 @@ final class SuggestionsPaneView: NSView {
 
 /// The page itself. One custom-drawn document view with real controls on top: OSButton for the push buttons,
 /// ChromeButton for the row actions and NSProgressIndicator for the scan. Native draws a plain list in system
-/// colours with Finder icons. D4 is a placeholder in this slice (see `layoutD4Placeholder`).
+/// colours with Finder icons. D4 draws Home's cards: s1 fill, a line, radius 12, mono uppercase heads, and an accent progress line.
 final class SuggestionsView: NSView {
     var state = SuggestionsState() {
         didSet {
@@ -106,6 +106,9 @@ final class SuggestionsView: NSView {
         let midY: CGFloat
         var maxWidth: CGFloat = .greatestFiniteMagnitude
         var alignRight = false
+        /// D4 only: the palette token, read again each time the label is drawn so an accent change shows at once.
+        var tone: KeyPath<ThemeColors, NSColor>?
+        var kern: CGFloat = 0
     }
 
     private struct RowBox {
@@ -121,6 +124,8 @@ final class SuggestionsView: NSView {
         var glyphs: [(Glyph, NSRect, NSColor)] = []
         var rows: [RowBox] = []
         var heads: [(SuggestionSection, NSRect)] = []
+        /// D4 only: one card for each section.
+        var cards: [NSRect] = []
         var controls: [Placement] = []
         var progress: NSRect?
     }
@@ -133,6 +138,11 @@ final class SuggestionsView: NSView {
         static let pad: CGFloat = 20, inset: CGFloat = 8, headH: CGFloat = 28, rowH: CGFloat = 40, groupH: CGFloat = 30
         static let gap: CGFloat = 14, buttonH: CGFloat = 22, iconSize: CGFloat = 24, sizeW: CGFloat = 72
         static let stripButton: CGFloat = 26, stripGap: CGFloat = 0
+    }
+    private enum D4Metrics {
+        static let pad: CGFloat = 18, cardInset: CGFloat = 6, headH: CGFloat = 40, rowH: CGFloat = 48, groupH: CGFloat = 34
+        static let gap: CGFloat = 14, buttonH: CGFloat = 30, iconSize: CGFloat = 20, sizeW: CGFloat = 84, stripButton: CGFloat = 28
+        static let rowPad: CGFloat = 12
     }
     private var native: Bool { ThemeController.shared.isNative }
 
@@ -211,10 +221,11 @@ final class SuggestionsView: NSView {
     // MARK: Layout
 
     private func makeLayout(width: CGFloat) -> Layout {
-        native ? makeNativeLayout(width: width) : layoutD4Placeholder(width: width)
+        native ? makeNativeLayout(width: width) : makeD4Layout(width: width)
     }
 
     private func buttonWidth(_ title: String, _ style: OSButton.Style) -> CGFloat {
+        if !native { return 16 + textWidth(title, font: Typeface.ui(14, weight: style == .primary ? 600 : 500)) + 16 }
         let w = textWidth(title, font: .systemFont(ofSize: 13))
         return style == .ghost ? w + 16 : max(60, w + 28)
     }
@@ -411,23 +422,267 @@ final class SuggestionsView: NSView {
         return y + 16
     }
 
-    // MARK: D4 placeholder
+    // MARK: D4 layout
 
-    // B5b replaces layoutD4Placeholder and drawD4Placeholder with the D4 cards, mono heads and accent progress
-    // line. Until then D4 shows the title and one line, and has no controls.
+    /// The subtitle under the title, as Native has it.
+    private func d4Subtitle() -> String {
+        let st = state
+        switch st.phase {
+        case .scanning: return SuggestionPage.progressText(st.progress)
+        case .needsAccess: return "Full Disk Access is off"
+        case .failed: return SuggestionPage.checkedText(st.lastScan, now: Date())
+        case .idle, .done:
+            guard let report = st.report else { return "Not scanned yet" }
+            let head = report.suggestions.isEmpty ? "Nothing to clean up" : SuggestionPage.freeableText(report)
+            return head + " \u{00B7} " + SuggestionPage.checkedText(st.lastScan, now: Date())
+        }
+    }
 
-    private func layoutD4Placeholder(width: CGFloat) -> Layout {
+    /// D4 Obsidian: a title strip, then one spotlight card for each section (s1, a hairline, radius 12) with a
+    /// mono uppercase head, a count and the card button. The rows sit inside the card.
+    private func makeD4Layout(width: CGFloat) -> Layout {
+        typealias M = D4Metrics
+        let p = ThemeColors.current
         var out = Layout()
-        out.height = 120
+        let x = M.pad, w = max(240, width - 2 * M.pad), right = x + w
+        let st = state
+        let note = Typeface.mono(11)
+
+        out.labels.append(Label(text: PlaceNames.suggestions, font: Typeface.ui(18, weight: 700), color: p.text, x: x, midY: 28,
+                                tone: \.text))
+        var headerButton: (Command, String)?
+        switch st.phase {
+        case .scanning: headerButton = (.stop, "Stop")
+        case .idle: if st.report != nil { headerButton = (.rescan, "Rescan") }
+        case .needsAccess: break
+        case .done, .failed: headerButton = (.rescan, "Rescan")
+        }
+        if let (command, title) = headerButton {
+            let bw = buttonWidth(title, .plain)
+            out.controls.append(Placement(command: command, title: title, style: .plain,
+                                          frame: NSRect(x: right - bw, y: 28 - M.buttonH / 2, width: bw, height: M.buttonH)))
+        }
+        out.labels.append(Label(text: d4Subtitle(), font: Typeface.mono(11, weight: 500), color: p.muted, x: x, midY: 54,
+                                maxWidth: w, tone: \.muted))
+        var y: CGFloat = 70
+        if st.phase == .scanning {
+            // The accent line under the title, as the search address has it.
+            out.progress = NSRect(x: x, y: 68, width: w, height: 2)
+            y = 78
+        }
+        y += 8
+
+        if let report = st.report, st.phase != .scanning {
+            if report.isPartial {
+                out.labels.append(Label(text: "The scan stopped early, so some files were not checked. The list can be incomplete.",
+                                        font: note, color: p.muted, x: x, midY: y + 10, maxWidth: w, tone: \.muted))
+                y += 28
+            }
+            if report.needsFullDiskAccess {
+                let title = "Open Privacy Settings"
+                let bw = buttonWidth(title, .ghost)
+                out.labels.append(Label(text: "Folio needs Full Disk Access to measure the Trash.", font: note, color: p.muted,
+                                        x: x, midY: y + 15, maxWidth: max(100, w - bw - 12), tone: \.muted))
+                out.controls.append(Placement(command: .openSettings, title: title, style: .ghost,
+                                              frame: NSRect(x: right - bw, y: y, width: bw, height: M.buttonH)))
+                y += M.buttonH + 6
+            }
+        }
+        if st.phase == .failed, let failure = st.failure, !sections.isEmpty {
+            out.labels.append(Label(text: failure, font: note, color: p.muted, x: x, midY: y + 10, maxWidth: w, tone: \.muted))
+            y += 28
+        }
+
+        for s in sections {
+            let top = y
+            let mid = top + M.headH / 2
+            out.heads.append((s, NSRect(x: x, y: top, width: w, height: M.headH)))
+            let title = s.kind == .trash ? "Empty " + PlaceNames.recycleBin : SuggestionPage.moveTitle(count: s.shown.count)
+            let style: OSButton.Style = s.kind == .trash ? .warn : .plain
+            let bw = buttonWidth(title, style)
+            let allPending = s.shown.allSatisfy { sug in sug.items.allSatisfy { st.pending.contains($0.id) } }
+            out.controls.append(Placement(command: .card(s.kind), title: title, style: style,
+                                          frame: NSRect(x: right - 10 - bw, y: mid - M.buttonH / 2, width: bw, height: M.buttonH),
+                                          enabled: !allPending))
+            let edge = right - 10 - bw - 12
+            out.labels.append(Label(text: SuggestionPage.sectionTotal(s), font: Typeface.mono(12, weight: 500), color: p.text2,
+                                    x: edge, midY: mid, alignRight: true, tone: \.text2))
+            let caption = Typeface.caption(s.title)
+            let capFont = Typeface.mono(12, weight: 600), kern = Typeface.labelKern(12)
+            let cap = min(textWidth(caption, font: capFont, kern: kern), max(80, w * 0.4))
+            out.labels.append(Label(text: caption, font: capFont, color: p.muted, x: x + 14, midY: mid, maxWidth: cap, tone: \.muted,
+                                    kern: kern))
+            out.labels.append(Label(text: ByteText.grouped(s.count), font: Typeface.mono(12, weight: 500), color: p.muted,
+                                    x: x + 14 + cap + 6, midY: mid, tone: \.muted))
+            out.lines.append(NSRect(x: x + 1, y: top + M.headH, width: w - 2, height: 1))
+            y += M.headH + 1
+            for row in s.rows {
+                let h = row.role == .groupHead ? M.groupH : M.rowH
+                out.rows.append(RowBox(row: row, rect: NSRect(x: x + M.cardInset, y: y, width: w - 2 * M.cardInset, height: h),
+                                       kind: s.kind))
+                y += h
+            }
+            if s.hidden > 0 && !s.isExpanded {
+                let more = SuggestionPage.showAllTitle(count: s.count)
+                out.controls.append(Placement(command: .more(s.kind), title: more, style: .ghost,
+                                              frame: NSRect(x: x + M.cardInset + 4, y: y + 4, width: buttonWidth(more, .ghost),
+                                                            height: M.buttonH)))
+                y += M.buttonH + 8
+            } else if s.isCapped {
+                out.labels.append(Label(text: SuggestionPage.cappedText(section: s), font: note, color: p.faint,
+                                        x: x + 14, midY: y + 15, tone: \.faint))
+                y += 30
+            }
+            y += 6
+            out.cards.append(NSRect(x: x, y: top, width: w, height: y - top))
+            y += M.gap
+        }
+
+        if sections.isEmpty { y = d4Panel(&out, width: width, top: y + 40) }
+
+        if st.ignoredCount > 0 && st.phase != .needsAccess && st.phase != .scanning {
+            let title = SuggestionPage.ignoredTitle(count: st.ignoredCount)
+            out.controls.append(Placement(command: .showIgnored, title: title, style: .ghost,
+                                          frame: NSRect(x: x - 4, y: y, width: buttonWidth(title, .ghost), height: M.buttonH)))
+            y += M.buttonH + 6
+        }
+        out.height = y + M.pad
         return out
     }
 
-    private func drawD4Placeholder() {
+    /// The text, glyph and buttons of a page with no cards, in D4's type. Returns the y below them.
+    private func d4Panel(_ out: inout Layout, width: CGFloat, top: CGFloat) -> CGFloat {
         let p = ThemeColors.current
-        let pad: CGFloat = 18
-        drawLine(PlaceNames.suggestions, font: Typeface.ui(18, weight: 700), color: p.text, x: pad, midY: 28)
-        drawLine(SuggestionPage.statusText(state: state.phase, report: state.report, progress: state.progress, failure: state.failure),
-                 font: Typeface.mono(11, weight: 500), color: p.muted, x: pad, midY: 54, maxWidth: bounds.width - 2 * pad)
+        let cx = width / 2
+        var y = top
+        func centered(_ text: String, _ font: NSFont, _ tone: KeyPath<ThemeColors, NSColor>, midY: CGFloat) {
+            let tw = textWidth(text, font: font)
+            out.labels.append(Label(text: text, font: font, color: p[keyPath: tone], x: cx - tw / 2, midY: midY, tone: tone))
+        }
+        func body(_ text: String) {
+            let font = Typeface.mono(12)
+            for line in wrap(text, font: font, width: min(440, width - 80)) {
+                centered(line, font, \.muted, midY: y + 10)
+                y += 20
+            }
+        }
+        func buttons(_ list: [(Command, String, OSButton.Style)]) {
+            y += 12
+            let widths = list.map { buttonWidth($0.1, $0.2) }
+            var bx = cx - (widths.reduce(0, +) + CGFloat(list.count - 1) * 10) / 2
+            for (i, b) in list.enumerated() {
+                out.controls.append(Placement(command: b.0, title: b.1, style: b.2,
+                                              frame: NSRect(x: bx, y: y, width: widths[i], height: D4Metrics.buttonH)))
+                bx += widths[i] + 10
+            }
+            y += D4Metrics.buttonH
+        }
+        let head = Typeface.ui(16, weight: 700)
+        switch state.phase {
+        case .idle:
+            centered("Find what you can remove", head, \.text, midY: y + 10)
+            y += 30
+            body("Find large, old and duplicate files you can remove.")
+            buttons([(.scan, "Scan", .primary)])
+        case .needsAccess:
+            centered("Full Disk Access is off", head, \.text, midY: y + 10)
+            y += 30
+            body("Folio needs Full Disk Access to look through Desktop, Documents, Downloads and the Trash. Without it, macOS asks for each folder.")
+            buttons([(.openSettings, "Open Privacy Settings", .primary), (.scanAnyway, "Scan anyway", .plain)])
+        case .scanning:
+            body("Looking through your home folder. This can take a minute.")
+        case .done:
+            out.glyphs.append((.check, NSRect(x: cx - 16, y: y, width: 32, height: 32), p.muted))
+            y += 44
+            centered("Nothing to clean up", head, \.text, midY: y + 10)
+            y += 30
+            body(SuggestionPage.checkedText(state.lastScan, now: Date()))
+        case .failed:
+            centered("The scan did not finish", head, \.text, midY: y + 10)
+            y += 30
+            body(state.failure ?? "Try again.")
+        }
+        return y + 16
+    }
+
+    // MARK: D4 drawing
+
+    private func drawD4() {
+        let p = ThemeColors.current
+        let dirty = bounds
+        for card in layout.cards {
+            fillRounded(card, radius: 12, p.s1)
+            strokeRounded(card, radius: 12, p.line)
+        }
+        for line in layout.lines { fillRect(line, p.line) }
+        for l in layout.labels {
+            let color = l.tone.map { p[keyPath: $0] } ?? l.color
+            drawLine(l.text, font: l.font, color: color, x: l.x, midY: l.midY, maxWidth: l.maxWidth, alignRight: l.alignRight,
+                     kern: l.kern)
+        }
+        for (glyph, rect, _) in layout.glyphs { glyph.draw(in: rect, color: p.muted.ns) }
+        if let r = layout.progress { drawD4Progress(r, p) }
+        for b in layout.rows where b.rect.intersects(dirty) { drawD4Row(b, p) }
+    }
+
+    /// The scan's accent line, ported from the search address: a 2 pt line that grows with the glow, on a hairline track.
+    /// With no known fraction the line is a short stretch at the start.
+    private func drawD4Progress(_ r: NSRect, _ p: ThemeColors) {
+        fillRect(r, p.line)
+        let fraction = CGFloat(max(0, min(1, state.progress?.fraction ?? 0)))
+        let line = NSRect(x: r.minX, y: r.minY, width: r.width * (fraction > 0 ? fraction : 0.12), height: r.height)
+        withGlow(p.accent, blur: 10) { fillRect(line, p.accent) }
+    }
+
+    private func drawD4Row(_ b: RowBox, _ p: ThemeColors) {
+        typealias M = D4Metrics
+        let row = b.row, r = b.rect
+        let selected = focusedID == row.id
+        let hot = hoveredID == row.id
+        if selected {
+            // As the sidebar's selected row: the accent at 16%, and a hairline of it while the page has the keys.
+            fillRounded(r, radius: 8, p.accent.withAlpha(0.16))
+            if emphasized { strokeRounded(r.insetBy(dx: 0.5, dy: 0.5), radius: 8, p.accent.withAlpha(0.55)) }
+        } else if hot {
+            fillRounded(r, radius: 8, p.text.withAlpha(0.07))
+        }
+        let pending = isPending(row)
+        if pending {
+            NSGraphicsContext.current?.cgContext.saveGState()
+            NSGraphicsContext.current?.cgContext.setAlpha(0.45)
+        }
+        defer { if pending { NSGraphicsContext.current?.cgContext.restoreGState() } }
+
+        if row.role == .groupHead {
+            let nameW = drawLine(row.name, font: Typeface.ui(13, weight: 600), color: p.text, x: r.minX + M.rowPad, midY: r.midY,
+                                 maxWidth: r.width * 0.5)
+            drawLine("\u{00B7} " + row.detail, font: Typeface.mono(12), color: p.muted, x: r.minX + M.rowPad + nameW + 8, midY: r.midY,
+                     maxWidth: max(40, r.width - nameW - 2 * M.rowPad - 8))
+            return
+        }
+        let indent: CGFloat = row.role == .member ? 18 : 0
+        let iconRect = NSRect(x: r.minX + M.rowPad + indent, y: r.midY - M.iconSize / 2, width: M.iconSize, height: M.iconSize)
+        let name = displayName(b)
+        if b.kind == .trash {
+            Glyph.trash.draw(in: iconRect.insetBy(dx: 2, dy: 2), color: p.text2.ns)
+        } else {
+            ItemIcon.draw(name: row.name, isFolder: row.item?.isFolder ?? false, in: iconRect, palette: p, glow: hot || selected)
+            if b.kind == .brokenLinks {
+                ItemIcon.drawLinkBadge(in: NSRect(x: iconRect.maxX - 9, y: iconRect.maxY - 9, width: 10, height: 10), palette: p)
+            }
+        }
+        let left = iconRect.maxX + 12
+        let textMax = max(60, r.maxX - M.rowPad - M.sizeW - 8 - 3 * M.stripButton - left)
+        let nameW = drawLine(name, font: Typeface.ui(13, weight: 500), color: p.text, x: left, midY: r.minY + 16, maxWidth: textMax)
+        if row.isKept, nameW + 40 < textMax {
+            drawLine(row.detail, font: Typeface.mono(11, weight: 500), color: p.accent, x: left + nameW + 10, midY: r.minY + 16)
+        }
+        let second = row.role == .member ? row.place : row.place + " \u{00B7} " + row.detail
+        drawLine(second, font: Typeface.mono(11), color: p.muted, x: left, midY: r.minY + 33, maxWidth: textMax)
+        if let size = row.size {
+            drawLine(SuggestionPage.size(size), font: Typeface.mono(12, weight: 500), color: p.text2, x: r.maxX - M.rowPad,
+                     midY: r.midY, alignRight: true)
+        }
     }
 
     // MARK: Controls
@@ -452,7 +707,7 @@ final class SuggestionsView: NSView {
             button.onPress = { [weak self] in self?.perform(command) }
         }
         for (command, button) in buttons where !live.contains(command) { button.isHidden = true }
-        if let frame = layout.progress {
+        if native, let frame = layout.progress {
             progressBar.isHidden = false
             progressBar.frame = frame
             let fraction = state.progress?.fraction ?? 0
@@ -500,11 +755,10 @@ final class SuggestionsView: NSView {
     /// One set of three buttons that sits on the hovered row, or on the focused row. It keeps the count of buttons fixed.
     private func updateStrip() {
         let all = [trashButton, revealButton, ignoreButton]
-        guard native, state.phase != .scanning, let b = box(activeID), let item = b.row.item else {
+        guard state.phase != .scanning, let b = box(activeID), let item = b.row.item else {
             all.forEach { $0.isHidden = true }
             return
         }
-        typealias M = NativeMetrics
         let busy = isPending(b.row)
         var visible: [ChromeButton] = []
         if b.kind.canMoveToTrash {
@@ -520,10 +774,13 @@ final class SuggestionsView: NSView {
         }
         _ = item
         all.forEach { $0.isHidden = !visible.contains($0) }
-        var x = b.rect.maxX - M.inset - M.sizeW - 8 - CGFloat(visible.count) * M.stripButton
+        let side = native ? NativeMetrics.stripButton : D4Metrics.stripButton
+        let edge = native ? NativeMetrics.inset + NativeMetrics.sizeW : D4Metrics.rowPad + D4Metrics.sizeW
+        var x = b.rect.maxX - edge - 8 - CGFloat(visible.count) * side
         for button in visible {
-            button.frame = NSRect(x: x, y: b.rect.midY - M.stripButton / 2, width: M.stripButton, height: M.stripButton)
-            x += M.stripButton
+            button.iconSize = native ? 14 : 16
+            button.frame = NSRect(x: x, y: b.rect.midY - side / 2, width: side, height: side)
+            x += side
         }
     }
 
@@ -541,7 +798,7 @@ final class SuggestionsView: NSView {
     private var emphasized: Bool { window?.isKeyWindow == true && window?.firstResponder === self }
 
     override func draw(_ dirtyRect: NSRect) {
-        guard native else { drawD4Placeholder(); return }
+        guard native else { drawD4(); return }
         for line in layout.lines where line.intersects(dirtyRect) { fillRect(line, .separatorColor) }
         for l in layout.labels {
             drawLine(l.text, font: l.font, color: l.color, x: l.x, midY: l.midY, maxWidth: l.maxWidth, alignRight: l.alignRight)
