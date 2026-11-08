@@ -38,6 +38,9 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
     private let searchBox = SearchBoxView(frame: .zero)
     private let header = OptionsHeader()
     private var tabButtons: [FolderOptions.Tab: SegmentButton] = [:]
+    private var nativeTabs: [FolderOptions.Tab: OptionsTabButton] = [:]
+    /// The look the window was built in. A look change closes it, since the chrome differs.
+    private var builtNative = false
     private let body = FlippedView()
     private let scroll = NSScrollView()
     private let list = OptionsListView()
@@ -54,23 +57,38 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
 
     private init() {
         // 860 wide: General's two columns (milestone 9 added Folio and macOS) fit a 1024 pt screen.
+        let native = optionsNative
+        builtNative = native
+        // Native is a titled window with its title showing. D4 draws under a transparent title bar.
         let window = OptionsWindow(contentRect: NSRect(x: 0, y: 0, width: 860, height: 660),
-                                   styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
+                                   styleMask: native ? [.titled, .closable] : [.titled, .closable, .fullSizeContentView],
+                                   backing: .buffered, defer: false)
         window.title = "Folder Options"
-        window.titlebarAppearsTransparent = true
-        window.titleVisibility = .hidden
+        if !native {
+            window.titlebarAppearsTransparent = true
+            window.titleVisibility = .hidden
+        }
         window.isReleasedWhenClosed = false
-        window.backgroundColor = ThemeColors.current.s2.ns
+        window.backgroundColor = native ? NSColor.windowBackgroundColor : ThemeColors.current.s2.ns
         super.init(window: window)
         window.delegate = self
         let content = PropertiesContentView()
         window.contentView = content
-        content.addSubview(header)
-        for t in FolderOptions.Tab.allCases {
-            let b = SegmentButton(t.rawValue) { [weak self] in self?.select(t) }
-            b.focusRingType = .none
-            tabButtons[t] = b
-            content.addSubview(b)
+        if native {
+            for t in FolderOptions.Tab.allCases {
+                let b = OptionsTabButton(t.rawValue) { [weak self] in self?.select(t) }
+                b.focusRingType = .none
+                nativeTabs[t] = b
+                content.addSubview(b)
+            }
+        } else {
+            content.addSubview(header)
+            for t in FolderOptions.Tab.allCases {
+                let b = SegmentButton(t.rawValue) { [weak self] in self?.select(t) }
+                b.focusRingType = .none
+                tabButtons[t] = b
+                content.addSubview(b)
+            }
         }
         searchBox.folderName = "settings"
         searchBox.onChange = { [weak self] text in self?.search(text) }
@@ -129,9 +147,18 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
         loginItemBox = nil
         revealBox = nil
         let w = content.bounds.width, h = content.bounds.height
+        let native = builtNative
         header.frame = NSRect(x: 0, y: 0, width: w, height: 44)
         var x: CGFloat = 24
         for t in FolderOptions.Tab.allCases {
+            if native {
+                guard let b = nativeTabs[t] else { continue }
+                b.isOn = query.isEmpty && t == tab
+                let bw = b.fit()
+                b.frame = NSRect(x: x, y: 16, width: bw, height: 28)
+                x += bw + 4
+                continue
+            }
             guard let b = tabButtons[t] else { continue }
             // While results show, no tab is on: they come from all three.
             b.isOn = query.isEmpty && t == tab
@@ -139,8 +166,10 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
             b.frame = NSRect(x: x, y: 58, width: bw, height: 34)
             x += bw - 1
         }
-        searchBox.frame = NSRect(x: w - 24 - 300, y: 56, width: 300, height: 38)
-        body.frame = NSRect(x: 18, y: 106, width: w - 36, height: h - 106 - 72)
+        searchBox.frame = native ? NSRect(x: w - 24 - 300, y: 11, width: 300, height: 38)
+                                 : NSRect(x: w - 24 - 300, y: 56, width: 300, height: 38)
+        body.frame = native ? NSRect(x: 18, y: 62, width: w - 36, height: h - 62 - 64)
+                            : NSRect(x: 18, y: 106, width: w - 36, height: h - 106 - 72)
         if !query.isEmpty {
             buildResults()
         } else {
@@ -150,16 +179,17 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
             case .search: buildSearch()
             }
         }
-        let y = h - 24 - 40
+        let bh = native ? OSButton.height : 40
+        let y = native ? h - 20 - bh : h - 24 - 40
         let rw = restore.fit()
-        restore.frame = NSRect(x: 24, y: y, width: rw, height: 40)
+        restore.frame = NSRect(x: 24, y: y, width: rw, height: bh)
         // Restore Defaults works on one tab; the results come from all three.
         restore.isEnabled = query.isEmpty
         var right = w - 24
         for b in [apply, cancel, ok] {
-            let bw = b.fit(minimum: 96)
-            b.frame = NSRect(x: right - bw, y: y, width: bw, height: 40)
-            right -= bw + 8
+            let bw = b.fit(minimum: native ? 80 : 96)
+            b.frame = NSRect(x: right - bw, y: y, width: bw, height: bh)
+            right -= bw + (native ? 12 : 8)
         }
         refresh()
         content.needsDisplay = true
@@ -189,23 +219,27 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
     /// One `.sgrp`: its heading, then a line per control (24 pt; a button line 36 pt). `column` 0 or 1 puts
     /// it in General's left or right half; nil spans the width.
     private func group(_ title: String, at y: inout CGFloat, column: Int? = nil, rows: [(NSView, CGFloat)]) {
-        func lineH(_ v: NSView) -> CGFloat { v is OSButton || v is FlowView ? 38 : 24 }
-        let height = FormGroupView.headH + rows.reduce(CGFloat(0)) { $0 + lineH($1.0) } + 6
+        let native = builtNative
+        // Native steps 20 pt a line (a button line 30 pt) and sets groups 16 pt apart.
+        let step: CGFloat = native ? 20 : 24
+        func lineH(_ v: NSView) -> CGFloat { v is OSButton || v is FlowView ? (native ? 30 : 38) : step }
+        let height = FormGroupView.headH + rows.reduce(CGFloat(0)) { $0 + lineH($1.0) } + (native ? 4 : 6)
         let g = FormGroupView(title: title)
         let half = (body.bounds.width - 12) / 2
         g.frame = column.map { NSRect(x: CGFloat($0) * (half + 12), y: y, width: half, height: height) }
             ?? NSRect(x: 0, y: y, width: body.bounds.width, height: height)
-        var ry = FormGroupView.headH - 2
+        var ry = native ? FormGroupView.headH : FormGroupView.headH - 2
+        let inset = FormGroupView.inset
         for (view, indent) in rows {
-            let fit = (view as? OSCheck)?.fit() ?? (view as? OSRadio)?.fit() ?? (view as? OSButton)?.fit() ?? (g.bounds.width - 28)
+            let fit = (view as? OSCheck)?.fit() ?? (view as? OSRadio)?.fit() ?? (view as? OSButton)?.fit() ?? (g.bounds.width - inset * 2)
             let h = lineH(view)
-            let rowH: CGFloat = h > 24 ? 34 : 20
-            view.frame = NSRect(x: 14 + indent, y: ry + (h - rowH) / 2, width: min(fit, g.bounds.width - 28 - indent), height: rowH)
+            let rowH: CGFloat = h > step ? (native ? OSButton.height : 34) : 20
+            view.frame = NSRect(x: inset + indent, y: ry + (h - rowH) / 2, width: min(fit, g.bounds.width - inset * 2 - indent), height: rowH)
             g.addSubview(view)
             ry += h
         }
         body.addSubview(g)
-        y += height + 8
+        y += height + (native ? 16 : 8)
     }
 
     /// One control for an entry of the settings list: its check box or radio, wired to the draft, or one
@@ -260,7 +294,7 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
 
     private func buildGeneral() {
         var left: CGFloat = 0, right: CGFloat = 0
-        let lineW = (body.bounds.width - 12) / 2 - 28
+        let lineW = (body.bounds.width - 12) / 2 - FormGroupView.inset * 2
         // Milestone 9's Folio and macOS: the folder, reveal and login boxes change macOS at once and show
         // what it reports; the rest wait for OK.
         for (name, entries) in groups(FolderOptions.generalEntries) {
@@ -297,6 +331,7 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
         let y: CGFloat = 0
         // Advanced settings: Explorer's long list, scrolling inside its group.
         let advanced = FormGroupView(title: "Advanced settings")
+        advanced.boxed = true
         advanced.frame = NSRect(x: 0, y: y, width: body.bounds.width, height: body.bounds.height - y)
         body.addSubview(advanced)
         scroll.frame = NSRect(x: 1, y: FormGroupView.headH, width: advanced.bounds.width - 2, height: advanced.bounds.height - FormGroupView.headH - 4)
@@ -321,7 +356,7 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
     private func buildSearch() {
         var y: CGFloat = 0
         for (name, entries) in groups(FolderOptions.searchEntries) {
-            group(name, at: &y, rows: entries.map { (view(for: $0, width: body.bounds.width - 28), 0) })
+            group(name, at: &y, rows: entries.map { (view(for: $0, width: body.bounds.width - FormGroupView.inset * 2), 0) })
         }
     }
 
@@ -331,6 +366,7 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
         let found = FolderOptions.search(query)
         let title = found.isEmpty ? "No settings match" : found.count == 1 ? "1 setting" : "\(found.count) settings"
         let box = FormGroupView(title: title)
+        box.boxed = true
         box.frame = body.bounds
         body.addSubview(box)
         guard !found.isEmpty else {
@@ -391,7 +427,9 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
     }
 
     @objc private func themeChanged(_ note: Notification) {
-        window?.backgroundColor = ThemeColors.current.s2.ns
+        // The chrome differs between the looks, so a look change closes the window. It opens again as built.
+        if optionsNative != builtNative { window?.close(); return }
+        window?.backgroundColor = builtNative ? NSColor.windowBackgroundColor : ThemeColors.current.s2.ns
         if let content = window?.contentView { refreshTheme(in: content) }
     }
 
@@ -439,8 +477,13 @@ final class OptionsHeader: NSView {
 
 /// A settings group as a D4 spotlight card: s1 with a hairline, radius 12, and a mono uppercase label.
 final class FormGroupView: NSView {
-    static let headH: CGFloat = 34
+    /// Native: a 26 pt heading and no card.
+    static var headH: CGFloat { optionsNative ? 26 : 34 }
+    /// How far a group's controls sit from its left edge: 20 pt in Native.
+    static var inset: CGFloat { optionsNative ? 20 : 14 }
     let title: String
+    /// Native only: a list sits in a hairline box under the heading (Advanced settings, the results).
+    var boxed = false
 
     init(title: String) {
         self.title = title
@@ -452,6 +495,16 @@ final class FormGroupView: NSView {
     override var isFlipped: Bool { true }
 
     override func draw(_ dirtyRect: NSRect) {
+        if optionsNative {
+            drawLine(title, font: NSFont.systemFont(ofSize: 13, weight: .semibold), color: NSColor.labelColor, x: 0,
+                     midY: Self.headH / 2)
+            if boxed {
+                let box = NSRect(x: 0.5, y: Self.headH, width: bounds.width - 1, height: bounds.height - Self.headH - 0.5)
+                fillRounded(box, radius: 6, NSColor.controlBackgroundColor)
+                strokeRounded(box, radius: 6, NSColor.separatorColor)
+            }
+            return
+        }
         let p = ThemeColors.current
         fillRounded(bounds, radius: 12, p.s1)
         strokeRounded(bounds, radius: 12, p.line)
@@ -462,15 +515,17 @@ final class FormGroupView: NSView {
 
 /// The Advanced settings list inside its scroll view: headings, check boxes and radios, one per line.
 final class OptionsListView: NSView {
-    static let rowH: CGFloat = 26
+    /// A line's step: 20 pt in Native.
+    static var rowH: CGFloat { optionsNative ? 20 : 26 }
     override var isFlipped: Bool { true }
 
     func place(_ rows: [(NSView, CGFloat, Bool)], width: CGFloat) {
         subviews.forEach { $0.removeFromSuperview() }
-        var y: CGFloat = 4
+        let native = optionsNative
+        var y: CGFloat = native ? 8 : 4
         for (view, indent, heading) in rows {
             let fit = (view as? OSCheck)?.fit() ?? (view as? OSRadio)?.fit() ?? width
-            view.frame = NSRect(x: 14 + indent, y: y + 3, width: min(fit, width - 28 - indent), height: 20)
+            view.frame = NSRect(x: 14 + indent, y: y + (native ? 1 : 3), width: min(fit, width - 28 - indent), height: native ? 18 : 20)
             addSubview(view)
             y += heading ? Self.rowH + 2 : Self.rowH
         }
@@ -483,8 +538,8 @@ final class OptionsListView: NSView {
         let controlW = width - 28 - placeWidth - 16
         var y: CGFloat = 4
         for (view, place) in rows {
-            let h: CGFloat = view is OSButton || view is FlowView ? 38 : Self.rowH
-            let rowH: CGFloat = h > Self.rowH ? 34 : 20
+            let h: CGFloat = view is OSButton || view is FlowView ? (optionsNative ? 30 : 38) : Self.rowH
+            let rowH: CGFloat = h > Self.rowH ? (optionsNative ? OSButton.height : 34) : 20
             let fit = (view as? OSCheck)?.fit() ?? (view as? OSRadio)?.fit() ?? controlW
             view.frame = NSRect(x: 14, y: y + (h - rowH) / 2, width: min(fit, controlW), height: rowH)
             place.frame = NSRect(x: width - 14 - placeWidth, y: y + (h - 20) / 2, width: placeWidth, height: 20)
@@ -535,11 +590,28 @@ final class OSRadio: NSButton {
 
     private var labelFont: NSFont { Typeface.ui(13) }
 
-    func fit() -> CGFloat { 14 + 8 + textWidth(title, font: labelFont) + 2 }
+    func fit() -> CGFloat {
+        if optionsNative { return 16 + 6 + ceil(textWidth(title, font: labelFont)) + 2 }
+        return 14 + 8 + textWidth(title, font: labelFont) + 2
+    }
+
+    /// Native: a 16 pt ring, the control fill with a hairline, or the accent with a white dot.
+    private func drawNative(_ p: ThemeColors) {
+        let ring = NSRect(x: 0, y: (bounds.height - 16) / 2, width: 16, height: 16)
+        if isSelected {
+            fillRounded(ring, radius: 8, p.accent)
+            fillRounded(ring.insetBy(dx: 5, dy: 5), radius: 3, NSColor.white)
+        } else {
+            fillRounded(ring, radius: 8, NSColor.controlColor)
+            strokeRounded(ring.insetBy(dx: 0.5, dy: 0.5), radius: 7.5, NSColor.tertiaryLabelColor, width: 1)
+        }
+        drawLine(title, font: labelFont, color: NSColor.labelColor, x: 22, midY: bounds.midY, maxWidth: bounds.width - 22)
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         let p = ThemeColors.current
         if !isEnabled { NSGraphicsContext.current?.cgContext.setAlpha(0.5) }
+        if optionsNative { drawNative(p); return }
         let box = NSRect(x: 0, y: (bounds.height - 14) / 2, width: 14, height: 14)
         if isSelected {
             fillRounded(box, radius: 7, p.s1)
@@ -550,5 +622,53 @@ final class OSRadio: NSButton {
             strokeRounded(box.insetBy(dx: 0.6, dy: 0.6), radius: 6.4, p.outline, width: 1.25)
         }
         drawLine(title, font: labelFont, color: isSelected ? p.text : p.text2, x: 22, midY: bounds.midY, maxWidth: bounds.width - 22)
+    }
+}
+
+/// Native look: the window and its controls are the system's. D4 keeps its own drawing.
+@MainActor private var optionsNative: Bool { ThemeController.shared.look == .native }
+
+/// A tab of the Native Folder Options: a rounded fill when on, none when off, and no underline.
+final class OptionsTabButton: NSButton {
+    var isOn = false { didSet { needsDisplay = true; setAccessibilityValue(isOn ? 1 : 0) } }
+    private let onPress: () -> Void
+    private var hovered = false
+
+    init(_ title: String, onPress: @escaping () -> Void) {
+        self.onPress = onPress
+        super.init(frame: .zero)
+        self.title = title
+        isBordered = false
+        setButtonType(.momentaryPushIn)
+        target = self
+        action = #selector(pressed(_:))
+        setAccessibilityLabel(title)
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    override var isFlipped: Bool { true }
+    @objc private func pressed(_ sender: Any?) { onPress() }
+
+    private var labelFont: NSFont { NSFont.systemFont(ofSize: 13, weight: isOn ? .semibold : .regular) }
+
+    func fit() -> CGFloat { ceil(textWidth(title, font: NSFont.systemFont(ofSize: 13, weight: .semibold))) + 24 }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                                       owner: self, userInfo: nil))
+    }
+
+    override func mouseEntered(with event: NSEvent) { hovered = true; needsDisplay = true }
+    override func mouseExited(with event: NSEvent) { hovered = false; needsDisplay = true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let fill: CGFloat = isHighlighted ? 0.16 : isOn ? 0.1 : hovered ? 0.05 : 0
+        if fill > 0 { fillRounded(bounds, radius: 7, NSColor.labelColor.withAlphaComponent(fill)) }
+        let tw = textWidth(title, font: labelFont)
+        drawLine(title, font: labelFont, color: isOn ? NSColor.labelColor : NSColor.secondaryLabelColor,
+                 x: (bounds.width - tw) / 2, midY: bounds.midY)
     }
 }
