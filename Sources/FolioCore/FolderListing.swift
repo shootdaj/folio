@@ -15,13 +15,14 @@ public enum FolderListing {
     /// `hideProtected` is Folder Options' Hide protected operating system files (.DS_Store and the like).
     private static let resourceKeySet = Set(resourceKeys)
 
+    ///
+    /// The folder is read with `getattrlistbulk` (BulkListing); a folder that cannot be read that way is
+    /// read through URL resource values, as before.
     public static func list(_ folder: URL, includeHidden: Bool = false, cloud: Bool = false, hideProtected: Bool = false) throws -> [FileEntry] {
-        var urls = try FileManager.default.contentsOfDirectory(
-            at: folder, includingPropertiesForKeys: resourceKeys, options: includeHidden ? [] : [.skipsHiddenFiles])
-        if hideProtected { urls.removeAll { ProtectedFiles.isProtected(name: $0.lastPathComponent) } }
         var kinds = KindCache.shared.snapshot()
         let known = kinds.count
-        let entries = urls.map { entry(for: $0, kinds: &kinds) }
+        let entries = try BulkListing.entries(folder, includeHidden: includeHidden, hideProtected: hideProtected, kinds: &kinds)
+            ?? listByURL(folder, includeHidden: includeHidden, hideProtected: hideProtected, kinds: &kinds)
         if kinds.count != known { KindCache.shared.merge(kinds) }
         guard cloud else { return entries }
         return entries.map { e in
@@ -31,6 +32,18 @@ public enum FolderListing {
                              isCloudOnly: true, isHidden: e.isHidden, isLink: e.isLink)
         }
     }
+
+    /// The folder through `contentsOfDirectory` and URL resource values: the fallback, and what the tests
+    /// hold the bulk read to.
+    static func listByURL(_ folder: URL, includeHidden: Bool, hideProtected: Bool, kinds: inout [String: String]) throws -> [FileEntry] {
+        var urls = try FileManager.default.contentsOfDirectory(
+            at: folder, includingPropertiesForKeys: resourceKeys, options: includeHidden ? [] : [.skipsHiddenFiles])
+        if hideProtected { urls.removeAll { ProtectedFiles.isProtected(name: $0.lastPathComponent) } }
+        return urls.map { entry(for: $0, kinds: &kinds) }
+    }
+
+    /// A name's extension as Foundation splits it ("" for ".zshrc" and "Makefile").
+    static func pathExtension(_ name: String) -> String { (name as NSString).pathExtension }
 
     /// What a window shows: the listing in display order. `Folio --selftest` uses the same call.
     public static func list(_ folder: URL, sortedBy spec: SortSpec, includeHidden: Bool = false, cloud: Bool = false) throws -> [FileEntry] {
@@ -53,15 +66,16 @@ public enum FolderListing {
             isFolder: isDirectory && !isPackage,
             modified: values?.contentModificationDate,
             size: isDirectory ? nil : values?.fileSize.map(Int64.init),
-            kind: kind(of: url, type: values?.contentType?.identifier, cache: &kinds),
+            kind: kind(of: url, key: values?.contentType?.identifier, cache: &kinds),
             isHidden: values?.isHidden ?? false,
             isLink: values?.isSymbolicLink == true || values?.isAliasFile == true)
     }
 
-    private static func kind(of url: URL, type: String?, cache: inout [String: String]) -> String {
-        if let type, let known = cache[type] { return known }
+    /// The kind of `url`, read once per `key` (a content type, or what BulkListing knows decides it).
+    static func kind(of url: URL, key: String?, cache: inout [String: String]) -> String {
+        if let key, let known = cache[key] { return known }
         let kind = (try? url.resourceValues(forKeys: [.localizedTypeDescriptionKey]))?.localizedTypeDescription ?? ""
-        if let type { cache[type] = kind }
+        if let key { cache[key] = kind }
         return kind
     }
 }

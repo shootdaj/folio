@@ -89,6 +89,11 @@ pushed; the release workflow publishes the section below with that number as the
 
 - **Folders open faster, and the navigation pane no longer holds up a move.** Measured with the new
   `Folio --bench <folder>` on a folder of 20,331 items:
+  - The listing took 255 ms. It now reads the folder with `getattrlistbulk` (name, type, date, size and
+    flags of many items in one call) instead of URL resource values per item, and takes 51 ms (Downloads:
+    4.5 ms to 0.5 ms). A file with no extension still asks macOS for its type, as macOS types some by name.
+    The sealed system volume (/, /usr, /System), a folder that cannot be read this way and links still go
+    the URL way. A test holds every field to the URL way on a fixture and on real folders.
   - The item keys (for selection and refresh) took 580 ms on the main thread for each load. They now
     come with the sort, off the main thread, and cost 36 ms.
   - The sort took 390 ms. It now compares names that are made into Core Foundation strings once, in the
