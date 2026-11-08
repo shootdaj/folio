@@ -2,6 +2,18 @@
 
 Binding for every agent and every session that touches this repo. Anshul's words, 2026-11-05: "make sure nothing gets fucked up", "my files should not be touched", "use an emulator to test if you can", and the golden rule: "no files on the actual physical machine should be touched by the folio app, everything it runs should be on the VM".
 
+## Which machine you are on
+
+Rules 0, 1 and 2 protect Anshul's machines: his MacBook and the Ultra (`/Users/anshul`). They apply in full there.
+
+Taylor works on a laptop (`/Users/king`) and a Mac mini. Taylor has no access to the Ultra or its VM. Taylor's words, 2026-11-08: "Lets install folio and run it on this computer. Id like to see our changes". On Taylor's machines:
+
+- An agent may build and install the app with `make install`, and open it with `open /Applications/Folio.app`.
+- Taylor uses the app by hand. Taylor's real folders are the test data, so Taylor decides each action on a file.
+- An agent never runs `--selftest` or `--uitest` on these machines. These modes make fixture trees and are for a VM.
+- Rule 2 still applies. An agent sends no `osascript` keystrokes, clicks or window activation to the desktop.
+- Unit tests still touch only temp folders (rule 1).
+
 ## 0. The golden rule: Folio never runs on the physical Mac
 
 - The Folio binary is never executed on Anshul's MacBook or on the Ultra host, in any mode: no `open`, no direct launch, no `--selftest`, no `--uitest`. Not on real folders, not on temp folders. Read-only is not an exception.
@@ -33,7 +45,10 @@ Binding for every agent and every session that touches this repo. Anshul's words
 ## 4. Scope and style
 
 - One milestone per branch, stacked on the previous one; small commits with messages that name the slice; push, report, stop (no CI watching by agents).
-- The look is `docs/design/d4-obsidian-spotlight.html` (the design Anshul picked, replacing D1 Control room on 2026-11-07). Tokens, type, icons, chassis and motion are ported from it, never improvised. Never italic. Never emoji icons.
+- There are two looks, picked in View > Theme (added 2026-11-06):
+  - **Native** (the default) follows macOS's own styles: SF Pro, system colours, the system accent, materials, SF Symbols, Finder icons. Its reference is `docs/design/native.md`, and the Mac itself (Finder) where that page is silent.
+  - **D4 Obsidian** is `docs/design/d4-obsidian-spotlight.html` (the design Anshul picked, replacing D1 Control room on 2026-11-07). Tokens, type, icons, chassis and motion are ported from it, never improvised. A Native change never changes a D4 pixel.
+  - In both: never italic, never emoji icons.
 - Explorer behaviour comes from `docs/research/` and `docs/plan/MILESTONES.md`; when they disagree with memory, the research wins.
 - Swift 6 + AppKit, SwiftPM, Command Line Tools only. No Xcode project, no Apple developer account, no third-party runtime dependencies without a reason written in the PR.
 - Deleting anything in the repo: `mv` to `~/.Trash`, never `rm -rf`.

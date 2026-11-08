@@ -90,6 +90,38 @@ import Testing
         #expect(home.history.isHome, "Home never goes missing")
     }
 
+    @Test func aSuggestionsTabRoundTripsThroughTheFile() throws {
+        var tab = BrowserTab(folder: url("/tmp/s/c"))
+        tab.history.push(NavigationHistory.suggestions)
+        let saved = TabSession(tab)
+        #expect(saved.path == NavigationHistory.suggestionsPath)
+        try withStore { store, _ in
+            let session = Session(windows: [WindowSession(frame: SessionFrame(x: 0, y: 0, width: 900, height: 600),
+                                                          tabs: [saved], active: 0)], viewMode: "details")
+            try store.save(session)
+            guard case .session(let back) = store.load() else { Issue.record("session did not read back"); return }
+            let restored = back.windows[0].tabs[0].tab(exists: { _ in false })
+            #expect(restored.history.isSuggestions)
+            #expect(restored.history.backList.map(\.path) == ["/tmp/s/c"])
+        }
+    }
+
+    @Test func suggestionsNeverGoesMissing() {
+        var tab = BrowserTab(folder: url("/tmp/s/c"))
+        tab.history.push(NavigationHistory.suggestions)
+        let restored = TabSession(tab).tab(exists: { _ in false })
+        #expect(restored.history.isSuggestions, "Suggestions never walks up to a parent")
+    }
+
+    @Test func anUnknownFolioPlaceFromANewerBuildOpensHome() {
+        var saved = TabSession(BrowserTab(folder: url("/tmp/s/c")))
+        saved.path = "folio:somethingnew"
+        saved.back = ["folio:other"]
+        let restored = saved.tab(exists: { _ in false })
+        #expect(restored.history.isHome)
+        #expect(restored.history.backStackURLs.map(\.absoluteString) == ["folio:home"])
+    }
+
     @Test func aFolderThatIsGoneOpensItsNearestParentWithoutItsSelectionOrSearch() {
         var tab = BrowserTab(folder: url("/tmp/s/gone/deeper"))
         tab.selection = ["/tmp/s/gone/deeper/a"]

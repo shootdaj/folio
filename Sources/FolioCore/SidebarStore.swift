@@ -17,6 +17,18 @@ public struct SidebarStore {
 
     public func setWidth(_ w: Double) { defaults.set(w, forKey: Self.widthKey) }
 
+    public static let sidePaneWidthKey = "sidePaneWidth"
+
+    /// The right-hand pane's width; nil until its edge was dragged.
+    public var sidePaneWidth: Double? {
+        let w = defaults.double(forKey: Self.sidePaneWidthKey)
+        return w > 0 ? w : nil
+    }
+
+    public func setSidePaneWidth(_ w: Double?) {
+        if let w { defaults.set(w, forKey: Self.sidePaneWidthKey) } else { defaults.removeObject(forKey: Self.sidePaneWidthKey) }
+    }
+
     public var collapsed: Set<String> { Set(defaults.stringArray(forKey: Self.collapsedKey) ?? []) }
 
     public func setCollapsed(_ sections: Set<String>) { defaults.set(sections.sorted(), forKey: Self.collapsedKey) }

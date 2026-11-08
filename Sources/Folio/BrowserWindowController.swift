@@ -5,6 +5,12 @@ import FolioCore
 final class BrowserWindow: NSWindow {
     /// `--uitest` places the window off every screen so a run never covers what is on the desktop.
     var allowsOffscreen = false
+    /// The close button and its title bar container are watched once: macOS lays the title bar out again
+    /// on its own (a new window, a title change), which puts the buttons back at its default spot.
+    private var watchesLights = false
+    /// Native: the glass capsule behind the traffic lights.
+    private var lightsGlass: TrafficLightGlass?
+    private var placingLights = false
 
     override func sendEvent(_ event: NSEvent) {
         if let controller = windowController as? BrowserWindowController {
@@ -46,12 +52,41 @@ final class BrowserWindow: NSWindow {
         allowsOffscreen ? frameRect : super.constrainFrameRect(frameRect, to: screen)
     }
 
-    /// Centres the window's own close, minimise and zoom buttons in D4's 44 pt title bar,
-    /// 14 pt from the left edge and 20 pt apart.
+    /// D4: centres the window's own close, minimise and zoom buttons in its 44 pt title bar, 14 pt from
+    /// the left edge and 20 pt apart. Native: macOS places them (the window has a system toolbar), and
+    /// this only puts the glass behind them.
     func placeTrafficLights() {
-        guard !styleMask.contains(.fullScreen),
-              let close = standardWindowButton(.closeButton),
+        // Moving the buttons posts their own frame notification: one pass at a time.
+        guard !placingLights else { return }
+        placingLights = true
+        defer { placingLights = false }
+        guard let close = standardWindowButton(.closeButton),
               let container = close.superview?.superview else { return }
+        if !watchesLights {
+            watchesLights = true
+            // The buttons and the title bar container both move, so both are watched.
+            for view in [close, container] {
+                view.postsFrameChangedNotifications = true
+                NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: view, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.placeTrafficLights() }
+                }
+            }
+            for name in [NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification] {
+                NotificationCenter.default.addObserver(forName: name, object: self, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.placeTrafficLights() }
+                }
+            }
+        }
+        guard !styleMask.contains(.fullScreen) else {
+            lightsGlass?.isHidden = true
+            return
+        }
+        // Native: the system toolbar places the lights, and the glass follows them.
+        if ThemeController.shared.look == .native {
+            placeLightsGlass(holder: close.superview)
+            return
+        }
+        // D4 centres the lights in its 44 pt title bar.
         let bar = ChassisView.titleH
         var frame = container.frame
         frame.size.height = bar
@@ -65,6 +100,28 @@ final class BrowserWindow: NSWindow {
                                  y: (midY - button.frame.height / 2).rounded())
             if button.frame.origin != origin { button.setFrameOrigin(origin) }
         }
+    }
+
+    /// Native: the glass capsule sits in the buttons' own view, under them. Constraints tie it to the
+    /// close and zoom buttons, so it moves in the same layout pass as they do, wherever macOS puts them.
+    private func placeLightsGlass(holder: NSView?) {
+        guard let holder, let close = standardWindowButton(.closeButton),
+              let zoom = standardWindowButton(.zoomButton), zoom.superview === holder else { return }
+        if let glass = lightsGlass, glass.superview === holder {
+            glass.isHidden = false
+            return
+        }
+        lightsGlass?.removeFromSuperview()
+        let glass = TrafficLightGlass(frame: .zero)
+        glass.translatesAutoresizingMaskIntoConstraints = false
+        holder.addSubview(glass, positioned: .below, relativeTo: close)
+        NSLayoutConstraint.activate([
+            glass.leadingAnchor.constraint(equalTo: close.leadingAnchor, constant: -TrafficLightGlass.sidePad),
+            glass.trailingAnchor.constraint(equalTo: zoom.trailingAnchor, constant: TrafficLightGlass.sidePad),
+            glass.centerYAnchor.constraint(equalTo: close.centerYAnchor),
+            glass.heightAnchor.constraint(equalToConstant: TrafficLightGlass.height),
+        ])
+        lightsGlass = glass
     }
 }
 
@@ -99,6 +156,16 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     var filters = FilterSet()
     /// Group by groups folded shut (bucket ids), until the folder changes.
     var collapsedGroups: Set<String> = []
+    /// Details view's folders open in place (ListTree), by item key. The watcher follows them too.
+    var expandedFolders: Set<String> = [] {
+        didSet { if expandedFolders != oldValue { updateWatches() } }
+    }
+    /// Each open folder's items as listed (before filters and sort), by the folder's item key.
+    var childListings: [String: [FileEntry]] = [:]
+    /// The open folders of each folder this window showed, while Folio runs: Back brings them back.
+    var expandedMemory: [String: Set<String>] = [:]
+    /// The folder (folder key) that `expandedFolders` belongs to.
+    var expandedFor: String?
     /// What the list shows: the shown items in order and, when grouped, the header rows between them.
     private(set) var layout = ListLayout(items: [])
     /// The inputs `layout` was arranged from, to tell when it must be arranged again.
@@ -159,7 +226,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         set { tabs.active.group = newValue }
     }
     var isLoading = false
-    private var isResorting = false
+    private(set) var isResorting = false
     var loadError: String?
     /// The share button, for anchoring the share picker.
     var shareButton: ChromeButton?
@@ -178,6 +245,15 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     }
     /// Bumped on every load or re-sort; results for an older value are dropped.
     var requestID = 0
+    /// The folder read in flight (`load`), cancelled when a newer one starts.
+    private var loadTask: Task<Void, Never>?
+    /// The Preview pane, Gallery and Quick Look follow the selection at this pace (updatePreviewsSoon).
+    var previewWork: DispatchWorkItem?
+    var lastPreviewUpdate: CFTimeInterval = 0
+    /// Streaming search results are arranged at a pace (arrangeSearchSoon).
+    var searchArrangeWork: DispatchWorkItem?
+    var lastSearchArrange: CFTimeInterval = 0
+    var lastSearchTitle = ""
     private var isFittingColumns = false
     /// The one dropdown this window shows at a time (typeahead, history, crumb folders, Back list).
     let dropdown = Dropdown()
@@ -188,6 +264,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     var statusMessage: String?
     /// Quick access pins, shared by every window through the defaults.
     var pins: PinStore
+    /// View > Theme closes this window after opening its copy in the new look.
+    var isBeingRebuilt = false
     /// The drag badge ("Move to target") and the folder a drag is hovering to spring open.
     let dropTip = DropTipView()
     var springTarget: URL?
@@ -272,7 +350,21 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         window.titlebarSeparatorStyle = .none
         // Small enough for two windows side by side on a 1024 pt screen (Window > Tile).
         window.minSize = NSSize(width: 500, height: 480)
-        window.backgroundColor = Palette.current.pane.ns
+        window.backgroundColor = ThemeColors.current.pane.ns
+        if ThemeController.shared.look == .native {
+            // An empty system toolbar, as Finder has: macOS itself then centres the traffic lights on the
+            // toolbar band and keeps them there. Folio's own toolbar draws under it and takes the clicks.
+            let bar = NSToolbar(identifier: "folio.window")
+            bar.allowsUserCustomization = false
+            bar.displayMode = .iconOnly
+            window.toolbar = bar
+            window.toolbarStyle = .unified
+        }
+        if ThemeController.shared.look == .native {
+            // The sidebar's material shows through a clear, non-opaque window.
+            window.isOpaque = false
+            window.backgroundColor = .clear
+        }
         window.allowsOffscreen = options.uitest
         window.collectionBehavior.insert(.fullScreenPrimary)
         if options.uitest { window.isRestorable = false }
@@ -291,6 +383,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         center.addObserver(self, selector: #selector(volumesChanged(_:)), name: VolumeCenter.didChange, object: nil)
         center.addObserver(self, selector: #selector(serversChanged(_:)), name: VolumeCenter.serversChanged, object: nil)
         center.addObserver(self, selector: #selector(homeDataChanged(_:)), name: HomeData.didChange, object: nil)
+        center.addObserver(self, selector: #selector(suggestionsChanged(_:)), name: SuggestionsCenter.didChange, object: nil)
         center.addObserver(self, selector: #selector(viewModeChanged(_:)), name: ViewCenter.didChange, object: nil)
         center.addObserver(self, selector: #selector(columnsChanged(_:)), name: ColumnCenter.didChange, object: nil)
         center.addObserver(self, selector: #selector(devicesChanged(_:)), name: DeviceCenter.didChange, object: nil)
@@ -340,6 +433,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         wireNavigationPane()
         wireTabStrip()
         wireHome()
+        wireSuggestions()
         wireSearch()
         address.dropHost = self
         address.onMiddleClick = { [weak self] url in self?.openInNewTab(url, activate: false) }
@@ -356,7 +450,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         tableView.headerView = header
         tableView.cornerView = nil
         tableView.style = .plain
-        tableView.rowHeight = ListOptions.compact ? ListMetrics.compactRowHeight : ListMetrics.rowHeight
+        tableView.rowHeight = ListMetrics.currentRowHeight
         // Group headers scroll with their rows; a header click sorts or adds a sort key, never selects a column.
         tableView.floatsGroupRows = false
         tableView.allowsColumnSelection = false
@@ -364,7 +458,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         tableView.backgroundColor = .clear
         tableView.gridStyleMask = []
         tableView.focusRingType = .none
-        tableView.usesAlternatingRowBackgroundColors = false
+        tableView.usesAlternatingRowBackgroundColors = ThemeController.shared.look == .native
+        if ThemeController.shared.look == .native { tableView.backgroundColor = .controlBackgroundColor }
         tableView.allowsMultipleSelection = true
         tableView.allowsColumnReordering = true
         tableView.allowsColumnResizing = true
@@ -387,7 +482,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         chassis.pane.gridScroll.documentView = grid
         chassis.sidePane.onClose = { ListOptions.sidePane = .none }
         chassis.sidePane.onEdit = { [weak self] url, tags, comment in self?.editMetadata(url, tags: tags, comment: comment) }
-        chassis.sidePaneKind = ListOptions.sidePane
+        chassis.sidePaneKind = shownSidePane
         toolbar.address.onClearToken = { [weak self] column in self?.clearFilter(column) }
         renamer.onCommit = { [weak self] name, move in self?.commitRename(name, move: move) ?? true }
         renamer.onEnd = { [weak self] in self?.renameEnded() }
@@ -444,8 +539,12 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     @objc func goUp(_ sender: Any?) { if history.goUp() != nil { load() } }
     /// Go > Home (Cmd+Shift+H) and Quick access's Home: the Home view.
     @objc func goHome(_ sender: Any?) { navigate(to: NavigationHistory.home) }
+    /// Go > Suggestions (Cmd+Shift+S) and the sidebar's Suggestions row: the page of things to clean up.
+    @objc func goSuggestions(_ sender: Any?) { navigate(to: NavigationHistory.suggestions) }
     @objc func goHomeFolder(_ sender: Any?) { navigate(to: FileManager.default.homeDirectoryForCurrentUser) }
-    @objc func refresh(_ sender: Any?) { load() }
+    @objc func refresh(_ sender: Any?) {
+        if history.isSuggestions && !isSearching { rescanSuggestions() } else { load() }
+    }
 
     /// Cmd+L, and Option+D (Anshul's Cmd+D): the crumbs become an editable path.
     @objc func focusAddressBar(_ sender: Any?) { toolbar.address.beginEditing() }
@@ -487,8 +586,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     }
 
     func displayName(_ url: URL) -> String {
-        if NavigationHistory.isHome(url) { return "Home" }
-        if RecycleBin.isTrash(url, home: FileManager.default.homeDirectoryForCurrentUser) { return "Recycle Bin" }
+        if let place = NavigationHistory.special(url) { return PlaceNames.title(place) }
+        if RecycleBin.isTrash(url, home: FileManager.default.homeDirectoryForCurrentUser) { return PlaceNames.recycleBin }
         return url.path == "/" ? (toolbar.address.volumes.first { $0.path == "/" }?.name ?? Breadcrumbs.rootTitle)
             : FileManager.default.displayName(atPath: url.path)
     }
@@ -513,12 +612,14 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         switch pane {
         case .address: toolbar.address.beginEditing()
         case .sidebar: chassis.sidebar.takeKeyboardFocus()
-        case .list: window?.makeFirstResponder(listView)
+        case .list: window?.makeFirstResponder(chassis.page == .suggestions ? chassis.suggestions.page : listView)
         }
     }
 
     /// The title bar's accent swatch: the picker opens under it (pressed again, it closes).
+    /// D4's accent swatch; Native has none (the accent is System Settings').
     @objc func chooseAccent(_ sender: Any?) {
+        guard ThemeController.shared.look.showsAccentSwatch else { return }
         accentPicker.toggle(from: titleBar.accentButton)
     }
 
@@ -566,17 +667,17 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             if !keepingState { showHome() }
             return
         }
-        chassis.showsHome = false
+        if history.isSuggestions {
+            if !keepingState { showSuggestions() }
+            return
+        }
+        chassis.page = .list
         let folder = history.current
         if !keepingState {
             // A filter and folded groups belong to the folder on screen.
             filters.clearAll()
             collapsedGroups = []
         }
-        let key = arrangeKey
-        let hidden = ListOptions.showHidden
-        let protected = ListOptions.folder.hideProtectedOSFiles
-        listedWith = (hidden, protected)
         let home = FileManager.default.homeDirectoryForCurrentUser
         let trash = RecycleBin.isTrash(folder, home: home)
         let cloud = CloudFolders.isCloud(folder, home: home)
@@ -584,6 +685,20 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         let zip = ZipPath.split(folder) != nil
         isInZip = zip
         isTrashView = trash
+        // Folders open in place belong to their folder: kept for it while Folio runs, back with it.
+        let here = FilePaths.folderKey(folder)
+        if expandedFor != here {
+            if let old = expandedFor { expandedMemory[old] = expandedFolders.isEmpty ? nil : expandedFolders }
+            expandedFolders = expandedMemory[here] ?? []
+            childListings = [:]
+            expandedFor = here
+        }
+        let key = arrangeKey
+        // A refresh lists each open folder again in the same pass, so its items do not blink.
+        let openFolders = zip || trash ? [] : expandedFolders
+        let hidden = ListOptions.showHidden
+        let protected = ListOptions.folder.hideProtectedOSFiles
+        listedWith = (hidden, protected)
         requestID += 1
         let id = requestID
         isLoading = true
@@ -599,9 +714,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         }
         let started = Date()
         // Tags, flags and custom icons are read again for what the list shows next.
-        ItemDecorCache.shared.clear()
-        Task.detached(priority: .userInitiated) { [weak self] in
-            let result = Result { () -> ([FileEntry], ListLayout) in
+        ItemDecorCache.shared.clear(under: folder)
+        // A newer load replaces this one: the old one stops at its next step instead of finishing unseen.
+        loadTask?.cancel()
+        loadTask = Task.detached(priority: .userInitiated) { [weak self] in
+            let result = Result { () -> ([FileEntry], [String: [FileEntry]], ListLayout) in
                 let rows: [FileEntry]
                 if zip {
                     let all = try ZipFolder.list(folder)
@@ -614,11 +731,15 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
                 } else {
                     rows = try FolderListing.list(folder, includeHidden: hidden, cloud: cloud, hideProtected: protected)
                 }
-                return (rows, Self.arrange(rows, key))
+                try Task.checkCancellation()
+                let children = Self.listChildren(openFolders, hidden: hidden, protected: protected, home: home)
+                try Task.checkCancellation()
+                return (rows, children, Self.arrange(rows, key, children: children))
             }
+            if Task.isCancelled { return }
             let volume = VolumeCapacity.read(folder)
             await self?.finishLoad(result, volume: volume, id: id, key: key, folder: folder, started: started,
-                                   keepingState: keepingState)
+                                   keepingState: keepingState, openFolders: openFolders)
         }
     }
 
@@ -652,28 +773,30 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         toolbar.address.volumes = volumes
         chassis.sidebar.needsLayout = true
         if !volumes.isEmpty { applyPendingTree() }
-        if !history.isHome, ListOptions.expandToCurrent { revealCurrentFolder(select: false) }
+        if !history.isSpecial, ListOptions.expandToCurrent { revealCurrentFolder(select: false) }
         updateWatches()
     }
 
-    private func finishLoad(_ result: Result<([FileEntry], ListLayout), any Error>, volume: VolumeCapacity?, id: Int,
-                            key: ArrangeKey, folder: URL, started: Date, keepingState: Bool) {
+    private func finishLoad(_ result: Result<([FileEntry], [String: [FileEntry]], ListLayout), any Error>, volume: VolumeCapacity?,
+                            id: Int, key: ArrangeKey, folder: URL, started: Date, keepingState: Bool, openFolders: Set<String>) {
         guard id == requestID else { return }
         isLoading = false
+        isResorting = false // a rearrange this load overtook never finished
         self.volume = volume
         let select = pendingSelect ?? []
         let scroll = scrollToPending
         pendingSelect = nil
         scrollToPending = false
         switch result {
-        case .success(let (rows, arranged)):
+        case .success(let (rows, children, arranged)):
             listing = rows
+            takeChildListings(children, tried: openFolders)
             arrangedWith = key
             show(arranged, selecting: select)
             if !keepingState { addressHistory.record(folder.path) }
         case .failure(let error):
             loadError = isTrashView && (error as NSError).code == NSFileReadNoPermissionError
-                ? "Folio needs Full Disk Access to show the Recycle Bin (System Settings, Privacy & Security)"
+                ? "Folio needs Full Disk Access to show the \(PlaceNames.recycleBin) (Folio > Full Disk Access...)"
                 : error.localizedDescription
             listing = []
             arrangedWith = key
@@ -722,20 +845,50 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         var collapsed: Set<String>
         /// Search results in relevance order: the order they are listed in.
         var relevance = false
+        /// Folders open in place (Details view only, ListTree), and the open ones' keys.
+        var tree = false
+        var expanded: Set<String> = []
     }
 
     var arrangeKey: ArrangeKey {
-        ArrangeKey(filters: filters, sort: sortSpec, group: group, collapsed: collapsedGroups, relevance: isRelevanceOrder)
+        let tree = treeAvailable
+        return ArrangeKey(filters: filters, sort: sortSpec, group: group, collapsed: collapsedGroups, relevance: isRelevanceOrder,
+                          tree: tree, expanded: tree ? expandedFolders : [])
+    }
+
+    /// Folders open in place in Details view; not in the other views, search results, groups, a zip or the Recycle Bin.
+    var treeAvailable: Bool {
+        viewMode.usesTable && !isSearching && group == nil && !isInZip && !isTrashView && !history.isSpecial
     }
 
     /// Filters, then groups (sorted inside) or a plain sort. Columns that need metadata (Dimensions,
     /// Tags...) read it for every item first, through the shared cache.
-    nonisolated static func arrange(_ rows: [FileEntry], _ key: ArrangeKey) -> ListLayout {
+    /// With folders open in place, each open folder's items (`children`) are filtered and sorted the same
+    /// way and follow its row (ListTree).
+    nonisolated static func arrange(_ rows: [FileEntry], _ key: ArrangeKey, children: [String: [FileEntry]] = [:]) -> ListLayout {
+        var layout = arrangeItems(rows, key, children: children)
+        // The items' keys too, so the main thread does not resolve a path per item.
+        layout.keys = FilePaths.itemKeys(layout.items.map(\.url))
+        return layout
+    }
+
+    private nonisolated static func arrangeItems(_ rows: [FileEntry], _ key: ArrangeKey, children: [String: [FileEntry]]) -> ListLayout {
         let context = BucketContext()
         let wantsMeta = key.filters.columns.contains { $0.needsMetadata } || key.sort.terms.contains { $0.key.needsMetadata }
             || key.group?.key.needsMetadata == true
-        if wantsMeta { MetadataCache.shared.fill(rows) }
+        let open = key.tree && !key.expanded.isEmpty
+        if wantsMeta {
+            MetadataCache.shared.fill(rows)
+            if open { for k in key.expanded { if let kids = children[k] { MetadataCache.shared.fill(kids) } } }
+        }
         let meta: (FileEntry) -> ItemMetadata? = wantsMeta ? { MetadataCache.shared.cached($0) } : { _ in nil }
+        if open {
+            let level: ([FileEntry]) -> [FileEntry] = {
+                SortEngine.sort(key.filters.apply($0, context: context, metadata: meta), by: key.sort, metadata: meta)
+            }
+            let flat = ListTree.flatten(level(rows), children: children, expanded: key.expanded, arrange: level)
+            return ListLayout(items: flat.items, depths: flat.depths)
+        }
         let shown = key.filters.apply(rows, context: context, metadata: meta)
         if let group = key.group {
             return ListLayout(groups: GroupBuilder.build(shown, by: group, sort: key.sort, context: context, metadata: meta),
@@ -745,51 +898,70 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         return ListLayout(items: SortEngine.sort(shown, by: key.sort, metadata: meta))
     }
 
-    /// The list again from the folder's items, after a sort, filter or Group by change; the selection stays.
-    func rearrange() {
-        guard !isLoading else { return } // the pending load arranges again when it lands
+    /// The list again from the folder's items, after a sort, filter or Group by change; the selection stays
+    /// (or becomes `selecting`). `scroll` false keeps the scroll place (a folder opened or closed in place).
+    func rearrange(selecting: Set<String>? = nil, scroll: Bool = true) {
+        guard !isLoading else {
+            // The pending load arranges again when it lands, and selects these then.
+            if let selecting { pendingSelect = selecting }
+            return
+        }
         let key = arrangeKey
+        let selected = selecting ?? Set(selectedKeys)
         // Folding a group needs no new sort: the groups stay, only their rows change.
         if let old = arrangedWith, layout.isGrouped, old.filters == key.filters, old.sort == key.sort, old.group == key.group {
             arrangedWith = key
-            show(ListLayout(groups: layout.groups, collapsed: key.collapsed), selecting: Set(selectedKeys))
+            show(ListLayout(groups: layout.groups, collapsed: key.collapsed), selecting: selected)
             return
         }
         let rows = listing
-        let selected = Set(selectedKeys)
+        let children = key.tree ? childListings : [:]
         requestID += 1
         let id = requestID
         isResorting = true
         updateStatus()
         Task.detached(priority: .userInitiated) { [weak self] in
-            let arranged = Self.arrange(rows, key)
-            await self?.finishRearrange(arranged, key: key, id: id, selecting: selected)
+            let arranged = Self.arrange(rows, key, children: children)
+            await self?.finishRearrange(arranged, key: key, id: id, selecting: selected, scroll: scroll)
         }
     }
 
-    private func finishRearrange(_ arranged: ListLayout, key: ArrangeKey, id: Int, selecting selected: Set<String>) {
+    /// Drops a rearrange still running (its result would be stale); a load in flight is left alone.
+    func dropPendingRearrange() {
+        guard isResorting, !isLoading else { return }
+        requestID += 1
+        isResorting = false
+    }
+
+    private func finishRearrange(_ arranged: ListLayout, key: ArrangeKey, id: Int, selecting selected: Set<String>, scroll: Bool) {
         guard id == requestID else { return }
         isResorting = false
         arrangedWith = key
         show(arranged, selecting: selected)
-        if let first = selection.rows.first { scrollToItem(first) }
-        if arrangeKey != key { rearrange() }
+        if scroll, let first = selection.rows.first { scrollToItem(first) }
+        if arrangeKey != key { rearrange(scroll: scroll) }
     }
 
     /// The selected items' keys, in list order.
     var selectedKeys: [String] { selection.rows.compactMap { entryKeys.indices.contains($0) ? entryKeys[$0] : nil } }
 
     func show(_ arranged: ListLayout, selecting selected: Set<String>) {
+        let started = DispatchTime.now().uptimeNanoseconds
+        defer {
+            let ms = Double(DispatchTime.now().uptimeNanoseconds - started) / 1_000_000
+            if ms >= 4 { perfLog.notice("show: \(arranged.items.count, privacy: .public) items in \(ms, format: .fixed(precision: 1), privacy: .public) ms on the main thread") }
+        }
         layout = arranged
         entries = arranged.items
-        entryKeys = entries.map { FilePaths.itemKey($0.url) }
+        entryKeys = arranged.keys ?? FilePaths.itemKeys(entries.map(\.url))
         dimmed = FileClipboard.dimmedPaths
         let rows = IndexSet(entries.indices.filter { selected.contains(entryKeys[$0]) })
         selection = ListSelection(count: entries.count)
         selection.adopt(rows, focus: rows.first)
         applyingSelection = true
         tableView.reloadData()
-        grid.reloadData()
+        // The grid is hidden in Details: it reloads when an icon view shows it (applyViewMode).
+        if !viewMode.usesTable { grid.reloadData() }
         tableView.selectRowIndexes(tableRows(of: rows), byExtendingSelection: false)
         applyingSelection = false
         header.filtered = Set(filters.columns)
@@ -840,19 +1012,20 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         let name = displayName(folder)
         defer { updateSearchChrome() }
         // Folder Options > Display the full path in the title bar.
-        let title = ListOptions.folder.fullPathInTitleBar && !history.isHome ? folder.path : name
+        let title = ListOptions.folder.fullPathInTitleBar && !history.isSpecial ? folder.path : name
         window?.title = title
         toolbar.back.isEnabled = history.canGoBack
         toolbar.forward.isEnabled = history.canGoForward
         toolbar.up.isEnabled = history.canGoUp
         toolbar.address.show(folder)
-        toolbar.search.folderName = name
+        // A search from a special place looks in Home.
+        toolbar.search.folderName = history.isSpecial ? PlaceNames.title(.home) : name
         if !isSearching {
             toolbar.address.searchTitle = nil
             if !toolbar.search.isEditing { toolbar.search.text = "" }
         }
-        chassis.sidebar.pane.isHome = history.isHome
-        chassis.sidebar.pane.currentPath = history.isHome ? "" : FilePaths.folderKey(folder)
+        chassis.sidebar.pane.currentPage = history.special
+        chassis.sidebar.pane.currentPath = history.isSpecial ? "" : FilePaths.folderKey(folder)
         updateTabStrip()
         updateStatus()
     }
@@ -863,7 +1036,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
 
     func updateStatus() {
         let selection = SelectionSummary(selectedEntries)
-        let path = history.isHome ? "Home" : history.current.path
+        let path = history.isSpecial ? displayName(history.current) : history.current.path
         if let statusMessage {
             chassis.status.countText = statusMessage
         } else if let loadError {
@@ -875,6 +1048,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
                                                         total: filters.isEmpty ? nil : listing.count)
         } else if history.isHome {
             chassis.status.countText = homeStatusText
+        } else if history.isSuggestions {
+            chassis.status.countText = suggestionsStatusText
         } else if isLoading {
             chassis.status.countText = "Loading " + (path as NSString).lastPathComponent
         } else {
@@ -883,7 +1058,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         }
         // The HUD's readouts, in the status bar: count, selection, sort, free space, view.
         let listed = statusMessage == nil && loadError == nil && (searchError == nil || !isSearching)
-            && !history.isHome && (isSearching || !isLoading)
+            && !history.isSpecial && (isSearching || !isLoading)
         chassis.status.readout = !listed ? nil : StatusReadout.make(
             items: shownCount, total: filters.isEmpty ? nil : listing.count, selection: selection,
             sort: isRelevanceOrder ? nil : sortSpec, volume: volume, view: viewMode.title,
@@ -897,9 +1072,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         updateCommandBar()
     }
 
-    /// Items that pass the filters, collapsed groups' items included (the status bar counts these).
+    /// Items that pass the filters, collapsed groups' items included. The status bar counts the top level
+    /// only (`shownCount`): items in a folder open in place are not counted, as in the Finder.
     var shownItems: [FileEntry] { layout.isGrouped ? layout.groups.flatMap(\.items) : entries }
-    var shownCount: Int { layout.isGrouped ? layout.groups.reduce(0) { $0 + $1.items.count } : entries.count }
+    var shownCount: Int { layout.topLevelCount }
 
     @objc private func listScrolled(_ note: Notification) {
         // The scroll place is part of the session (written half a second after the last change).
@@ -923,13 +1099,12 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             searchFilesChanged(note.userInfo?["folders"] as? Set<String>)
             return
         }
-        guard !history.isHome else { return }
-        // A periodic refresh while a job runs only concerns windows on its destination.
+        guard !history.isSpecial else { return }
+        // A periodic refresh while a job runs only concerns windows on its destination (or a folder open in place).
         let here = FilePaths.folderKey(history.current)
-        if let folders = note.userInfo?["folders"] as? Set<String>, !folders.contains(here) { return }
-        let mine = ((note.userInfo?["select"] as? [String]) ?? [])
-            .map { FilePaths.itemKey(URL(fileURLWithPath: $0)) }
-            .filter { FilePaths.parentKey(ofItemKey: $0) == here }
+        if let folders = note.userInfo?["folders"] as? Set<String>, !folders.contains(here), folders.isDisjoint(with: expandedFolders) { return }
+        let mine = FilePaths.itemKeys(((note.userInfo?["select"] as? [String]) ?? []).map { URL(fileURLWithPath: $0) })
+            .filter { FilePaths.parentKey(ofItemKey: $0) == here || expandedFolders.contains(FilePaths.parentKey(ofItemKey: $0)) }
         reloadContents(select: mine.isEmpty ? nil : Set(mine))
     }
 
@@ -946,27 +1121,27 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     }
 
     @objc private func listOptionsChanged(_ note: Notification) {
-        if chassis.sidebar.pane.tree.showHidden != ListOptions.showHidden {
-            chassis.sidebar.pane.setShowHidden(ListOptions.showHidden)
+        if chassis.sidebar.pane.tree.showHidden != ListOptions.navPaneShowHidden {
+            chassis.sidebar.pane.setShowHidden(ListOptions.navPaneShowHidden)
         }
         let folderOptions = ListOptions.folder
         if listedWith != (ListOptions.showHidden, folderOptions.hideProtectedOSFiles) {
             listedWith = (ListOptions.showHidden, folderOptions.hideProtectedOSFiles)
-            if isSearching { runSearch(keepingState: true) } else if !history.isHome { reloadContents() }
+            if isSearching { runSearch(keepingState: true) } else if !history.isSpecial { reloadContents() }
         }
         applyFolderOptions()
         applyNavigationPaneOptions()
         tableView.showsCheckboxes = ListOptions.checkboxes
-        let rowH = ListOptions.compact ? ListMetrics.compactRowHeight : ListMetrics.rowHeight
+        let rowH = ListMetrics.currentRowHeight
         if tableView.rowHeight != rowH {
             tableView.rowHeight = rowH
             tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<layout.rows.count))
         }
         grid.compact = ListOptions.compact
-        chassis.sidePaneKind = ListOptions.sidePane
+        chassis.sidePaneKind = shownSidePane
         if !entries.isEmpty {
             tableView.reloadData(forRowIndexes: IndexSet(integersIn: 0..<layout.rows.count), columnIndexes: IndexSet(tableView.tableColumns.indices))
-            grid.reloadData()
+            if !viewMode.usesTable { grid.reloadData() }
         }
         updateStatus()
         selectionDidChange()
@@ -992,7 +1167,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     }
 
     @objc private func themeChanged(_ note: Notification) {
-        window?.backgroundColor = Palette.current.pane.ns
+        window?.backgroundColor = ThemeController.shared.look == .native ? .clear : ThemeColors.current.pane.ns
         if let content = window?.contentView { refreshTheme(in: content) }
         tableView.enumerateAvailableRowViews { rowView, _ in refreshTheme(in: rowView) }
         header.needsDisplay = true
@@ -1083,6 +1258,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         case (49, []) where tableFocused: toggleQuickLook(nil)  // Space: Quick Look
         case (109, .shift) where !editingText, (110, []) where !editingText:
             showContextMenuForSelection(nil)                    // Shift+F10, the Menu key
+        case (124, []) where tableFocused && viewMode.usesTable:               // Right: open the folder in place
+            if !openSelectedFolders() { return false }
+        case (123, []) where tableFocused && viewMode.usesTable:               // Left: close it, or go to its folder
+            if !closeSelectedFolders() { return false }
         case (125, []) where tableFocused, (125, .shift) where tableFocused:   // Down, Shift+Down
             moveSelection(.down, extend: modifiers == .shift)
         case (126, []) where tableFocused, (126, .shift) where tableFocused:   // Up, Shift+Up
@@ -1210,6 +1389,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             cell.showsExtension = ListOptions.showExtensions
             cell.highlights = searchHighlights(entry.displayName(extensions: ListOptions.showExtensions))
             cell.showsCheckbox = self.tableView.showsCheckboxes
+            cell.depth = layout.depth(ofItem: i)
+            cell.disclosure = disclosure(ofItem: i)
             decorate(cell, entry)
             cell.themeDidChange()
             return cell
@@ -1261,8 +1442,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             updateFocusRow()
             grid.forEachVisibleCell { cell, i in cell.isSelected = items.contains(i) }
             selectionDidChange()
+            updateStatus()
         }
-        updateStatus()
+        // A change the window made itself (applySelection, show) updates the status bar there, once.
     }
 
     /// Dragging a divider gives or takes the space from Name; the width is kept for every folder.
@@ -1370,10 +1552,15 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     }
 
     func windowWillClose(_ notification: Notification) {
+        // A search in a closed window stops: the walk, Spotlight, its ticker and a pending arrange.
+        SuggestionsCenter.shared.setViewing(self, false)
+        searchEngine?.cancel()
+        searchTicker?.invalidate()
+        searchArrangeWork?.cancel()
         dropdown.close()
         renamer.end()
-        // Cmd+Shift+T can bring back the tabs of a closed window too.
-        if !tabs.isEmpty, let app = NSApp.delegate as? AppDelegate {
+        // Cmd+Shift+T can bring back the tabs of a closed window too (not when View > Theme rebuilt it).
+        if !tabs.isEmpty, !isBeingRebuilt, let app = NSApp.delegate as? AppDelegate {
             stashActiveTab()
             for (i, tab) in tabs.tabs.enumerated() { app.closedTabs.push(tab, index: i) }
         }

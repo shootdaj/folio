@@ -20,7 +20,7 @@ enum FileClipboard {
             pb.setString("1", forType: cutMarker)
         }
         cutChangeCount = cut ? pb.changeCount : -1
-        cutPaths = cut ? Set(urls.map(FilePaths.itemKey)) : []
+        cutPaths = cut ? Set(FilePaths.itemKeys(urls)) : []
         NotificationCenter.default.post(name: didChange, object: nil)
     }
 
@@ -31,9 +31,17 @@ enum FileClipboard {
         return (urls, pb.types?.contains(cutMarker) == true)
     }
 
+    /// Asked on every selection change (the Paste button): the answer is read again only when the
+    /// pasteboard changed.
     static var hasFiles: Bool {
-        NSPasteboard.general.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true])
+        let count = NSPasteboard.general.changeCount
+        if count == hasFilesAt { return hasFilesAnswer }
+        hasFilesAnswer = NSPasteboard.general.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true])
+        hasFilesAt = count
+        return hasFilesAnswer
     }
+    private static var hasFilesAt = Int.min
+    private static var hasFilesAnswer = false
 
     /// Item keys drawn dimmed: the pending cut, unless something else was copied since.
     static var dimmedPaths: Set<String> {
@@ -115,7 +123,8 @@ final class OperationCenter {
         if result.state == .cancelled { progress.reveal(near: anchorWindow) }
         // An archive bsdtar could not read or write says why.
         if result.state == .cancelled, let message = job.errorMessage { present(FileOpError.system(message), window: anchorWindow) }
-        postChanged(select: result.placed)
+        // A move empties its sources' folders too; a copy's sources stay as they were.
+        postChanged(select: result.placed, touched: job.kind == .move ? job.sources : [])
         tick()
     }
 
@@ -188,6 +197,12 @@ final class OperationCenter {
             timer?.invalidate()
             timer = nil
             progress.closeIfEmpty()
+        } else if jobs.allSatisfy({ snapshots[$0.id]?.state == .cancelled }) {
+            // Cancelled jobs wait for their panel to be closed: nothing moves, so no 30 Hz tick.
+            timer?.invalidate()
+            timer = nil
+        } else {
+            startTimer()
         }
     }
 
@@ -208,18 +223,29 @@ final class OperationCenter {
         postChanged(select: items.map(\.url))
     }
 
-    func trash(_ urls: [URL], window: NSWindow?) {
+    /// `cancelled` runs when the user says no to the delete confirmation, so the caller can undo what it set up.
+    /// `recheck` runs after the user says yes and before the move. It returns the URLs that may still go
+    /// (nothing: the move does not happen). A sheet can stay open while the files change.
+    func trash(_ urls: [URL], window: NSWindow?, cancelled: (@MainActor () -> Void)? = nil,
+               recheck: (@MainActor () -> [URL])? = nil) {
         guard !urls.isEmpty else { return }
         // Folder Options > Display delete confirmation dialog (off by default, as in Explorer).
         if ListOptions.folder.confirmDelete, let window {
             let alert = NSAlert()
-            alert.messageText = urls.count == 1 ? "Move \u{201C}\(urls[0].lastPathComponent)\u{201D} to the Recycle Bin?"
-                : "Move these \(urls.count) items to the Recycle Bin?"
-            alert.addButton(withTitle: "Move to Recycle Bin")
+            alert.messageText = urls.count == 1 ? "Move \u{201C}\(urls[0].lastPathComponent)\u{201D} to the \(PlaceNames.recycleBin)?"
+                : "Move these \(urls.count) items to the \(PlaceNames.recycleBin)?"
+            alert.addButton(withTitle: "Move to " + PlaceNames.recycleBin)
             alert.addButton(withTitle: "Cancel")
             alert.beginSheetModal(for: window) { response in
-                guard response == .alertFirstButtonReturn else { return }
-                MainActor.assumeIsolated { OperationCenter.shared.trashNow(urls, window: window) }
+                guard response == .alertFirstButtonReturn else {
+                    if let cancelled { MainActor.assumeIsolated { cancelled() } }
+                    return
+                }
+                MainActor.assumeIsolated {
+                    let now = recheck?() ?? urls
+                    guard !now.isEmpty else { return }
+                    OperationCenter.shared.trashNow(now, window: window)
+                }
             }
             return
         }
@@ -244,17 +270,19 @@ final class OperationCenter {
                         self.present(error, window: window)
                     }
                 }
-                self.postChanged(select: [])
+                self.postChanged(select: [], touched: urls, folders: [self.trashFolder])
             }
         }
     }
 
-    func deletePermanently(_ urls: [URL], window: NSWindow?) {
+    /// `finished` runs on the main thread after the delete, whether it worked or not.
+    func deletePermanently(_ urls: [URL], window: NSWindow?, finished: (@MainActor () -> Void)? = nil) {
         Task.detached {
             let result = Result { try FileOps.deletePermanently(urls) }
             await MainActor.run {
                 if case .failure(let error) = result { self.present(error, window: window) }
-                self.postChanged(select: [])
+                self.postChanged(select: [], touched: urls)
+                finished?()
             }
         }
     }
@@ -304,10 +332,18 @@ final class OperationCenter {
         }
     }
 
-    func postChanged(select: [URL]) {
-        NotificationCenter.default.post(name: Self.filesChanged, object: nil,
-                                        userInfo: ["select": select.map(\.path)])
+    /// Files changed: windows on the folders of `select` (the items to select) and of `touched` (other
+    /// items the operation moved or removed), and `folders` themselves, list again. With none of them,
+    /// every window does, as the change is not known (a failed step).
+    func postChanged(select: [URL], touched: [URL] = [], folders: [URL] = []) {
+        var info: [String: Any] = ["select": select.map(\.path)]
+        let parents = (select + touched).map { $0.deletingLastPathComponent() } + folders
+        if !parents.isEmpty { info["folders"] = Set(parents.map(FilePaths.folderKey)) }
+        NotificationCenter.default.post(name: Self.filesChanged, object: nil, userInfo: info)
     }
+
+    /// The Trash, for an operation that put items there or took them out.
+    private var trashFolder: URL { RecycleBin.trashFolder(home: FileManager.default.homeDirectoryForCurrentUser) }
 
     func present(_ error: Error, window: NSWindow?) {
         let alert = NSAlert()
@@ -381,7 +417,7 @@ final class DockTileView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         NSApp.applicationIconImage?.draw(in: bounds)
-        let p = Theme.palette(.dark, hue: ThemeController.shared.hue)
+        let p = ThemeColors(Theme.palette(.dark, hue: ThemeController.shared.hue))
         let bar = NSRect(x: bounds.width * 0.1, y: bounds.height * 0.08, width: bounds.width * 0.8, height: bounds.height * 0.11)
         fillRounded(bar, radius: bar.height / 2, p.s3)
         let inner = bar.insetBy(dx: 3, dy: 3)

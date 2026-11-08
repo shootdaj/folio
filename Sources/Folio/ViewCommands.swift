@@ -8,7 +8,7 @@ extension BrowserWindowController: GridHost {
     // MARK: Views
 
     /// Cmd+scroll zooms wherever the pointer is over the list (not over the tree or the address bar).
-    var zoomsWithScroll: Bool { !history.isHome }
+    var zoomsWithScroll: Bool { !history.isSpecial }
 
     @objc func viewModeChanged(_ note: Notification) { applyViewMode() }
 
@@ -19,6 +19,11 @@ extension BrowserWindowController: GridHost {
         chassis.pane.mode = mode
         grid.compact = ListOptions.compact
         grid.mode = mode
+        // Folders open in place show in Details only: the grid gets the top level at once (before it draws),
+        // Details gets the open folders again.
+        if arrangeKey != arrangedWith {
+            if !arrangeKey.tree, layout.depths.contains(where: { $0 > 0 }) { showTopLevelOnly() } else { rearrange(scroll: false) }
+        }
         if !mode.usesTable { grid.reloadData() }
         if focused || window?.firstResponder === window { window?.makeFirstResponder(listView) }
         window?.initialFirstResponder = listView
@@ -79,6 +84,12 @@ extension BrowserWindowController: GridHost {
     }
 
     @objc func toggleCompactView(_ sender: Any?) { ListOptions.compact.toggle() }
+    @objc func setDetailsSize(_ sender: Any?) {
+        guard let raw = (sender as? NSMenuItem)?.representedObject as? String, let size = DetailsSize(rawValue: raw) else { return }
+        ListOptions.detailsSize = size
+    }
+    @objc func detailsBigger(_ sender: Any?) { ListOptions.detailsSize = ListOptions.detailsSize.bigger }
+    @objc func detailsSmaller(_ sender: Any?) { ListOptions.detailsSize = ListOptions.detailsSize.smaller }
     @objc func toggleFileExtensions(_ sender: Any?) { ListOptions.showExtensions.toggle() }
     @objc func toggleThumbnails(_ sender: Any?) { ListOptions.thumbnails.toggle() }
     @objc func togglePreviewPane(_ sender: Any?) { ListOptions.sidePane = ListOptions.sidePane == .preview ? .none : .preview }
@@ -86,6 +97,7 @@ extension BrowserWindowController: GridHost {
 
     /// The View menu's checks and the View button's menu (the main menu's View menu is the same).
     func validateViewItem(_ item: NSMenuItem) -> Bool? {
+        if let tree = validateTreeItem(item) { return tree }
         switch item.action {
         case #selector(setViewMode(_:)):
             item.state = (item.representedObject as? String) == viewMode.rawValue ? .on : .off
@@ -94,6 +106,11 @@ extension BrowserWindowController: GridHost {
             item.state = ViewCenter.shared.settings.isDefault ? .on : .off
             return !ViewCenter.shared.settings.isDefault
         case #selector(toggleCompactView(_:)): item.state = ListOptions.compact ? .on : .off
+        case #selector(setDetailsSize(_:)):
+            item.state = (item.representedObject as? String) == ListOptions.detailsSize.rawValue ? .on : .off
+            return true
+        case #selector(detailsBigger(_:)): return ListOptions.detailsSize != .extraLarge
+        case #selector(detailsSmaller(_:)): return ListOptions.detailsSize != .small
         case #selector(toggleFileExtensions(_:)): item.state = ListOptions.showExtensions ? .on : .off
         case #selector(toggleThumbnails(_:)):
             // "Always show icons, never thumbnails" is the same setting, the other way round.
@@ -113,7 +130,7 @@ extension BrowserWindowController: GridHost {
         case #selector(collapseAllGroups(_:)), #selector(expandAllGroups(_:)):
             return layout.isGrouped
         case #selector(sizeAllColumnsToFit(_:)), #selector(chooseDetails(_:)):
-            return !history.isHome
+            return !history.isSpecial
         case #selector(toggleColumn(_:)):
             let raw = item.representedObject as? String
             item.state = raw.flatMap(ColumnID.init(rawValue:)).map(ColumnCenter.shared.set.isVisible) == true ? .on : .off
@@ -188,7 +205,7 @@ extension BrowserWindowController: GridHost {
     func list(_ list: NSView, menuForGroup group: Int) -> NSMenu? {
         guard layout.groups.indices.contains(group) else { return nil }
         let menu = NSMenu(title: "Group")
-        menu.font = Typeface.mono(13)
+        menu.font = Typeface.menu()
         let one = NSMenuItem(title: layout.isCollapsed(group) ? "Expand group" : "Collapse group",
                              action: #selector(toggleGroupItem(_:)), keyEquivalent: "")
         one.representedObject = group
@@ -204,6 +221,12 @@ extension BrowserWindowController: GridHost {
     }
 
     func listIsSelected(_ row: Int) -> Bool { selection.rows.contains(row) }
+
+    func list(_ list: NSView, toggledFolderAt row: Int, recursive: Bool) { toggleFolder(item: row, recursive: recursive) }
+
+    func listDepth(_ row: Int) -> Int { layout.depth(ofItem: row) }
+
+    func listDisclosure(_ row: Int) -> Bool? { disclosure(ofItem: row) }
 
     // MARK: Filters
 
@@ -340,8 +363,45 @@ extension BrowserWindowController: GridHost {
     func selectionDidChange() {
         let selected = selectedEntries
         sessionChanged()
-        chassis.sidebar.pane.details = DetailsCard.make(history.isHome ? [] : selected)
-        if ListOptions.sidePane != .none, !history.isHome {
+        // Native shows the item's details in the pane on the right; D4 in the sidebar's card.
+        if !ThemeController.shared.isNative {
+            chassis.sidebar.pane.details = DetailsCard.make(history.isSpecial ? [] : selected)
+        }
+        let before = chassis.sidePaneKind
+        chassis.sidePaneKind = shownSidePane
+        // The pane coming up shows the selection at once, not up to 0.1 s later with what it had.
+        if before == .none, chassis.sidePaneKind != .none { previewWork?.cancel(); updatePreviews(); return }
+        updatePreviewsSoon()
+    }
+
+    /// The right-hand pane on screen: the one chosen, except that Native's Details pane follows the
+    /// selection (DetailsPaneRule), and Home has none.
+    var shownSidePane: ListOptions.SidePane {
+        let chosen = ListOptions.sidePane
+        guard chosen == .details else { return history.isSpecial ? .none : chosen }
+        // Gallery previews the selection itself: Native's pane would show the same picture again.
+        if ThemeController.shared.isNative, viewMode == .gallery { return .none }
+        return DetailsPaneRule.shows(chosen: true, followsSelection: ThemeController.shared.isNative,
+                                     selectedCount: selection.rows.count, isSpecial: history.isSpecial) ? .details : .none
+    }
+
+    /// The Preview pane, Gallery and Quick Look follow the selection. A held arrow key changes it 30
+    /// times a second; each preview loads a file, so they follow at most every 0.1 s, and once more when
+    /// the keys stop. A single click shows at once.
+    func updatePreviewsSoon() {
+        previewWork?.cancel()
+        let wait = 0.1 - (CACurrentMediaTime() - lastPreviewUpdate)
+        guard wait > 0 else { updatePreviews(); return }
+        let work = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.updatePreviews() } }
+        previewWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + wait, execute: work)
+    }
+
+    func updatePreviews() {
+        previewWork = nil
+        lastPreviewUpdate = CACurrentMediaTime()
+        let selected = selectedEntries
+        if chassis.sidePaneKind != .none, !history.isSpecial {
             var meta: ItemMetadata?
             if selected.count == 1, let one = selected.first {
                 meta = MetadataCache.shared.cached(one)

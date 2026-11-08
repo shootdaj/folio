@@ -35,14 +35,17 @@ extension BrowserWindowController {
 
     private func styled(_ title: String) -> NSMenu {
         let menu = NSMenu(title: title)
-        menu.font = Typeface.mono(13)
+        menu.font = Typeface.menu()
         menu.autoenablesItems = true
         return menu
     }
 
     private func add(_ menu: NSMenu, _ title: String, _ action: Selector?, key: String = "",
-                     mods: NSEvent.ModifierFlags = .command, object: Any? = nil, enabled: Bool = true) {
+                     mods: NSEvent.ModifierFlags = .command, object: Any? = nil, enabled: Bool = true, symbol: String? = nil) {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+        if let symbol, ThemeController.shared.isNative {
+            item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        }
         item.keyEquivalentModifierMask = mods
         item.target = action == nil ? nil : self
         item.representedObject = object
@@ -61,10 +64,13 @@ extension BrowserWindowController {
         let urls = selectedURLs
         let items = selectedEntries
         let menu = styled("Item")
-        let row = NSMenuItem()
-        row.view = MenuIconRow(owner: self)
-        menu.addItem(row)
-        menu.addItem(.separator())
+        let native = ThemeController.shared.isNative
+        if !native {
+            let row = NSMenuItem()
+            row.view = MenuIconRow(owner: self)
+            menu.addItem(row)
+            menu.addItem(.separator())
+        }
 
         let folders = items.filter(\.isFolder)
         let oneFolder = items.count == 1 && folders.count == 1
@@ -94,16 +100,19 @@ extension BrowserWindowController {
             add(menu, starred ? "Remove from Favorites" : "Add to Favorites", #selector(toggleFavorite(_:)))
         }
         menu.addItem(.separator())
-        add(menu, "Cut", #selector(cut(_:)), key: "x")
-        add(menu, "Copy", #selector(copy(_:)), key: "c")
-        if oneFolder { add(menu, "Paste into folder", #selector(pasteIntoFolder(_:)), key: "v") }
+        add(menu, "Cut", #selector(cut(_:)), key: "x", symbol: "scissors")
+        add(menu, "Copy", #selector(copy(_:)), key: "c", symbol: "doc.on.doc")
+        // The icon row holds Paste in D4. Native has no icon row, so Paste is a normal item.
+        if native { add(menu, "Paste", #selector(paste(_:)), key: "v", symbol: "doc.on.clipboard") }
+        if oneFolder { add(menu, "Paste into folder", #selector(pasteIntoFolder(_:)), key: native ? "" : "v") }
         add(menu, "Copy path", #selector(copyPath(_:)))
         add(menu, "Copy as path", #selector(copyAsPath(_:)), key: "c", mods: [.command, .shift])
         menu.addItem(.separator())
         add(menu, "Create alias", #selector(createAlias(_:)), key: "a", mods: [.command, .control])
         add(menu, "Create symbolic link", #selector(createSymlink(_:)))
-        add(menu, "Rename", #selector(renameSelection(_:)), key: String(utf16CodeUnits: [unichar(NSF2FunctionKey)], count: 1), mods: [])
-        add(menu, "Move to Trash", #selector(moveToTrash(_:)), key: "\u{8}")
+        add(menu, "Rename", #selector(renameSelection(_:)), key: String(utf16CodeUnits: [unichar(NSF2FunctionKey)], count: 1), mods: [],
+            symbol: "pencil")
+        add(menu, "Move to Trash", #selector(moveToTrash(_:)), key: "\u{8}", symbol: "trash")
         // Explorer's Shift+right-click extended menu; holding Shift with the menu open swaps it in too.
         let delete = NSMenuItem(title: "Delete permanently...", action: #selector(deletePermanently(_:)), keyEquivalent: "\u{8}")
         delete.keyEquivalentModifierMask = [.command, .shift]
@@ -203,7 +212,7 @@ extension BrowserWindowController {
         for item in MainMenu.newItems() { item.target = self; new.addItem(item) }
         submenu(menu, "New", new)
         add(menu, "Open in Terminal", #selector(openInTerminal(_:)))
-        if isTrashView { add(menu, "Empty Recycle Bin", #selector(emptyRecycleBin(_:))) }
+        if isTrashView { add(menu, "Empty " + PlaceNames.recycleBin, #selector(emptyRecycleBin(_:))) }
         if !isTrashView {
             let access = styled("Give access to")
             add(access, "Share on the network...", #selector(shareOnNetwork(_:)))
@@ -617,7 +626,7 @@ final class MenuIconRow: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        let p = ThemeColors.current
         for i in actions.indices {
             let r = rect(i)
             let on = enabled(i)
@@ -639,7 +648,7 @@ final class MenuIconRow: NSView {
 extension BrowserWindowController {
     @objc func pinsChanged(_ note: Notification) {
         chassis.sidebar.pane.setPlaces(pins.places)
-        if !history.isHome, ListOptions.expandToCurrent { revealCurrentFolder(select: false) }
+        if !history.isSpecial, ListOptions.expandToCurrent { revealCurrentFolder(select: false) }
         homeDataChanged(note)
     }
 

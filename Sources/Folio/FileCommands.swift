@@ -9,11 +9,13 @@ enum ListOptions {
     private static let key = "itemCheckBoxes"
     static let hiddenKey = "showHiddenItems"
     static let expandKey = "navPaneExpandToCurrent"
+    static let navHiddenKey = "navPaneShowHidden"
     static let navPaneKey = "navPaneShown"
     static let extensionsKey = "showFileExtensions"
     static let thumbnailsKey = "showThumbnails"
     static let compactKey = "compactView"
     static let sidePaneKey = "sidePane"
+    static let detailsSizeKey = "detailsSize"
 
     /// View > Show > File name extensions: on unless turned off.
     static var showExtensions: Bool {
@@ -33,11 +35,26 @@ enum ListOptions {
         set { set(newValue, compactKey) }
     }
 
-    /// The right-hand pane: Preview (Option+P), Details (Option+Shift+P), or none.
+    /// View > Details Size: the Details list's text, icons and rows (read from the cached options, as
+    /// every cell asks while it draws).
+    static var detailsSize: DetailsSize {
+        get { folder.detailsSize }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: detailsSizeKey)
+            reload()
+            NotificationCenter.default.post(name: didChange, object: nil)
+        }
+    }
+
+    /// The right-hand pane: Preview (Option+P), Details (Option+Shift+P), or none. Native starts with
+    /// Details, which comes up only while items are selected (DetailsPaneRule).
     enum SidePane: String { case none, preview, details }
 
     static var sidePane: SidePane {
-        get { UserDefaults.standard.string(forKey: sidePaneKey).flatMap(SidePane.init(rawValue:)) ?? .none }
+        get {
+            UserDefaults.standard.string(forKey: sidePaneKey).flatMap(SidePane.init(rawValue:))
+                ?? (ThemeController.shared.isNative ? .details : .none)
+        }
         set {
             UserDefaults.standard.set(newValue.rawValue, forKey: sidePaneKey)
             NotificationCenter.default.post(name: didChange, object: nil)
@@ -49,10 +66,16 @@ enum ListOptions {
         set { set(newValue, key) }
     }
 
-    /// View > Hidden items: dot files and flagged items in the list and the tree.
+    /// View > Show > Hidden Items: dot files and flagged items in the list (the tree has its own box).
     static var showHidden: Bool {
         get { UserDefaults.standard.bool(forKey: hiddenKey) }
         set { set(newValue, hiddenKey) }
+    }
+
+    /// View > Navigation Pane > Show Hidden Folders: hidden folders in the tree, off unless turned on.
+    static var navPaneShowHidden: Bool {
+        get { UserDefaults.standard.bool(forKey: navHiddenKey) }
+        set { set(newValue, navHiddenKey) }
     }
 
     /// Explorer's "Expand to open folder": on unless turned off.
@@ -97,7 +120,8 @@ enum ListOptions {
 /// The milestone 3 commands of a browser window: clipboard, Copy to and Move to, Trash, delete,
 /// rename (F2, batch, Tab), New, undo and redo, the selection commands and the command bar.
 extension BrowserWindowController: FileListDelegate {
-    var selectedURLs: [URL] { selectedEntries.map(\.url) }
+    /// The selected items' URLs; an item inside another selected folder (open in place) is left to its folder.
+    var selectedURLs: [URL] { outermostSelectedRows.map { entries[$0].url } }
     private var folder: URL { history.current }
 
     // MARK: Clicks from the list
@@ -213,6 +237,8 @@ extension BrowserWindowController: FileListDelegate {
     // MARK: Delete
 
     @objc func moveToTrash(_ sender: Any?) {
+        // The Suggestions page has no selection: the focused row goes.
+        if showsSuggestionsPage { chassis.suggestions.page.trashFocused(); return }
         guard !selectedURLs.isEmpty else { NSSound.beep(); return }
         OperationCenter.shared.trash(selectedURLs, window: window)
     }
@@ -282,14 +308,16 @@ extension BrowserWindowController: FileListDelegate {
             // The icon views: the box goes over the label, as wide as the cell.
             grid.layoutSubtreeIfNeeded()
             guard let frame = grid.frame(ofItem: row), let cell = grid.cell(ofItem: row) else { return }
-            let name = cell.nameRect
-            let box = NSRect(x: frame.minX + name.minX, y: frame.minY + name.minY - 2, width: max(name.width, 160), height: 24)
+            let name = cell.renameRect
+            let box = NSRect(x: frame.minX + name.minX, y: frame.minY + name.minY - 2, width: ThemeController.shared.isNative ? name.width : max(name.width, 160), height: 24)
             renamer.begin(in: grid, cell: box, row: row, entry: entry, textX: 5)
             return
         }
         let iconX = ListMetrics.rowLead + (tableView.showsCheckboxes ? NameCellView.boxShift + 8 : 0)
-        let textX = iconX + 16 + 9
-        renamer.begin(in: tableView, tableRow: tableRow(ofItem: row), row: row, entry: entry, textX: textX)
+            + NameCellView.contentShift(depth: layout.depth(ofItem: row))
+        let textX = iconX + ListMetrics.iconSize + 9
+        renamer.begin(in: tableView, tableRow: tableRow(ofItem: row), row: row, entry: entry, textX: textX,
+                      fontSize: ListMetrics.textSize, height: max(28, tableView.rowHeight + 4))
     }
 
     /// Enter, Tab, Shift+Tab or a click away. False keeps the box open (a name that can't be used).
@@ -399,8 +427,16 @@ extension BrowserWindowController: FileListDelegate {
         if let view = validateViewItem(item) { return view }
         let editingText = window?.firstResponder is NSTextView
         let any = !selectedURLs.isEmpty
+        // The Suggestions page moves the focused row to the Trash, and never deletes for good.
+        if showsSuggestionsPage {
+            switch item.action {
+            case #selector(moveToTrash(_:)): return chassis.suggestions.page.canTrashFocused && !editingText
+            case #selector(deletePermanently(_:)), #selector(emptyRecycleBin(_:)): return false
+            default: break
+            }
+        }
         // Home is not a folder: nothing is pasted, made or opened in it.
-        if history.isHome {
+        if history.isSpecial {
             switch item.action {
             case #selector(paste(_:)), #selector(pasteShortcut(_:)), #selector(newFolder(_:)), #selector(newTextDocument(_:)),
                  #selector(openInTerminal(_:)), #selector(showFolderProperties(_:)), #selector(copyAsPath(_:)),
@@ -487,8 +523,11 @@ extension BrowserWindowController: FileListDelegate {
         case #selector(toggleExpandToCurrent(_:)):
             item.state = ListOptions.expandToCurrent ? .on : .off
             return true
+        case #selector(toggleNavPaneHidden(_:)):
+            item.state = ListOptions.navPaneShowHidden ? .on : .off
+            return true
         case #selector(expandToCurrentFolder(_:)):
-            return !history.isHome
+            return !history.isSpecial
         case #selector(ejectCurrentVolume(_:)):
             if let v = currentEjectable { item.title = (v.isNetwork ? "Disconnect \u{201C}" : "Eject \u{201C}") + v.name + "\u{201D}" }
             else { item.title = "Eject" }

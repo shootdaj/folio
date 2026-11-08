@@ -60,6 +60,8 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
     /// Typeahead matches shown and in all, for the HUD's Matches readout.
     private(set) var matchCount = (shown: 0, total: 0)
     private let field = NSTextField(string: "")
+    /// Native: a 6 pt field on the system fill, with no stroke and no glow.
+    private let native = ThemeController.shared.look == .native
     private var completion: Completion?
     private var folderCache: [String: [Subfolder]] = [:]
     private var listing: Set<String> = []
@@ -106,19 +108,19 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
         recrumb()
     }
 
-    private var isHome: Bool { NavigationHistory.isHome(folder) }
+    private var special: SpecialPlace? { NavigationHistory.special(folder) }
 
-    /// The folder a crumb opens (Home's one crumb is Home).
+    /// The folder a crumb opens (a special place's one crumb is its name).
     private func crumbURL(_ i: Int) -> URL {
-        crumbs[i].path == NavigationHistory.homePath ? NavigationHistory.home : URL(fileURLWithPath: crumbs[i].path, isDirectory: true)
+        SpecialPlace(path: crumbs[i].path)?.url ?? URL(fileURLWithPath: crumbs[i].path, isDirectory: true)
     }
 
     private func recrumb() {
-        crumbs = isHome ? [Crumb(title: "Home", path: NavigationHistory.homePath, isCurrent: true, isVolume: true)]
-            : Breadcrumbs.crumbs(for: folder, volumes: volumes)
-        // The Trash reads as Explorer's Recycle Bin.
+        crumbs = special.map { [Crumb(title: PlaceNames.title($0), path: $0.path, isCurrent: true, isVolume: true)] }
+            ?? Breadcrumbs.crumbs(for: folder, volumes: volumes)
+        // The Trash reads as Explorer's Recycle Bin in D4.
         if let last = crumbs.last, RecycleBin.isTrash(URL(fileURLWithPath: last.path), home: FileManager.default.homeDirectoryForCurrentUser) {
-            crumbs[crumbs.count - 1] = Crumb(title: "Recycle Bin", path: last.path, isCurrent: last.isCurrent)
+            crumbs[crumbs.count - 1] = Crumb(title: PlaceNames.recycleBin, path: last.path, isCurrent: last.isCurrent)
         }
         rebuildAccessibility()
         needsDisplay = true
@@ -136,14 +138,24 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
     private var currentFont: NSFont { Typeface.ui(13, weight: 600) }
 
     /// The root crumb is the volume's glyph (Home keeps its name).
-    private func isRoot(_ crumb: Crumb) -> Bool { crumb.isVolume && !isHome }
+    private func isRoot(_ crumb: Crumb) -> Bool { crumb.isVolume && special == nil }
 
     private func crumbWidth(_ crumb: Crumb) -> CGFloat {
         isRoot(crumb) ? Self.rootWidth : textWidth(crumb.title, font: crumb.isCurrent ? currentFont : crumbFont) + 2 * Self.crumbPad
     }
 
-    /// The field box: 3 pt in from top and bottom (`.addr::before{inset:3px 0}`).
-    private var box: NSRect { bounds.insetBy(dx: 0, dy: 3) }
+    /// The field box: 3 pt in from top and bottom (`.addr::before{inset:3px 0}`). Native: the whole view.
+    private var box: NSRect { native ? bounds : bounds.insetBy(dx: 0, dy: 3) }
+
+    private var boxRadius: CGFloat { native ? 6 : 12 }
+
+    /// The crumb's hover wash: 9 pt in from top and bottom, radius 5. Native: 3 pt in, radius 4.
+    private func wash(_ r: NSRect) -> NSRect {
+        let inset: CGFloat = native ? 3 : 9
+        return NSRect(x: r.minX, y: inset, width: r.width, height: bounds.height - 2 * inset)
+    }
+
+    private var washRadius: CGFloat { native ? 4 : 5 }
 
     private var historyRect: NSRect {
         NSRect(x: bounds.width - 4 - 28, y: 3, width: 28, height: bounds.height - 6)
@@ -182,7 +194,7 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
             // Only a current crumb too wide on its own is cut short.
             let w = min(crumbWidth(crumbs[i]), max(48, end - Self.minHit - Self.arrowWidth - x))
             out.append(Slot(rect: NSRect(x: x, y: 1, width: w, height: h), part: .crumb(i)))
-            guard !isHome else { x += w; continue }
+            guard special == nil else { x += w; continue }
             out.append(Slot(rect: NSRect(x: x + w, y: 1, width: Self.arrowWidth, height: h), part: .arrow(i)))
             x += w + Self.arrowWidth
         }
@@ -215,19 +227,29 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
     /// for a bad path) at radius 12; the root crumb is the drive glyph in the accent, crumbs in Geist 500
     /// text-2 with the current one 600 in the text colour, chevrons muted (accent and turned when open).
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
-        fillRounded(box, radius: 12, p.field)
+        let p = ThemeColors.current
+        fillRounded(box, radius: boxRadius, p.field)
         if let title = searchTitle, !isEditing {
             drawSearchMode(title, p)
             drawArrow(historyRect, open: dropdown?.isOpen("history") == true, down: true, hot: hovered == .history, p)
             return
         }
-        let border: RGBA = isInvalid ? p.miss : isEditing ? p.accent : (isHovered ? p.outline : p.line2)
-        strokeRounded(box, radius: 12, border)
+        if native {
+            // Native has no stroke. The toolbar draws the focus ring, and a bad path gets a red edge.
+            if isInvalid { strokeRounded(box, radius: boxRadius, p.miss) }
+        } else {
+            let border: NSColor = isInvalid ? p.miss : isEditing ? p.accent : (isHovered ? p.outline : p.line2)
+            strokeRounded(box, radius: 12, border)
+        }
         drawArrow(historyRect, open: dropdown?.isOpen("history") == true, down: true, hot: hovered == .history, p)
         if isEditing {
             // `.addr.edit`: the accent folder 12 pt in, then the path in Geist Mono.
-            ItemIcon.drawFolder(in: NSRect(x: 12, y: box.midY - 8, width: 16, height: 16), palette: p, lit: false)
+            let folder = NSRect(x: 12, y: box.midY - 8, width: 16, height: 16)
+            if native {
+                Glyph.drawSymbol(named: "folder", in: folder, color: p.text2.ns, pointSize: 14, weight: .regular)
+            } else {
+                ItemIcon.drawFolder(in: folder, palette: p, lit: false)
+            }
             return
         }
 
@@ -236,21 +258,21 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
         for slot in slots() {
             let hot = hovered == slot.part
             // `.crumb::after`: currentColor at 9% (hover), inset 9 pt top and bottom, radius 5.
-            let wash = NSRect(x: slot.rect.minX, y: 9, width: slot.rect.width, height: bounds.height - 18)
+            let wash = wash(slot.rect)
             switch slot.part {
             case .overflow:
-                if hot { fillRounded(wash, radius: 5, p.text.withAlpha(0.09)) }
+                if hot { fillRounded(wash, radius: washRadius, p.text.withAlpha(0.09)) }
                 let open = dropdown?.isOpen("overflow") == true
                 Glyph.more.draw(in: NSRect(x: slot.rect.midX - 8, y: box.midY - 8, width: 16, height: 16), color: (open ? p.accent : p.text2).ns)
             case .crumb(let i):
                 let crumb = crumbs[i]
                 let tone = crumb.isCurrent ? p.text : (hot ? p.text : p.text2)
                 if dropCrumb == i {
-                    fillRounded(wash, radius: 5, p.markFill)
-                    strokeRounded(wash, radius: 5, p.accent)
-                } else if hot { fillRounded(wash, radius: 5, tone.withAlpha(0.09)) }
+                    fillRounded(wash, radius: washRadius, p.markFill)
+                    strokeRounded(wash, radius: washRadius, p.accent)
+                } else if hot { fillRounded(wash, radius: washRadius, tone.withAlpha(0.09)) }
                 if isRoot(crumb) {
-                    Glyph.drive.draw(in: NSRect(x: slot.rect.midX - 8, y: box.midY - 8, width: 16, height: 16), color: p.accent.ns)
+                    Glyph.drive.draw(in: NSRect(x: slot.rect.midX - 8, y: box.midY - 8, width: 16, height: 16), color: (native ? p.text2 : p.accent).ns)
                 } else {
                     drawLine(crumb.title, font: crumb.isCurrent ? currentFont : crumbFont, color: tone,
                              x: slot.rect.minX + Self.crumbPad, midY: box.midY, maxWidth: slot.rect.width - 2 * Self.crumbPad)
@@ -260,8 +282,8 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
             case .token(let i):
                 // A filter token as D4's pressed chip: the accent border over a 14% accent tint.
                 let r = slot.rect
-                fillRounded(r, radius: 10, p.accent.withAlpha(0.14).over(p.field))
-                strokeRounded(r, radius: 10, p.accent)
+                fillRounded(r, radius: native ? 6 : 10, p.accent.withAlpha(0.14).over(p.field))
+                strokeRounded(r, radius: native ? 6 : 10, p.accent)
                 drawLine(tokens[i].text, font: tokenFont, color: p.text, x: r.minX + 10, midY: r.midY, maxWidth: r.width - 10 - 24)
                 let x = clearRect(r)
                 if hot { fillRounded(x.insetBy(dx: 2, dy: 3), radius: 6, p.text.withAlpha(0.10)) }
@@ -276,19 +298,19 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
 
     /// D4's search address (`.addr.is-search`): the magnifier in the accent and "Search Results in work";
     /// while results gather a 2 pt accent line grows along the field's bottom edge, dimming when done.
-    private func drawSearchMode(_ title: String, _ p: Palette) {
+    private func drawSearchMode(_ title: String, _ p: ThemeColors) {
         let progress = CGFloat(max(0, min(1, searchProgress)))
-        strokeRounded(box, radius: 12, isHovered ? p.outline : p.line2)
+        if !native { strokeRounded(box, radius: 12, isHovered ? p.outline : p.line2) }
         NSGraphicsContext.saveGraphicsState()
-        NSBezierPath(roundedRect: box.insetBy(dx: 1, dy: 1), xRadius: 11, yRadius: 11).addClip()
+        NSBezierPath(roundedRect: box.insetBy(dx: 1, dy: 1), xRadius: boxRadius - 1, yRadius: boxRadius - 1).addClip()
         let line = NSRect(x: box.minX + 1, y: box.maxY - 3, width: (box.width - 2) * (searchDone ? 1 : progress), height: 2)
         if searchDone {
             fillRect(line, p.accent.withAlpha(0.4))
         } else if progress > 0 {
-            withGlow(p.accent, blur: 10) { fillRect(line, p.accent) }
+            if native { fillRect(line, p.accent) } else { withGlow(p.accent, blur: 10) { fillRect(line, p.accent) } }
         }
         NSGraphicsContext.restoreGraphicsState()
-        Glyph.search.draw(in: NSRect(x: 12, y: box.midY - 8, width: 16, height: 16), color: p.accent.ns)
+        Glyph.search.draw(in: NSRect(x: 12, y: box.midY - 8, width: 16, height: 16), color: (native ? p.text2 : p.accent).ns)
         drawLine(title, font: Typeface.ui(13, weight: 600), color: p.text, x: 12 + 16 + 8, midY: box.midY,
                  maxWidth: historyRect.minX - 36 - 8)
     }
@@ -299,8 +321,8 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
     }
 
     /// `.cchev`: a 14 pt chevron, muted; open, it turns to point down in the accent.
-    private func drawArrow(_ r: NSRect, open: Bool, down: Bool, hot: Bool, _ p: Palette) {
-        if hot || open { fillRounded(NSRect(x: r.minX, y: 9, width: r.width, height: bounds.height - 18), radius: 5, p.text.withAlpha(0.09)) }
+    private func drawArrow(_ r: NSRect, open: Bool, down: Bool, hot: Bool, _ p: ThemeColors) {
+        if hot || open { fillRounded(wash(r), radius: washRadius, p.text.withAlpha(0.09)) }
         let s: CGFloat = 14
         let icon = NSRect(x: r.midX - s / 2, y: bounds.midY - s / 2, width: s, height: s)
         if down {
@@ -355,7 +377,7 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
     // MARK: Dropping on crumbs
 
     private func crumbIndex(_ info: NSDraggingInfo) -> Int? {
-        guard !isEditing, !isHome, let (part, _) = part(at: convert(info.draggingLocation, from: nil)),
+        guard !isEditing, special == nil, let (part, _) = part(at: convert(info.draggingLocation, from: nil)),
               case .crumb(let i) = part else { return nil }
         return i
     }
@@ -456,10 +478,10 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
         isEditing = true
         isInvalid = false
         hovered = nil
-        let p = Palette.current
+        let p = ThemeColors.current
         field.font = Typeface.mono(13, weight: 500)
         field.textColor = p.text.ns
-        field.stringValue = isHome ? "" : folder.path
+        field.stringValue = special != nil ? "" : folder.path
         placeField()
         field.isHidden = false
         window.makeFirstResponder(field)
@@ -741,6 +763,16 @@ final class ToolbarView: NSView {
     private var separators: [CGFloat] = []
     static let commandW: CGFloat = 36
     static let addressMin: CGFloat = 300
+    /// Native: the material band, and a layer over it for the hairline and the address bar's focus ring.
+    private let native = ThemeController.shared.look == .native
+    private let material = NSVisualEffectView(frame: .zero)
+    private let decor = ToolbarDecor(frame: .zero)
+    /// A control's width and height, the gap between controls, and the extra gap between groups.
+    private var buttonW: CGFloat { native ? 32 : 44 }
+    private var buttonH: CGFloat { native ? 28 : 44 }
+    private var commandWidth: CGFloat { native ? 32 : Self.commandW }
+    private var gap: CGFloat { native ? 4 : 0 }
+    private var groupExtra: CGFloat { native ? 8 : 13 }
 
     init(target: AnyObject?, back: Selector, forward: Selector, up: Selector, refresh: Selector) {
         self.back = ChromeButton(glyph: .back, label: "Back (Cmd+Left), hold for history", target: target, action: back)
@@ -748,11 +780,21 @@ final class ToolbarView: NSView {
         self.up = ChromeButton(glyph: .up, label: "Up (Cmd+Up)", target: target, action: up)
         self.refresh = ChromeButton(glyph: .refresh, label: "Refresh", target: target, action: refresh)
         super.init(frame: .zero)
+        if native {
+            material.material = .titlebar
+            material.blendingMode = .behindWindow
+            material.state = .followsWindowActiveState
+            material.autoresizingMask = [.width, .height]
+            decor.autoresizingMask = [.width, .height]
+            decor.toolbar = self
+            addSubview(material)
+            addSubview(decor)
+        }
         for view in [self.back, self.forward, self.up, address, self.refresh, search, searchEdge] as [NSView] { addSubview(view) }
-        address.onEditingChanged = { [weak self] in self?.needsDisplay = true }
+        address.onEditingChanged = { [weak self] in self?.needsDisplay = true; self?.decor.needsDisplay = true }
         searchEdge.onDrag = { [weak self] x in
             guard let self else { return }
-            let w = min(max(180, self.search.frame.maxX - x), max(180, self.bounds.width - Self.addressX - Self.addressMin - 120))
+            let w = min(max(180, self.search.frame.maxX - x), max(180, self.bounds.width - self.addressX - Self.addressMin - 120))
             self.searchWidth = w
             UserDefaults.standard.set(Double(w), forKey: Self.searchWidthKey)
         }
@@ -762,16 +804,24 @@ final class ToolbarView: NSView {
 
     override var isFlipped: Bool { true }
 
-    /// Where the address bar starts: 8 pt in, three 44 pt buttons 4 pt apart, then its 8 pt margin.
-    static let addressX: CGFloat = 156
+    /// Where the address bar starts: 8 pt in, three buttons 4 pt apart (44 pt wide, Native 32), then its
+    /// 8 pt margin. Native adds a group gap of 12 pt after them.
+    private var addressX: CGFloat { native ? leadingInset + 8 + 3 * 32 + 2 * 4 + 12 : 156 }
+
+    /// Native only: room kept free at the left for the traffic lights when the navigation pane is hidden.
+    var leadingInset: CGFloat = 0 { didSet { if leadingInset != oldValue { needsLayout = true; needsDisplay = true } } }
 
     override func layout() {
         super.layout()
+        // The search box keeps its 44 pt frame in both looks. It draws inside it.
         let y = ((bounds.height - 1 - 44) / 2).rounded()
-        back.frame = NSRect(x: 8, y: y, width: 44, height: 44)
-        forward.frame = NSRect(x: 56, y: y, width: 44, height: 44)
-        up.frame = NSRect(x: 104, y: y, width: 44, height: 44)
-        let left = Self.addressX
+        let cy = ((bounds.height - 1 - buttonH) / 2).rounded()
+        let bw = buttonW
+        let x0 = native ? leadingInset + 8 : 8
+        back.frame = NSRect(x: x0, y: cy, width: bw, height: buttonH)
+        forward.frame = NSRect(x: x0 + bw + 4, y: cy, width: bw, height: buttonH)
+        up.frame = NSRect(x: x0 + 2 * (bw + 4), y: cy, width: bw, height: buttonH)
+        let left = addressX
         // Narrow windows (two side by side) give the search box's room to the address bar.
         let standard: CGFloat = bounds.width < 1180 ? 220 : 280
         let searchW: CGFloat = bounds.width < 720 ? 0
@@ -780,44 +830,56 @@ final class ToolbarView: NSView {
         search.frame = NSRect(x: bounds.width - 12 - searchW, y: y, width: searchW, height: 44)
         searchEdge.isHidden = search.isHidden
         searchEdge.frame = NSRect(x: search.frame.minX - 4, y: y, width: 8, height: 44)
-        refresh.frame = NSRect(x: (searchW == 0 ? bounds.width - 2 : search.frame.minX) - 8 - 44, y: y, width: 44, height: 44)
+        refresh.frame = NSRect(x: (searchW == 0 ? bounds.width - 2 : search.frame.minX) - 8 - bw, y: cy, width: bw, height: buttonH)
         // The command bar takes what the address bar can spare; See more is always there.
         var right = refresh.frame.minX - 8
         separators = []
         if let more = commands.last {
-            more.frame = NSRect(x: right - Self.commandW, y: y, width: Self.commandW, height: 44)
-            right = more.frame.minX - 6
-            separators.append(right - 0.5)
-            right -= 7
+            more.frame = NSRect(x: right - commandWidth, y: cy, width: commandWidth, height: buttonH)
+            if native {
+                right = more.frame.minX - 12
+            } else {
+                right = more.frame.minX - 6
+                separators.append(right - 0.5)
+                right -= 7
+            }
             let rest = commands.dropLast()
             // Filter tokens widen the address bar; the commands that no longer fit fold into See more.
             let room = right - left - max(Self.addressMin, 230 + address.tokensWidth)
             let groups = CGFloat(groupEnds.filter { $0 < rest.count - 1 }.count)
             var fit = rest.count
-            while fit > 0, CGFloat(fit) * Self.commandW + groups * 13 > room { fit -= 1 }
-            var x = right - CGFloat(fit) * Self.commandW
-                - CGFloat(groupEnds.filter { $0 < fit - 1 }.count) * 13
+            let step = commandWidth + gap
+            while fit > 0, CGFloat(fit) * step - gap + groups * groupExtra > room { fit -= 1 }
+            var x = right - (CGFloat(fit) * step - gap)
+                - CGFloat(groupEnds.filter { $0 < fit - 1 }.count) * groupExtra
             let left = x
             for (i, button) in rest.enumerated() {
                 button.isHidden = i >= fit
                 guard i < fit else { continue }
-                button.frame = NSRect(x: x, y: y, width: Self.commandW, height: 44)
-                x += Self.commandW
+                button.frame = NSRect(x: x, y: cy, width: commandWidth, height: buttonH)
+                x += step
                 if groupEnds.contains(i), i < fit - 1 {
-                    separators.append(x + 6.5)
-                    x += 13
+                    if !native { separators.append(x + 6.5) }
+                    x += groupExtra
                 }
             }
             if fit == 0 { separators.removeAll() }
-            right = fit > 0 ? left - 8 : right + 7
+            right = fit > 0 ? left - 8 : right + (native ? 12 : 7)
         }
-        address.frame = NSRect(x: left, y: y, width: max(80, right - left), height: 44)
+        address.frame = NSRect(x: left, y: cy, width: max(80, right - left), height: buttonH)
+        if native {
+            material.frame = bounds
+            decor.frame = bounds
+            decor.needsDisplay = true
+        }
     }
 
     /// `--bar` (s1 at 78% over the bg; white in light) with a hairline under it. While the address is
     /// edited its box carries the accent's 3 pt halo and a soft glow (`.addr.edit::before`).
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        // Native: the material and the decor layer draw the band.
+        guard !native else { return }
+        let p = ThemeColors.current
         fillRect(bounds, p.bar)
         fillRect(NSRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1), p.line)
         if address.isEditing {
@@ -831,6 +893,24 @@ final class ToolbarView: NSView {
     }
 }
 
+/// Native: over the toolbar's material. One `separatorColor` hairline along the bottom, and the address
+/// bar's focus ring (a 3 pt accent line at about half strength, red for a bad path) while it is edited.
+final class ToolbarDecor: NSView {
+    weak var toolbar: ToolbarView?
+
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let p = ThemeColors.current
+        fillRect(NSRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1), p.line)
+        if let address = toolbar?.address, address.isEditing {
+            let tone = address.isInvalid ? p.miss : p.accent
+            strokeRounded(address.frame.insetBy(dx: -1.5, dy: -1.5), radius: 7.5, tone.withAlpha(0.5), width: 3)
+        }
+    }
+}
+
 /// The search box's left edge, a resize cursor and a drag that moves it (Explorer since 1909).
 final class SearchEdgeHandle: NSView {
     var onDrag: ((CGFloat) -> Void)?
@@ -839,7 +919,7 @@ final class SearchEdgeHandle: NSView {
 
     override func mouseDown(with event: NSEvent) {
         guard let window, let host = superview else { return }
-        while let next = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
+        while let next = MouseTracking.next(window, [.leftMouseDragged, .leftMouseUp], idle: nil) {
             if next.type == .leftMouseUp { break }
             onDrag?(host.convert(next.locationInWindow, from: nil).x)
         }

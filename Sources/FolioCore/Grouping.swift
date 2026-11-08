@@ -64,17 +64,31 @@ public struct ListLayout: Sendable {
     public let rowOfItem: [Int]
     /// The first item of each group and how many of its items are shown (0 when collapsed).
     public let groupRanges: [Range<Int>]
+    /// How deep each item sits under an open folder in Details view (ListTree); 0 at the top level.
+    public let depths: [Int]
+    /// The items at the top level: the folder's own items, as the status bar counts them.
+    public let topLevelCount: Int
+    /// Each item's `FilePaths.itemKey`, when the layout was made off the main thread with them.
+    public var keys: [String]?
 
     public var isGrouped: Bool { !groups.isEmpty }
 
     /// Ungrouped: one row per item.
     public init(items: [FileEntry]) {
+        self.init(items: items, depths: Array(repeating: 0, count: items.count))
+    }
+
+    /// Ungrouped, with open folders' items flattened in (ListTree.flatten): one row per item.
+    public init(items: [FileEntry], depths: [Int]) {
+        precondition(depths.count == items.count, "one depth per item")
         groups = []
         collapsed = []
         self.items = items
         rows = items.indices.map(ListRow.item)
         rowOfItem = Array(items.indices)
         groupRanges = []
+        self.depths = depths
+        topLevelCount = depths.reduce(0) { $0 + ($1 == 0 ? 1 : 0) }
     }
 
     public init(groups: [ItemGroup], collapsed: Set<String>) {
@@ -100,7 +114,12 @@ public struct ListLayout: Sendable {
         self.rows = rows
         self.rowOfItem = rowOfItem
         groupRanges = ranges
+        depths = Array(repeating: 0, count: items.count)
+        topLevelCount = groups.reduce(0) { $0 + $1.items.count }
     }
+
+    /// How deep item `i` sits (0 for a row past the end).
+    public func depth(ofItem i: Int) -> Int { depths.indices.contains(i) ? depths[i] : 0 }
 
     /// The item on a row, nil for a header or a row past the end.
     public func item(atRow row: Int) -> Int? {

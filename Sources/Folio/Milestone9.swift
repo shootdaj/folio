@@ -44,6 +44,39 @@ enum SystemSettings {
         DefaultFolderHandler.apply(on: on, bundleID: bundleID, registry: LaunchServices())
     }
 
+    /// The global domain (`defaults write -g`), as FolioCore's FileViewerSetting sees it.
+    struct GlobalPreferences: GlobalDefaults {
+        func string(for key: String) -> String? {
+            CFPreferencesCopyValue(key as CFString, kCFPreferencesAnyApplication, kCFPreferencesCurrentUser,
+                                   kCFPreferencesAnyHost) as? String
+        }
+
+        func set(_ value: String?, for key: String) {
+            CFPreferencesSetValue(key as CFString, value as CFString?, kCFPreferencesAnyApplication,
+                                  kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
+            CFPreferencesSynchronize(kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
+        }
+    }
+
+    /// Reveal in Folio instead of Finder: NSFileViewer names Folio.
+    static var revealsInFolio: Bool { FileViewerSetting.isFolio(bundleID: bundleID, defaults: GlobalPreferences()) }
+
+    static func setRevealsInFolio(_ on: Bool) -> FileViewerReport {
+        FileViewerSetting.apply(on: on, bundleID: bundleID, defaults: GlobalPreferences())
+    }
+
+    /// Whether a folder in the open-documents event AppKit is handling now is a reveal from another app.
+    static func isReveal(_ folder: URL) -> Bool {
+        let event = NSAppleEventManager.shared().currentAppleEvent
+        let pid = event?.attributeDescriptor(forKeyword: AEKeyword(keySenderPIDAttr))?.int32Value
+        let sender = pid.flatMap { NSRunningApplication(processIdentifier: $0)?.bundleIdentifier }
+        // /Volumes/Macintosh HD is a symlink to /, and isVolume is false for the link itself.
+        let isVolumeRoot = (try? folder.resolvingSymlinksInPath().resourceValues(forKeys: [.isVolumeKey]))?.isVolume ?? false
+        return FileViewerSetting.isReveal(sender: sender, ownBundleID: bundleID,
+                                          fileViewer: GlobalPreferences().string(for: FileViewerSetting.key),
+                                          isVolumeRoot: isVolumeRoot)
+    }
+
     static var launchesAtLogin: Bool { SMAppService.mainApp.status == .enabled }
 
     /// Nil when macOS did it; otherwise what went wrong, in words.
@@ -61,21 +94,13 @@ enum SystemSettings {
     }
 }
 
-/// The Dock icon follows the Mac's light or dark setting (Folio.icns in the bundle is the dark one).
+/// The Dock icon. In the bundle macOS draws Folio.icns itself (its shape, glass rim and shadow), so nothing
+/// is set. A build run outside the bundle gets the same picture cut to the icon shape, since the Dock does
+/// not mask an image set here.
 @MainActor
 enum DockIcon {
-    static var systemIsDark: Bool { UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark" }
-
     static func start() {
-        update()
-        DistributedNotificationCenter.default().addObserver(
-            forName: Notification.Name("AppleInterfaceThemeChangedNotification"), object: nil, queue: .main) { _ in
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { MainActor.assumeIsolated { update() } }
-        }
-    }
-
-    static func update() {
-        guard let image = AppIcon.render(pixels: 512, appearance: systemIsDark ? .dark : .light) else { return }
+        guard Bundle.main.bundleURL.pathExtension != "app", let image = AppIcon.masked(pixels: 512) else { return }
         NSApp.applicationIconImage = NSImage(cgImage: image, size: NSSize(width: 512, height: 512))
     }
 }

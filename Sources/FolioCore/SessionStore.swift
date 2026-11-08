@@ -61,6 +61,9 @@ public struct TabSession: Codable, Equatable, Sendable {
     public var scrollRow: Int?
     public var search: SearchSession?
 
+    /// The most selected items a tab keeps in the session file.
+    public static let selectionLimit = 1000
+
     public init(_ tab: BrowserTab) {
         path = Self.text(tab.history.current)
         back = tab.history.backStackURLs.map(Self.text)
@@ -69,24 +72,26 @@ public struct TabSession: Codable, Equatable, Sendable {
         ascending = tab.sort.ascending
         thenKeys = tab.sort.then.isEmpty ? nil : tab.sort.then
         group = tab.group
-        selection = tab.selection.isEmpty ? nil : tab.selection
+        // A huge selection (Cmd+A in a big folder) keeps its first items only: writing every path after
+        // each pause in selecting cost more than bringing them all back is worth.
+        selection = tab.selection.isEmpty ? nil : Array(tab.selection.prefix(Self.selectionLimit))
         scrollRow = tab.scrollRow > 0 ? tab.scrollRow : nil
         search = tab.history.search.map { SearchSession(text: $0.text, recursive: $0.recursive, everywhere: $0.everywhere) }
     }
 
     private static func text(_ url: URL) -> String {
-        NavigationHistory.isHome(url) ? NavigationHistory.homePath : url.path
+        NavigationHistory.special(url)?.path ?? url.path
     }
 
     private static func url(_ text: String) -> URL {
-        text == NavigationHistory.homePath ? NavigationHistory.home : URL(fileURLWithPath: text, isDirectory: true)
+        SpecialPlace(path: text)?.url ?? URL(fileURLWithPath: text, isDirectory: true)
     }
 
     /// The tab back. A folder that is gone opens its nearest parent that still exists (without its
-    /// selection, scroll place, search or Forward list); Home is always there.
+    /// selection, scroll place, search or Forward list); Home and Suggestions are always there.
     public func tab(exists: (String) -> Bool) -> BrowserTab {
         var place = path
-        if place != NavigationHistory.homePath {
+        if SpecialPlace(path: place) == nil {
             while place != "/" && !exists(place) { place = (place as NSString).deletingLastPathComponent }
             if place.isEmpty { place = "/" }
         }
@@ -158,6 +163,22 @@ public struct SessionStore {
 
     public init(url: URL = SessionStore.defaultURL()) {
         self.url = url
+    }
+
+    /// Writes happen one at a time, in order, off the main thread (`saveInBackground`).
+    private static let writer = DispatchQueue(label: "folio.session.write", qos: .utility)
+
+    /// Encodes and writes the session off the main thread; a failure goes to `failed`.
+    public func saveInBackground(_ session: Session, failed: @escaping @Sendable (Error) -> Void) {
+        let store = self
+        Self.writer.async {
+            do { try store.save(session) } catch { failed(error) }
+        }
+    }
+
+    /// Writes the session now, after any background write still in flight (quitting).
+    public func saveNow(_ session: Session) throws {
+        try Self.writer.sync { try save(session) }
     }
 
     public func save(_ session: Session) throws {

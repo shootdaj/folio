@@ -5,12 +5,15 @@ import FolioCore
 /// an optional 16 pt icon 7 pt before the label, a slight shrink while pressed. Styles: plain, primary
 /// (accent fill, ink label), warn (`.danger`: coral), ghost (no fill, text-2; s2 on hover). `isOn` is
 /// `aria-pressed` (an accent border).
+///
+/// In Native it is the system push button: a rounded bezel, the system font, no glyph. Primary takes the
+/// accent bezel, warn a red tint, ghost has no bezel. `isOn` tints the bezel with the accent.
 final class OSButton: NSButton {
     enum Style { case plain, primary, warn, ghost }
 
-    var style: Style = .plain { didSet { needsDisplay = true } }
+    var style: Style = .plain { didSet { needsDisplay = true; applyNativeStyle() } }
     var glyph: Glyph? { didSet { needsDisplay = true } }
-    var isOn = false { didSet { needsDisplay = true; setAccessibilityValue(isOn ? 1 : 0) } }
+    var isOn = false { didSet { needsDisplay = true; setAccessibilityValue(isOn ? 1 : 0); applyNativeStyle() } }
     var onPress: (() -> Void)?
     private var hovered = false
 
@@ -25,11 +28,34 @@ final class OSButton: NSButton {
         target = self
         action = #selector(pressed(_:))
         setAccessibilityLabel(title)
+        applyNativeStyle()
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
     override var isFlipped: Bool { true }
+
+    private var isNative: Bool { ThemeController.shared.look == .native }
+
+    /// The height a button has: 40 pt in D4, the system push button's 22 pt in Native. A caller keeps its
+    /// own frame, and the system bezel sits in the middle of it.
+    static var height: CGFloat { ThemeController.shared.look == .native ? 22 : 40 }
+
+    /// Native: sets the system bezel for the style. D4 draws its own, so nothing changes there.
+    private func applyNativeStyle() {
+        guard isNative else { return }
+        bezelStyle = .rounded
+        font = NSFont.systemFont(ofSize: 13)
+        contentTintColor = nil
+        bezelColor = nil
+        switch style {
+        case .plain: isBordered = true
+        case .primary: isBordered = true; bezelColor = .controlAccentColor
+        case .warn: isBordered = true; contentTintColor = .systemRed
+        case .ghost: isBordered = false; contentTintColor = .secondaryLabelColor
+        }
+        if isOn { bezelColor = .controlAccentColor }
+    }
 
     @objc private func pressed(_ sender: Any?) { onPress?() }
 
@@ -43,7 +69,8 @@ final class OSButton: NSButton {
 
     /// Width for the label and icon with D4's 16 pt padding, at least `minimum`.
     func fit(minimum: CGFloat = 0) -> CGFloat {
-        max(minimum, 16 + (glyph == nil ? 0 : 16 + 7) + textWidth(title, font: labelFont) + 16)
+        if isNative { return max(minimum, ceil(intrinsicContentSize.width)) }
+        return max(minimum, 16 + (glyph == nil ? 0 : 16 + 7) + textWidth(title, font: labelFont) + 16)
     }
 
     override func updateTrackingAreas() {
@@ -57,7 +84,8 @@ final class OSButton: NSButton {
     override func mouseExited(with event: NSEvent) { hovered = false; needsDisplay = true }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        if isNative { super.draw(dirtyRect); return }
+        let p = ThemeColors.current
         let enabled = isEnabled
         let hot = enabled && hovered
         // `:active { transform: scale(.97) }`
@@ -93,7 +121,8 @@ final class OSButton: NSButton {
 }
 
 /// A check box in D4's language: a 14 pt box (outline hairline, accent fill and an ink tick when on) and
-/// a Geist label. An NSButton of the switch type, so accessibility sees a check box.
+/// a Geist label. An NSButton of the switch type, so accessibility sees a check box. In Native it draws
+/// the system check box with the system font.
 final class OSCheck: NSButton {
     var onToggle: ((Bool) -> Void)?
 
@@ -106,11 +135,14 @@ final class OSCheck: NSButton {
         isBordered = false
         target = self
         action = #selector(toggled(_:))
+        if isNative { font = NSFont.systemFont(ofSize: 13) }
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
     override var isFlipped: Bool { true }
+
+    private var isNative: Bool { ThemeController.shared.look == .native }
 
     var isChecked: Bool {
         get { state == .on }
@@ -118,7 +150,13 @@ final class OSCheck: NSButton {
     }
 
     /// A multi-selection where some items have it and some do not; a click turns it on for all.
-    var isMixed = false { didSet { needsDisplay = true } }
+    var isMixed = false {
+        didSet {
+            needsDisplay = true
+            // The system cell shows the dash only in its mixed state, which a click would also cycle to.
+            if isNative { allowsMixedState = isMixed; if isMixed { state = .mixed } }
+        }
+    }
 
     @objc private func toggled(_ sender: Any?) {
         if isMixed { state = .on }
@@ -129,10 +167,14 @@ final class OSCheck: NSButton {
 
     private var labelFont: NSFont { Typeface.ui(13) }
 
-    func fit() -> CGFloat { 14 + 8 + textWidth(title, font: labelFont) + 2 }
+    func fit() -> CGFloat {
+        if isNative { return ceil(intrinsicContentSize.width) }
+        return 14 + 8 + textWidth(title, font: labelFont) + 2
+    }
 
     override func draw(_ dirtyRect: NSRect) {
-        let p = Palette.current
+        if isNative { super.draw(dirtyRect); return }
+        let p = ThemeColors.current
         let box = NSRect(x: 0, y: (bounds.height - 14) / 2, width: 14, height: 14)
         // Greyed when it cannot change (Choose details' Name).
         if !isEnabled { NSGraphicsContext.current?.cgContext.setAlpha(0.5) }
@@ -145,7 +187,11 @@ final class OSCheck: NSButton {
 /// The check box drawing shared by OSCheck, the list's item check boxes and the header box.
 @MainActor
 enum CheckBox {
-    static func draw(in box: NSRect, on: Bool, mixed: Bool, _ p: Palette) {
+    static func draw(in box: NSRect, on: Bool, mixed: Bool, _ p: ThemeColors) {
+        if ThemeController.shared.look == .native {
+            drawNative(in: box, on: on, mixed: mixed, p)
+            return
+        }
         if on || mixed {
             fillRounded(box, radius: 4, p.accent)
             let path = NSBezierPath()
@@ -166,6 +212,30 @@ enum CheckBox {
         } else {
             fillRounded(box, radius: 4, p.s1)
             strokeRounded(box, radius: 4, p.outline, width: 1.25)
+        }
+    }
+
+    /// Native: a 14 pt rounded box, the control fill with a hairline, or the accent with a tick.
+    private static func drawNative(in box: NSRect, on: Bool, mixed: Bool, _ p: ThemeColors) {
+        if on || mixed {
+            fillRounded(box, radius: 4, p.accent)
+            let path = NSBezierPath()
+            if mixed {
+                path.move(to: NSPoint(x: box.minX + 3.5, y: box.midY))
+                path.line(to: NSPoint(x: box.maxX - 3.5, y: box.midY))
+            } else {
+                path.move(to: NSPoint(x: box.minX + 3.2, y: box.midY + 0.2))
+                path.line(to: NSPoint(x: box.minX + 5.9, y: box.midY + 2.8))
+                path.line(to: NSPoint(x: box.maxX - 3, y: box.midY - 2.8))
+            }
+            path.lineWidth = 1.8
+            path.lineCapStyle = .round
+            path.lineJoinStyle = .round
+            p.onAccent.ns.setStroke()
+            path.stroke()
+        } else {
+            fillRounded(box, radius: 4, NSColor.controlColor)
+            strokeRounded(box.insetBy(dx: 0.5, dy: 0.5), radius: 3.5, NSColor.tertiaryLabelColor, width: 1)
         }
     }
 }

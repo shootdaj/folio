@@ -39,6 +39,11 @@ item show only one key, or the key would take keys away from text fields).
 | F5, Ctrl+R | Refresh | F5, Cmd+R, Ctrl+R | F5, Fn+R | Go > Refresh |
 | Mouse 4, 5 | Back, Forward | buttons 4 and 5 | buttons 4 and 5 | window |
 | | Home | Cmd+Shift+H | Fn+Shift+H | Go > Home |
+| | Suggestions | Cmd+Shift+S | Fn+Shift+S | Go > Suggestions |
+| | Suggestions page: move the focus | Up, Down, Page Up, Page Down, Home, End | Fn+arrows for the page and end keys | Suggestions page |
+| | Suggestions page: show the focused item in its folder (never opens it) | Return | Return | Suggestions page |
+| | Suggestions page: move the focused item to the Trash | Cmd+Backspace | Cmd+Backspace | Suggestions page, Edit > Move to Trash |
+| | Suggestions page: scan again, clear the focus | Cmd+R, Escape | Fn+R, Escape | Suggestions page |
 
 ## Search
 
@@ -73,11 +78,14 @@ item show only one key, or the key would take keys away from text fields).
 | Ctrl+Shift+1 to 8 | Extra large, large, medium, small icons, List, Details, Tiles, Content | Ctrl+Shift+1 to 8 | Control+Shift+1 to 8 | View |
 | Ctrl+wheel | Bigger or smaller icons, through the layouts | Cmd+scroll, pinch | Option+scroll, pinch | list |
 | Ctrl+Numpad + | Size all columns to fit | Cmd+=, Cmd+Numpad + | Fn+= | View > Size All Columns to Fit |
+| | Larger or smaller text and icons in Details | Cmd++ (Cmd+Shift+=), Cmd+- | Fn+Shift+=, Fn+- | View > Details Size |
 | Alt+P | Preview pane | Option+P | Cmd+P | View > Show > Preview Pane |
 | Alt+Shift+P | Details pane | Option+Shift+P | Cmd+Shift+P | View > Show > Details Pane |
 | | Hidden items | Cmd+Shift+. | Fn+Shift+. | View > Show > Hidden Items |
 | Alt, F10 | Access keys on the command bar | Option tapped alone | Cmd tapped alone | window |
 | | Folder Options | Cmd+Option+, | Cmd+Option+, | View > Options... |
+| | Settings: Folder Options, with the search box ready | Cmd+, | Option+, | Folio > Settings... |
+| | Search settings (in Folder Options) | Cmd+F | Fn+F | window |
 
 ## The navigation pane
 
@@ -86,6 +94,18 @@ item show only one key, or the key would take keys away from text fields).
 | Right, Left | Open or go in; close or go up | Right, Left | Right, Left | tree |
 | NumLock + * | Open everything below | Numpad *, Option+click the arrow | Numpad * | tree |
 | Ctrl+Shift+E | Open the tree down to this folder | Ctrl+Shift+E | Control+Shift+E | View > Navigation Pane > Expand to Current Folder |
+
+## Folders open in place (Details view)
+
+Explorer has no such keys; these are the Finder's list view keys. Cmd+Left and Cmd+Right stay Back and Forward.
+
+| Explorer | Folio does | macOS sees | Anshul presses | Where |
+|---|---|---|---|---|
+| (none) | Open the selected folders in place | Right | Right | list, View > Expand Selected Folders |
+| (none) | Close the selected folders; on an item inside one, select its folder | Left | Left | list |
+| (none) | Open or close one folder | a click on its triangle | a click | list |
+| (none) | Open or close it and every folder below (8 levels, 2,000 folders) | Option+click the triangle | Cmd+click | list |
+| (none) | Close every folder | | | View > Collapse All Folders |
 
 ## Selecting
 

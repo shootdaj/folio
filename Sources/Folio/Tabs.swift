@@ -23,26 +23,28 @@ extension BrowserWindowController {
         updateWatches()
         let items = tabs.tabs.map { tab in
             var item = TabItem(id: tab.id, title: tab.history.search.map { s in
-                                   "Search Results in " + (s.everywhere ? "This PC" : displayName(tab.current))
-                               } ?? tabTitle(tab), isHome: tab.history.isHome,
-                               folder: tab.history.isHome ? nil : tab.current)
+                                   "Search Results in " + (s.everywhere ? PlaceNames.thisComputer
+                                    : tab.history.isSpecial ? PlaceNames.title(.home) : displayName(tab.current))
+                               } ?? tabTitle(tab), page: tab.history.special,
+                               folder: tab.history.isSpecial ? nil : tab.current)
             item.isSearch = tab.history.search != nil
             return item
         }
         chassis.tabStrip.items = items
         chassis.tabStrip.activeIndex = tabs.activeIndex
+        chassis.setTabRowVisible(items.count >= 2)
     }
 
     /// A folder tab's title: its name, or with Folder Options > Display the full path in the title bar,
     /// its full path (the tabs are the title bar now).
     private func tabTitle(_ tab: BrowserTab) -> String {
-        ListOptions.folder.fullPathInTitleBar && !tab.history.isHome ? tab.current.path : displayName(tab.current)
+        ListOptions.folder.fullPathInTitleBar && !tab.history.isSpecial ? tab.current.path : displayName(tab.current)
     }
 
     /// The shown tab's selection and scroll place, kept for when it is shown again.
     func stashActiveTab() {
         // While the folder is still being read the list is empty: the tab keeps what it had.
-        guard !tabs.isEmpty, !history.isHome, !isLoading else { return }
+        guard !tabs.isEmpty, !history.isSpecial, !isLoading else { return }
         tabs.active.selection = selectedKeys
         let clip = chassis.pane.scrollView.contentView.bounds
         tabs.active.scrollRow = max(0, tableView.row(at: NSPoint(x: 1, y: clip.minY + header.frame.height + 1)))
@@ -151,7 +153,7 @@ extension BrowserWindowController {
 
     func tabMenu(_ i: Int) -> NSMenu {
         let menu = NSMenu(title: "Tab")
-        menu.font = Typeface.mono(13)
+        menu.font = Typeface.menu()
         func add(_ title: String, _ action: Selector, enabled: Bool = true) {
             let item = NSMenuItem(title: title, action: enabled ? action : nil, keyEquivalent: "")
             item.target = self
@@ -286,7 +288,7 @@ extension BrowserWindowController {
     func applyPendingTree() {
         guard let folders = pendingTreeFolders else { return }
         pendingTreeFolders = nil
-        chassis.sidebar.pane.expandFolders(folders)
+        chassis.sidebar.pane.expandFoldersInBackground(folders)
     }
 
     func sessionChanged() {
@@ -296,10 +298,11 @@ extension BrowserWindowController {
 
     /// After every move to another folder (or Home): the tree follows, the tab's title, the session.
     func didNavigate() {
-        if !history.isHome, ListOptions.expandToCurrent { revealCurrentFolder(select: false) }
+        if !history.isSpecial, ListOptions.expandToCurrent { revealCurrentFolder(select: false) }
         updateTabStrip()
         sessionChanged()
         updateWatches()
+        SuggestionsCenter.shared.setViewing(self, history.isSuggestions && !isSearching)
     }
 }
 
@@ -308,10 +311,11 @@ extension BrowserWindowController {
 extension BrowserWindowController {
     func wireNavigationPane() {
         let pane = chassis.sidebar.pane
-        pane.tree.showHidden = ListOptions.showHidden
+        pane.tree.showHidden = ListOptions.navPaneShowHidden
         pane.setPlaces(pins.places)
         pane.onNavigate = { [weak self] url in self?.navigate(to: url) }
         pane.onHome = { [weak self] in self?.goHome(nil) }
+        pane.onPage = { [weak self] place in self?.navigate(to: place.url) }
         pane.onOpenInNewTab = { [weak self] url in self?.openInNewTab(url, activate: false) }
         pane.onPinsEdited = { [weak self] edit in self?.editPins(edit) }
         pane.onEject = { [weak self] v in self?.ejectVolume(v) }
@@ -329,6 +333,10 @@ extension BrowserWindowController {
         pane.menuProvider = { [weak self] node in self?.nodeMenu(node) }
         pane.dropHost = self
         pane.onTreeChanged = { [weak self] in self?.sessionChanged() }
+        // The right-hand pane's width, dragged at its left edge, is kept for every window.
+        let store = SidebarStore(defaults: .standard)
+        chassis.sidePaneWidth = CGFloat(store.sidePaneWidth.map(SidePaneSize.clamped) ?? SidePaneSize.standard)
+        chassis.onSidePaneResized = { width in SidebarStore(defaults: .standard).setSidePaneWidth(width.map(Double.init)) }
         chassis.onSidebarResized = { [weak self] width in
             SidebarStore(defaults: .standard).setWidth(Double(width))
             self?.chassis.needsLayout = true
@@ -345,8 +353,8 @@ extension BrowserWindowController {
     /// View > Navigation pane > Always expand to current folder is on).
     func revealCurrentFolder(select: Bool) {
         // Home and the Recycle Bin have their own rows; the tree is not opened for them.
-        guard !history.isHome, !RecycleBin.isTrash(history.current, home: FileManager.default.homeDirectoryForCurrentUser) else { return }
-        chassis.sidebar.pane.reveal(FilePaths.folderKey(history.current), select: select)
+        guard !history.isSpecial, !RecycleBin.isTrash(history.current, home: FileManager.default.homeDirectoryForCurrentUser) else { return }
+        chassis.sidebar.pane.revealInBackground(FilePaths.folderKey(history.current), select: select)
     }
 
     /// Ctrl+Shift+E: the tree opens to this folder, which takes the keyboard there (Right, Left, * work on).
@@ -360,6 +368,7 @@ extension BrowserWindowController {
     @objc func toggleNavigationPane(_ sender: Any?) { ListOptions.navPaneShown.toggle() }
     @objc func toggleExpandToCurrent(_ sender: Any?) { ListOptions.expandToCurrent.toggle() }
     @objc func toggleHiddenItems(_ sender: Any?) { ListOptions.showHidden.toggle() }
+    @objc func toggleNavPaneHidden(_ sender: Any?) { ListOptions.navPaneShowHidden.toggle() }
 
     @objc func volumesChanged(_ note: Notification) {
         let list = VolumeCenter.shared.volumes
@@ -369,7 +378,7 @@ extension BrowserWindowController {
         var activeGone = false
         for i in tabs.tabs.indices {
             let place = tabs.tabs[i].history.current
-            guard !NavigationHistory.isHome(place), place.path.hasPrefix("/Volumes/") else { continue }
+            guard !NavigationHistory.isSpecial(place), place.path.hasPrefix("/Volumes/") else { continue }
             let root = "/Volumes/" + (place.path.dropFirst(9).split(separator: "/").first.map(String.init) ?? "")
             if !roots.contains(root) {
                 tabs.modify(at: i) { $0.history.push(NavigationHistory.home) }
@@ -389,10 +398,10 @@ extension BrowserWindowController {
     /// Folders that changed on disk: their tree nodes are read again.
     func refreshTree(_ note: Notification) {
         var folders = (note.userInfo?["folders"] as? Set<String>) ?? []
-        for path in (note.userInfo?["select"] as? [String]) ?? [] {
-            folders.insert(FilePaths.folderKey(URL(fileURLWithPath: path).deletingLastPathComponent()))
-        }
-        if folders.isEmpty, !history.isHome { folders.insert(FilePaths.folderKey(history.current)) }
+        // Each pasted item's folder, resolved once per folder (a paste of thousands shares a few).
+        let parents = Set(((note.userInfo?["select"] as? [String]) ?? []).map { ($0 as NSString).deletingLastPathComponent })
+        for parent in parents { folders.insert(FilePaths.folderKey(URL(fileURLWithPath: parent))) }
+        if folders.isEmpty, !history.isSpecial { folders.insert(FilePaths.folderKey(history.current)) }
         chassis.sidebar.pane.refresh(folders: folders)
     }
 
@@ -407,7 +416,7 @@ extension BrowserWindowController {
     }
 
     var currentEjectable: VolumeCapacity? {
-        guard !history.isHome else { return nil }
+        guard !history.isSpecial else { return nil }
         let key = FilePaths.folderKey(history.current)
         return volumes.filter { $0.canEject && (key == $0.path || key.hasPrefix($0.path + "/")) }.max { $0.path.count < $1.path.count }
     }
@@ -426,7 +435,7 @@ extension BrowserWindowController {
 
     func nodeMenu(_ node: SideNode) -> NSMenu? {
         let menu = NSMenu(title: "Navigation")
-        menu.font = Typeface.mono(13)
+        menu.font = Typeface.menu()
         func add(_ title: String, _ action: Selector, _ object: Any? = nil, enabled: Bool = true) {
             let item = NSMenuItem(title: title, action: enabled ? action : nil, keyEquivalent: "")
             item.target = self
@@ -437,6 +446,10 @@ extension BrowserWindowController {
         case .home:
             add("Open", #selector(goHome(_:)))
             add("Open in new tab", #selector(nodeOpenHomeTab(_:)))
+            return menu
+        case .suggestions:
+            add("Open", #selector(goSuggestions(_:)))
+            add("Open in new tab", #selector(nodeOpenSuggestionsTab(_:)))
             return menu
         case .device:
             add("Import pictures and videos", #selector(openImageCapture(_:)))
@@ -495,6 +508,7 @@ extension BrowserWindowController {
     @objc func nodeOpen(_ sender: Any?) { if let url = nodeURL(sender) { navigate(to: url) } }
     @objc func nodeOpenTab(_ sender: Any?) { if let url = nodeURL(sender) { openInNewTab(url, activate: true) } }
     @objc func nodeOpenHomeTab(_ sender: Any?) { openInNewTab(NavigationHistory.home, activate: true) }
+    @objc func nodeOpenSuggestionsTab(_ sender: Any?) { openInNewTab(NavigationHistory.suggestions, activate: true) }
     @objc func nodeOpenWindow(_ sender: Any?) { if let url = nodeURL(sender) { appDelegate?.openWindow(at: url) } }
     @objc func nodeTerminal(_ sender: Any?) { if let url = nodeURL(sender) { openTerminal(at: [url]) } }
     @objc func nodeBrowse(_ sender: Any?) { VolumeCenter.shared.browse() }
@@ -593,7 +607,7 @@ extension BrowserWindowController {
         renamer.cancel()
         dropdown.close()
         showEmptyList()
-        chassis.showsHome = true
+        chassis.page = .home
         chassis.home.home.content = HomeData.content(pins: pins, defaults: options.historyDefaults)
         chassis.home.needsLayout = true
         updateChrome()
@@ -613,7 +627,7 @@ extension BrowserWindowController {
 
     func homeMenu(_ url: URL) -> NSMenu {
         let menu = NSMenu(title: "Home")
-        menu.font = Typeface.mono(13)
+        menu.font = Typeface.menu()
         func add(_ title: String, _ action: Selector) {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
             item.target = self
@@ -705,22 +719,30 @@ extension BrowserWindowController {
         }
     }
 
-    /// Empty Recycle Bin: asks, then deletes everything in it for good.
-    @objc func emptyRecycleBin(_ sender: Any?) {
-        let trash = RecycleBin.trashFolder(home: FileManager.default.homeDirectoryForCurrentUser)
+    /// Empty Recycle Bin (the Trash view menu).
+    @objc func emptyRecycleBin(_ sender: Any?) { confirmEmptyTrash() }
+
+    /// Asks, then deletes everything in the Trash for good. It takes no folder: the center names the Trash,
+    /// and refuses anything that is not the Trash of the home (or of the test fixture's home).
+    func confirmEmptyTrash() {
+        guard let trash = SuggestionsCenter.shared.trashFolder else { NSSound.beep(); return }
         let items = ((try? FileManager.default.contentsOfDirectory(at: trash, includingPropertiesForKeys: nil)) ?? [])
             .filter { $0.lastPathComponent != ".DS_Store" }
         guard !items.isEmpty, let window else { NSSound.beep(); return }
         let alert = NSAlert()
         alert.messageText = "Permanently delete these \(items.count) items?"
-        alert.informativeText = "Everything in the Recycle Bin goes for good. This can't be undone."
+        alert.informativeText = "Everything in the \(PlaceNames.recycleBin) goes for good. This can't be undone."
         alert.alertStyle = .critical
-        alert.addButton(withTitle: "Empty Recycle Bin")
+        alert.addButton(withTitle: "Empty " + PlaceNames.recycleBin)
         alert.addButton(withTitle: "Cancel")
         alert.buttons.first?.hasDestructiveAction = true
         alert.beginSheetModal(for: window) { response in
             guard response == .alertFirstButtonReturn else { return }
-            MainActor.assumeIsolated { OperationCenter.shared.deletePermanently(items, window: window) }
+            MainActor.assumeIsolated {
+                let center = SuggestionsCenter.shared
+                center.markEmptying()
+                OperationCenter.shared.deletePermanently(items, window: window, finished: { center.finishEmptying() })
+            }
         }
     }
 }

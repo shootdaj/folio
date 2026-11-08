@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 // MARK: - Access keys (Alt)
@@ -212,6 +213,19 @@ public enum InfoTip {
     /// One level of the folder, as Explorer's tip reads it (it does not walk the whole tree).
     public static func summarize(folder: URL, limit: Int = 400) -> FolderSummary {
         var s = FolderSummary()
+        // One bulk read: names, types and sizes come together (the hover asks on the main thread).
+        if let raws = BulkListing.read(folder.path) {
+            let shown = raws.lazy.filter { !$0.name.hasPrefix(".") && $0.flags & UInt32(UF_HIDDEN) == 0 }.prefix(limit)
+            let order = StandardOrder()
+            let sorted = shown.map { ($0, StandardOrder.key($0.name)) }.sorted { order.compare($0.1, $1.1) < 0 }.map(\.0)
+            for raw in sorted {
+                if raw.type == VDIR.rawValue { s.folders.append(raw.name) } else {
+                    s.files.append(raw.name)
+                    s.bytes += raw.size ?? 0
+                }
+            }
+            return s
+        }
         let urls = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey],
                                                                   options: [.skipsHiddenFiles])) ?? []
         for url in urls.prefix(limit).sorted(by: { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }) {

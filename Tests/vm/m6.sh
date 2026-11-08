@@ -18,6 +18,7 @@
 #                              "N items (filtered from M)" in the status bar, a tick on the Size header
 #   m6-4-grouped.png           filter cleared from its token, View > Group By > Date modified: Today, Last week...
 #   m6-5-collapsed.png         Last week's chevron clicked: the group folded to its header
+#   m6-5b-open-in-place.png    grouping off, Albums' triangle clicked: inside.txt indented under it
 #   m6-6-sort-badges.png       grouping off, Date modified clicked, Shift+click Type then Name: badges 1, 2, 3
 #   m6-7-header-menu.png       right-click a header: Size column to fit, Size all columns to fit, ticks, More...
 #   m6-8-choose-details.png    More...: Choose Details with Dimensions ticked
@@ -39,6 +40,10 @@
 set -u
 
 APP="$HOME/folio/Folio.app"
+# These scripts check the D4 Obsidian look (View > Theme); the app's default is Native.
+defaults write com.anshul.folio lookTheme obsidian
+# The VM has no Full Disk Access to give: the launch alert (DiskAccessPrompt) must not hold the run.
+defaults write com.anshul.folio diskAccessDismissed -bool true
 SHOTS="$HOME/folio/shots"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 ROOT="/private/tmp/folio-tests/m6-$STAMP"
@@ -509,6 +514,37 @@ if [ $((before - after)) -eq "$gone" ] && echo "$rows2" | grep -q "^Last week ("
     pass 5 collapse "\"$lw\" folded: $before rows -> $after; $f"
 else
     fail 5 collapse "$before -> $after rows (want $gone fewer): $(echo "$rows2" | paste -sd '|' -); ${f:-none}"
+fi
+
+# --- 5b: folders open in place: Albums' triangle, then Right and Left on Backups -------------------------
+menu_bar View "Group By" "(None)"
+sleep 1
+before=$(list_rows work | wc -l | tr -d ' ')
+click_at "$(list_point work Albums 7)"
+sleep 1
+rows=$(list_rows work)
+under=$(echo "$rows" | grep -A1 -x "Albums" | tail -1)
+f=$(shot m6-5b-open-in-place)
+if [ "$under" = "inside.txt" ] && [ "$(echo "$rows" | wc -l | tr -d ' ')" -eq $((before + 1)) ]; then
+    pass 5b open-in-place "Albums' triangle: inside.txt under it ($before rows -> $((before + 1))); $f"
+else
+    fail 5b open-in-place "under Albums [$under], rows: $(echo "$rows" | paste -sd '|' -); ${f:-none}"
+fi
+click_at "$(list_point work Backups)"
+sleep 0.5
+keys 'key code 124'
+sleep 1
+opened=$(list_rows work | grep -cx "inside.txt")
+keys 'key code 123'
+sleep 1
+closed=$(list_rows work | grep -cx "inside.txt")
+click_at "$(list_point work Albums 7)"
+sleep 1
+after=$(list_rows work | wc -l | tr -d ' ')
+if [ "$opened" -eq 2 ] && [ "$closed" -eq 1 ] && [ "$after" -eq "$before" ]; then
+    pass 5b right-left "Right opened Backups (2 inside.txt), Left closed it (1), the triangle closed Albums ($after rows)"
+else
+    fail 5b right-left "inside.txt rows after Right [$opened] after Left [$closed]; rows at the end [$after] want [$before]"
 fi
 
 # --- 6: no grouping; Date modified, then Shift+click Type and Name ------------------------------------------

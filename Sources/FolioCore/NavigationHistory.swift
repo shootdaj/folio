@@ -16,12 +16,34 @@ public struct HistorySearch: Sendable, Equatable {
     }
 }
 
+/// A place that is not a folder: Home or Suggestions. Each has a `folio:` address.
+public enum SpecialPlace: String, Sendable, CaseIterable {
+    case home, suggestions
+
+    public var path: String { "folio:" + rawValue }
+    public var url: URL { URL(string: path)! }
+
+    /// An exact match gives its place. Other `folio:` text (from a newer build) gives Home. Anything else is nil.
+    public init?(path: String) {
+        if let exact = Self.allCases.first(where: { $0.path == path }) {
+            self = exact
+        } else if path.hasPrefix("folio:") {
+            self = .home
+        } else {
+            return nil
+        }
+    }
+}
+
 /// Back/Forward/Up history for one tab, like Windows Explorer: Up is a normal step you can go Back from.
 /// Home (`NavigationHistory.home`) is a place in the history like any folder, with no Up.
 public struct NavigationHistory: Sendable, Equatable {
     /// Home, Explorer's start page: Quick access, Favorites and Recent instead of a folder.
     public static let home = URL(string: "folio:home")!
     public static let homePath = "folio:home"
+    /// Suggestions, the page of things to clean up.
+    public static let suggestions = SpecialPlace.suggestions.url
+    public static let suggestionsPath = SpecialPlace.suggestions.path
 
     public private(set) var current: URL
     private var backStack: [URL] = []
@@ -48,13 +70,27 @@ public struct NavigationHistory: Sendable, Equatable {
     public var backStackURLs: [URL] { backStack }
     public var forwardStackURLs: [URL] { forwardStack }
 
-    public var isHome: Bool { Self.isHome(current) }
-    public static func isHome(_ url: URL) -> Bool { url.scheme == "folio" }
+    /// The special place shown, or nil for a folder.
+    public static func special(_ url: URL) -> SpecialPlace? {
+        url.scheme == "folio" ? SpecialPlace(path: url.absoluteString) ?? .home : nil
+    }
 
-    private static func clean(_ url: URL) -> URL { isHome(url) ? home : url.standardizedFileURL }
+    public var special: SpecialPlace? { Self.special(current) }
+    public var isSpecial: Bool { special != nil }
+    public var isHome: Bool { special == .home }
+    public var isSuggestions: Bool { special == .suggestions }
+
+    /// Exactly Home.
+    public static func isHome(_ url: URL) -> Bool { special(url) == .home }
+    /// Any special place (Home or Suggestions).
+    public static func isSpecial(_ url: URL) -> Bool { special(url) != nil }
+    public static func isSuggestions(_ url: URL) -> Bool { special(url) == .suggestions }
+
+    private static func clean(_ url: URL) -> URL { special(url)?.url ?? url.standardizedFileURL }
 
     private static func same(_ a: URL, _ b: URL) -> Bool {
-        isHome(a) || isHome(b) ? isHome(a) && isHome(b) : a.path == b.path
+        let (x, y) = (special(a), special(b))
+        return x != nil || y != nil ? x == y : a.path == b.path
     }
 
     public var canGoBack: Bool { !backStack.isEmpty }
@@ -135,7 +171,7 @@ public struct NavigationHistory: Sendable, Equatable {
     }
 
     public static func parent(of url: URL) -> URL? {
-        guard !isHome(url) else { return nil }
+        guard !isSpecial(url) else { return nil }
         let url = url.standardizedFileURL
         guard url.path != "/" else { return nil }
         return url.deletingLastPathComponent().standardizedFileURL

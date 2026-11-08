@@ -29,6 +29,10 @@
 set -u
 
 APP="$HOME/folio/Folio.app"
+# These scripts check the D4 Obsidian look (View > Theme); the app's default is Native.
+defaults write com.anshul.folio lookTheme obsidian
+# The VM has no Full Disk Access to give: the launch alert (DiskAccessPrompt) must not hold the run.
+defaults write com.anshul.folio diskAccessDismissed -bool true
 FF="$HOME/folio/ff"
 SHOTS="$HOME/folio/shots"
 STAMP="$(date +%Y%m%d-%H%M%S)"
@@ -494,7 +498,7 @@ clean_defaults() {
              openFolioTo browseFoldersOwnWindow singleClickOpen singleClickUnderline showRecentFiles showFrequentFolders \
              fileIconOnThumbnails folderTipSizes fullPathInTitle hideEmptyDrives hideFolderMergeConflicts hideProtectedFiles \
              showDriveLetters showCompressedInColour showInfoTips showPreviewHandlers showStatusBar typeIntoSearch confirmDelete \
-             navPaneShowAllFolders navPaneShowNetwork navPaneShowThisPC searchDontUseIndex searchZippedFolders \
+             navPaneShowAllFolders navPaneShowNetwork navPaneShowThisPC navPaneShowHidden detailsSize searchDontUseIndex searchZippedFolders \
              externalFoldersInNewTab reopenWindows keepRunningWithoutWindows; do
         defaults delete com.anshul.folio "$k" >/dev/null 2>&1
     done

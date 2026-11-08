@@ -269,6 +269,18 @@ Generated from the build plan report on 2026-11-05. Each milestone lists what it
 - [Shortcuts and mouse] Open File Explorer from anywhere (Win+E) : A BTT hotkey opens the app instead of Finder.
 - [Better than Explorer (from macOS)] Remembers windows and tabs across restarts : Explorer does this only with Restore previous folder windows at logon turned on; here it is always on.
 
+## Milestone 10: Suggestions
+
+**Delivers:** A Suggestions place that scans the home folder for what is safe to clean up and offers Move to Trash, Reveal and Ignore for each row. Ten cards: Trash, large unused files, duplicates, old Downloads, installers, app caches, DerivedData, build folders, empty folders and broken links. It is in the navigation pane and in Go (Cmd+Shift+S). It has a Native look and a D4 look.
+
+**Checked by:** Open Suggestions in the VM on a fake home of sample files. The scan offers exactly the planned set and none of the decoys. Move to Trash takes one large file and its row leaves; Undo brings it back. The empty page and the Full Disk Access page show. Tests/vm/m10.sh does this in Native dark, Native light and D4.
+
+**Features:**
+- [Better than Explorer (from macOS)] Suggestions page : One scan for ten kinds of clean-up, with the size each frees and the reason for each row.
+- [Better than Explorer (from macOS)] Safe Move to Trash : Each file is checked against the disk first, a duplicate group keeps one copy, and Undo works.
+- [Better than Explorer (from macOS)] Ignore and show ignored items : Hides an item or a duplicate group until the ignores are cleared.
+- [Better than Explorer (from macOS)] Full Disk Access page : Says the Trash cannot be read, and offers Scan anyway.
+
 ## Key map (as Anshul presses them, Karabiner swaps Cmd and Option)
 
 | Press | macOS sees | App does | Why |
