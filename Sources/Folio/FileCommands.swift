@@ -283,8 +283,8 @@ extension BrowserWindowController: FileListDelegate {
             // The icon views: the box goes over the label, as wide as the cell.
             grid.layoutSubtreeIfNeeded()
             guard let frame = grid.frame(ofItem: row), let cell = grid.cell(ofItem: row) else { return }
-            let name = cell.nameRect
-            let box = NSRect(x: frame.minX + name.minX, y: frame.minY + name.minY - 2, width: max(name.width, 160), height: 24)
+            let name = cell.renameRect
+            let box = NSRect(x: frame.minX + name.minX, y: frame.minY + name.minY - 2, width: ThemeController.shared.isNative ? name.width : max(name.width, 160), height: 24)
             renamer.begin(in: grid, cell: box, row: row, entry: entry, textX: 5)
             return
         }
