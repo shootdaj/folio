@@ -73,6 +73,7 @@ CSS weights map to system weights: 400 and 500 regular, 600 and 650 semibold, 70
 | | Native | D4 |
 |---|---|---|
 | Window top | sidebar runs the full height under the traffic lights | 44 pt title bar with tabs |
+| Traffic lights | placed by macOS (an empty unified `NSToolbar`), on a 36 pt glass capsule | Folio places them in the title bar |
 | Toolbar band | 52 pt, `.titlebar` material, one hairline below | 52 pt |
 | Tab row | shown with two or more tabs, equal widths | always, in the title bar |
 | List rows | `.inset` table style, alternating rows | 26 pt, row lines |

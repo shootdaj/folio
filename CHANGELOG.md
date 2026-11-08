@@ -55,10 +55,20 @@ pushed; the release workflow publishes the section below with that number as the
   the one setting filled the tree with dot folders. A hidden folder that you open still shows in the
   tree, on the way to the current folder.
 
-- **A frosted capsule behind the traffic lights (Native).** The close, minimise and zoom buttons sit on a
-  small rounded plate of the popover material, with a hairline edge. Sidebar rows that scroll up under the
-  buttons go behind the plate. The plate follows the buttons when macOS moves them and goes in full screen.
-  The window also puts the buttons back on the toolbar band when macOS lays the title bar out again.
+- **A glass capsule behind the traffic lights (Native).** The close, minimise and zoom buttons sit on a
+  capsule of Liquid Glass (frosted material before macOS 26), 36 pt high. Sidebar rows that scroll up
+  under the buttons go behind it. The capsule is part of the buttons' own view, tied to them by
+  constraints, so it stays centred on them. It goes in full screen. The Native window now has an empty
+  system toolbar, as Finder has, so macOS itself centres the buttons on the 52 pt toolbar band. Before,
+  Folio moved the buttons, and macOS put them back at its own place when it laid out the title bar
+  again. Folio's own toolbar still takes every click.
+
+- **View > Details Size: larger text and icons in Details view.** Small (as before: 13 pt names, 16 pt
+  icons), Medium (14 and 20), Large (16 and 24) and Extra Large (18 and 32). The other columns, the rows,
+  the rename box, the indent of open folders and the search marks grow with it. Bigger (Cmd++) and
+  Smaller (Cmd+-) step through the sizes. The same choice is in View > Options... > View, under "Text and
+  icon size in Details view", and the settings search finds it as "text size" or "icon size". Compact
+  View still takes 4 pt off each row. The icon views keep their own sizes.
 
 - **Folio asks once for Full Disk Access.** macOS asks again for each protected place (Desktop,
   Documents, Downloads, iCloud Drive, other apps' data, external and network drives). At launch, while
@@ -76,6 +86,21 @@ pushed; the release workflow publishes the section below with that number as the
   Recycle Bin. The top level's icons and names do not move.
 
 ### Changed
+
+- **Folders open faster, and the navigation pane no longer holds up a move.** Measured with the new
+  `Folio --bench <folder>` on a folder of 20,331 items:
+  - The item keys (for selection and refresh) took 580 ms on the main thread for each load. They now
+    come with the sort, off the main thread, and cost 36 ms.
+  - The sort took 390 ms. It now compares names that are made into Core Foundation strings once, in the
+    same order as `localizedStandardCompare`, and takes 125 ms.
+  - The tree read each folder with every file's metadata on the main thread: 133 ms for that folder,
+    194 ms for /tmp. It now reads folder entries with `readdir`, so files cost nothing: 12 ms and 38 ms.
+  - On each move, the tree reads the folders on the way off the main thread, then opens. The session's
+    open tree folders do the same at launch. Auto-refresh of the tree also reads off the main thread,
+    once, instead of twice on the main thread.
+  - Sidebar rows no longer resolve their path on every draw.
+  - A load that a newer move replaces stops at its next step. Kind names ("PNG image") are kept while
+    Folio runs.
 
 - **`make app` signs with a local identity when the Mac has one.** `make signing-identity` makes a
   self-signed "Folio Local Signing" certificate in the login keychain, once. With it every build has the

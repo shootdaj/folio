@@ -13,12 +13,16 @@ public enum FolderListing {
     /// `includeHidden` is View > Hidden items: dot files and items with the hidden flag too.
     /// `cloud` (a folder in iCloud Drive or ~/Library/CloudStorage) also reads which files are online only.
     /// `hideProtected` is Folder Options' Hide protected operating system files (.DS_Store and the like).
+    private static let resourceKeySet = Set(resourceKeys)
+
     public static func list(_ folder: URL, includeHidden: Bool = false, cloud: Bool = false, hideProtected: Bool = false) throws -> [FileEntry] {
         var urls = try FileManager.default.contentsOfDirectory(
             at: folder, includingPropertiesForKeys: resourceKeys, options: includeHidden ? [] : [.skipsHiddenFiles])
         if hideProtected { urls.removeAll { ProtectedFiles.isProtected(name: $0.lastPathComponent) } }
-        var kinds: [String: String] = [:]
+        var kinds = KindCache.shared.snapshot()
+        let known = kinds.count
         let entries = urls.map { entry(for: $0, kinds: &kinds) }
+        if kinds.count != known { KindCache.shared.merge(kinds) }
         guard cloud else { return entries }
         return entries.map { e in
             let status = (try? e.url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey]))?.ubiquitousItemDownloadingStatus
@@ -34,7 +38,7 @@ public enum FolderListing {
     }
 
     static func entry(for url: URL, kinds: inout [String: String]) -> FileEntry {
-        let values = try? url.resourceValues(forKeys: Set(resourceKeys))
+        let values = try? url.resourceValues(forKeys: resourceKeySet)
         var isDirectory = values?.isDirectory ?? false
         var isPackage = values?.isPackage ?? false
         // A symlink to a folder behaves like the folder (e.g. "iCloud Drive" in home).
@@ -59,5 +63,23 @@ public enum FolderListing {
         let kind = (try? url.resourceValues(forKeys: [.localizedTypeDescriptionKey]))?.localizedTypeDescription ?? ""
         if let type { cache[type] = kind }
         return kind
+    }
+}
+
+/// Each content type's kind ("PNG image"), kept while Folio runs: reading one costs ~170 µs, and every
+/// folder has the same few types. Any thread.
+final class KindCache: @unchecked Sendable {
+    static let shared = KindCache()
+    private let lock = NSLock()
+    private var kinds: [String: String] = [:]
+
+    func snapshot() -> [String: String] { lock.withLock { kinds } }
+
+    func merge(_ more: [String: String]) {
+        lock.withLock {
+            // A language change would need a relaunch anyway; the size stays bounded all the same.
+            if kinds.count > 4096 { kinds.removeAll() }
+            kinds.merge(more) { old, _ in old }
+        }
     }
 }

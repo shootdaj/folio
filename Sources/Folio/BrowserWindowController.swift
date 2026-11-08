@@ -8,6 +8,9 @@ final class BrowserWindow: NSWindow {
     /// The close button and its title bar container are watched once: macOS lays the title bar out again
     /// on its own (a new window, a title change), which puts the buttons back at its default spot.
     private var watchesLights = false
+    /// Native: the glass capsule behind the traffic lights.
+    private var lightsGlass: TrafficLightGlass?
+    private var placingLights = false
 
     override func sendEvent(_ event: NSEvent) {
         if let controller = windowController as? BrowserWindowController {
@@ -49,11 +52,15 @@ final class BrowserWindow: NSWindow {
         allowsOffscreen ? frameRect : super.constrainFrameRect(frameRect, to: screen)
     }
 
-    /// Centres the window's own close, minimise and zoom buttons in D4's 44 pt title bar,
-    /// 14 pt from the left edge and 20 pt apart.
+    /// D4: centres the window's own close, minimise and zoom buttons in its 44 pt title bar, 14 pt from
+    /// the left edge and 20 pt apart. Native: macOS places them (the window has a system toolbar), and
+    /// this only puts the glass behind them.
     func placeTrafficLights() {
-        guard !styleMask.contains(.fullScreen),
-              let close = standardWindowButton(.closeButton),
+        // Moving the buttons posts their own frame notification: one pass at a time.
+        guard !placingLights else { return }
+        placingLights = true
+        defer { placingLights = false }
+        guard let close = standardWindowButton(.closeButton),
               let container = close.superview?.superview else { return }
         if !watchesLights {
             watchesLights = true
@@ -64,9 +71,23 @@ final class BrowserWindow: NSWindow {
                     MainActor.assumeIsolated { self?.placeTrafficLights() }
                 }
             }
+            for name in [NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification] {
+                NotificationCenter.default.addObserver(forName: name, object: self, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.placeTrafficLights() }
+                }
+            }
         }
-        // Native centres the lights on the 52 pt toolbar band (there is no title bar).
-        let bar = ThemeController.shared.look == .native ? ChassisView.toolH : ChassisView.titleH
+        guard !styleMask.contains(.fullScreen) else {
+            lightsGlass?.isHidden = true
+            return
+        }
+        // Native: the system toolbar places the lights, and the glass follows them.
+        if ThemeController.shared.look == .native {
+            placeLightsGlass(holder: close.superview)
+            return
+        }
+        // D4 centres the lights in its 44 pt title bar.
+        let bar = ChassisView.titleH
         var frame = container.frame
         frame.size.height = bar
         frame.origin.y = self.frame.height - bar
@@ -79,17 +100,28 @@ final class BrowserWindow: NSWindow {
                                  y: (midY - button.frame.height / 2).rounded())
             if button.frame.origin != origin { button.setFrameOrigin(origin) }
         }
-        (contentView as? ChassisView)?.placeLightsPlate()
     }
 
-    /// The close, minimise and zoom buttons' frames together, in window coordinates.
-    var trafficLightsRect: NSRect? {
-        let rects = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].compactMap { kind -> NSRect? in
-            guard let b = standardWindowButton(kind), !b.isHidden, let holder = b.superview else { return nil }
-            return holder.convert(b.frame, to: nil)
+    /// Native: the glass capsule sits in the buttons' own view, under them. Constraints tie it to the
+    /// close and zoom buttons, so it moves in the same layout pass as they do, wherever macOS puts them.
+    private func placeLightsGlass(holder: NSView?) {
+        guard let holder, let close = standardWindowButton(.closeButton),
+              let zoom = standardWindowButton(.zoomButton), zoom.superview === holder else { return }
+        if let glass = lightsGlass, glass.superview === holder {
+            glass.isHidden = false
+            return
         }
-        guard let first = rects.first else { return nil }
-        return rects.dropFirst().reduce(first) { $0.union($1) }
+        lightsGlass?.removeFromSuperview()
+        let glass = TrafficLightGlass(frame: .zero)
+        glass.translatesAutoresizingMaskIntoConstraints = false
+        holder.addSubview(glass, positioned: .below, relativeTo: close)
+        NSLayoutConstraint.activate([
+            glass.leadingAnchor.constraint(equalTo: close.leadingAnchor, constant: -TrafficLightGlass.sidePad),
+            glass.trailingAnchor.constraint(equalTo: zoom.trailingAnchor, constant: TrafficLightGlass.sidePad),
+            glass.centerYAnchor.constraint(equalTo: close.centerYAnchor),
+            glass.heightAnchor.constraint(equalToConstant: TrafficLightGlass.height),
+        ])
+        lightsGlass = glass
     }
 }
 
@@ -213,6 +245,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     }
     /// Bumped on every load or re-sort; results for an older value are dropped.
     var requestID = 0
+    /// The folder read in flight (`load`), cancelled when a newer one starts.
+    private var loadTask: Task<Void, Never>?
     private var isFittingColumns = false
     /// The one dropdown this window shows at a time (typeahead, history, crumb folders, Back list).
     let dropdown = Dropdown()
@@ -311,6 +345,15 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         window.minSize = NSSize(width: 500, height: 480)
         window.backgroundColor = ThemeColors.current.pane.ns
         if ThemeController.shared.look == .native {
+            // An empty system toolbar, as Finder has: macOS itself then centres the traffic lights on the
+            // toolbar band and keeps them there. Folio's own toolbar draws under it and takes the clicks.
+            let bar = NSToolbar(identifier: "folio.window")
+            bar.allowsUserCustomization = false
+            bar.displayMode = .iconOnly
+            window.toolbar = bar
+            window.toolbarStyle = .unified
+        }
+        if ThemeController.shared.look == .native {
             // The sidebar's material shows through a clear, non-opaque window.
             window.isOpaque = false
             window.backgroundColor = .clear
@@ -398,11 +441,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         tableView.headerView = header
         tableView.cornerView = nil
         tableView.style = .plain
-        if ThemeController.shared.look == .native {
-            tableView.rowHeight = ListOptions.compact ? ListMetrics.native.compactRowHeight : ListMetrics.native.rowHeight
-        } else {
-            tableView.rowHeight = ListOptions.compact ? ListMetrics.compactRowHeight : ListMetrics.rowHeight
-        }
+        tableView.rowHeight = ListMetrics.currentRowHeight
         // Group headers scroll with their rows; a header click sorts or adds a sort key, never selects a column.
         tableView.floatsGroupRows = false
         tableView.allowsColumnSelection = false
@@ -659,7 +698,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         let started = Date()
         // Tags, flags and custom icons are read again for what the list shows next.
         ItemDecorCache.shared.clear()
-        Task.detached(priority: .userInitiated) { [weak self] in
+        // A newer load replaces this one: the old one stops at its next step instead of finishing unseen.
+        loadTask?.cancel()
+        loadTask = Task.detached(priority: .userInitiated) { [weak self] in
             let result = Result { () -> ([FileEntry], [String: [FileEntry]], ListLayout) in
                 let rows: [FileEntry]
                 if zip {
@@ -673,9 +714,12 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
                 } else {
                     rows = try FolderListing.list(folder, includeHidden: hidden, cloud: cloud, hideProtected: protected)
                 }
+                try Task.checkCancellation()
                 let children = Self.listChildren(openFolders, hidden: hidden, protected: protected, home: home)
+                try Task.checkCancellation()
                 return (rows, children, Self.arrange(rows, key, children: children))
             }
+            if Task.isCancelled { return }
             let volume = VolumeCapacity.read(folder)
             await self?.finishLoad(result, volume: volume, id: id, key: key, folder: folder, started: started,
                                    keepingState: keepingState, openFolders: openFolders)
@@ -805,6 +849,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     /// With folders open in place, each open folder's items (`children`) are filtered and sorted the same
     /// way and follow its row (ListTree).
     nonisolated static func arrange(_ rows: [FileEntry], _ key: ArrangeKey, children: [String: [FileEntry]] = [:]) -> ListLayout {
+        var layout = arrangeItems(rows, key, children: children)
+        // The items' keys too, so the main thread does not resolve a path per item.
+        layout.keys = FilePaths.itemKeys(layout.items.map(\.url))
+        return layout
+    }
+
+    private nonisolated static func arrangeItems(_ rows: [FileEntry], _ key: ArrangeKey, children: [String: [FileEntry]]) -> ListLayout {
         let context = BucketContext()
         let wantsMeta = key.filters.columns.contains { $0.needsMetadata } || key.sort.terms.contains { $0.key.needsMetadata }
             || key.group?.key.needsMetadata == true
@@ -880,7 +931,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     func show(_ arranged: ListLayout, selecting selected: Set<String>) {
         layout = arranged
         entries = arranged.items
-        entryKeys = entries.map { FilePaths.itemKey($0.url) }
+        entryKeys = arranged.keys ?? FilePaths.itemKeys(entries.map(\.url))
         dimmed = FileClipboard.dimmedPaths
         let rows = IndexSet(entries.indices.filter { selected.contains(entryKeys[$0]) })
         selection = ListSelection(count: entries.count)
@@ -1056,10 +1107,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         applyFolderOptions()
         applyNavigationPaneOptions()
         tableView.showsCheckboxes = ListOptions.checkboxes
-        var rowH = ListOptions.compact ? ListMetrics.compactRowHeight : ListMetrics.rowHeight
-        if ThemeController.shared.look == .native {
-            rowH = ListOptions.compact ? ListMetrics.native.compactRowHeight : ListMetrics.native.rowHeight
-        }
+        let rowH = ListMetrics.currentRowHeight
         if tableView.rowHeight != rowH {
             tableView.rowHeight = rowH
             tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<layout.rows.count))

@@ -19,6 +19,8 @@ import FolioCore
 ///                 Repeat the flag for more. options is the Folder Options window, properties is the
 ///                 Properties window of the selected row, preview is the Preview pane on the first file,
 ///                 home is the Home page. The two windows are moved off every screen as well.
+/// Any preference can be set for one run as a launch argument, which macOS keeps in the argument domain
+/// and never saves: `-detailsSize large` shoots Details at the Large size.
 /// prints what it saw, and exits 0 when every step worked (1 otherwise, 2 for bad arguments, 3 on a
 /// 90 s timeout).
 /// `new` makes /private/tmp/folio-tests/<run id>/Code (40 folders, 8 files) and trashes it afterwards.

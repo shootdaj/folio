@@ -73,6 +73,7 @@ item show only one key, or the key would take keys away from text fields).
 | Ctrl+Shift+1 to 8 | Extra large, large, medium, small icons, List, Details, Tiles, Content | Ctrl+Shift+1 to 8 | Control+Shift+1 to 8 | View |
 | Ctrl+wheel | Bigger or smaller icons, through the layouts | Cmd+scroll, pinch | Option+scroll, pinch | list |
 | Ctrl+Numpad + | Size all columns to fit | Cmd+=, Cmd+Numpad + | Fn+= | View > Size All Columns to Fit |
+| | Larger or smaller text and icons in Details | Cmd++ (Cmd+Shift+=), Cmd+- | Fn+Shift+=, Fn+- | View > Details Size |
 | Alt+P | Preview pane | Option+P | Cmd+P | View > Show > Preview Pane |
 | Alt+Shift+P | Details pane | Option+Shift+P | Cmd+Shift+P | View > Show > Details Pane |
 | | Hidden items | Cmd+Shift+. | Fn+Shift+. | View > Show > Hidden Items |

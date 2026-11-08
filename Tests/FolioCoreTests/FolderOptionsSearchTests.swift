@@ -52,6 +52,19 @@ import Testing
         #expect(!o.showHidden && o.navPaneShowHidden)
     }
 
+    @Test func theDetailsSizeIsOneRadioGroupFoundByTextAndIconSize() {
+        let e = FolderOptions.entry(.radio(.detailsLarge))
+        #expect(e?.group == "Text and icon size in Details view" && e?.title == "Large")
+        #expect(titles("text size") == ["Small", "Medium", "Large", "Extra large"])
+        #expect(titles("icon size") == ["Small", "Medium", "Large", "Extra large"])
+        #expect(titles("details extra") == ["Extra large"])
+        var o = FolderOptions()
+        o.toggle(.detailsExtraLarge)
+        #expect(o.detailsSize == .extraLarge && o.isOn(.detailsExtraLarge) && !o.isOn(.detailsSmall))
+        o.toggle(.typingSearchBox)
+        #expect(o.detailsSize == .extraLarge, "another radio group leaves the size as it was")
+    }
+
     @Test func keywordsFindASettingByAnotherName() {
         #expect(titles("dot files").contains("Show hidden files, folders and drives"))
         #expect(titles("spotlight") == [FolderOptions.searchEntries[0].title])

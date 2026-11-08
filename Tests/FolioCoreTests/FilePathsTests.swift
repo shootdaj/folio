@@ -31,4 +31,21 @@ import Testing
         #expect(FilePaths.itemKey(URL(fileURLWithPath: "/private/tmp/folio-tests/nope-\(UUID())/x")).hasSuffix("/x"))
         #expect(FilePaths.parentKey(ofItemKey: "/a") == "/")
     }
+
+    @Test func manyKeysAtOnceAreTheKeysOneByOne() throws {
+        let t = try TestTree()
+        defer { t.close() }
+        try t.file("dest/a.txt")
+        try t.file("dest/sub/b.txt")
+        let viaTmp = t.root.path.replacingOccurrences(of: "/private/tmp/", with: "/tmp/")
+        let urls = [t.url("dest/a.txt"), URL(fileURLWithPath: viaTmp + "/dest/a.txt"), t.url("dest/sub/b.txt"),
+                    URL(fileURLWithPath: viaTmp + "/dest/./sub/../a.txt"), URL(fileURLWithPath: "/"),
+                    URL(fileURLWithPath: viaTmp + "/dest/..."), URL(fileURLWithPath: "/private/tmp/folio-tests/nope-\(UUID())/x")]
+        #expect(FilePaths.itemKeys(urls) == urls.map(FilePaths.itemKey))
+    }
+
+    @Test func aPlainPathHasNoDotPartsOrDoubleSlashes() {
+        for p in ["/a", "/a/b.txt", "/a/.hidden", "/a/...", "/a/b..c", "/a/x."] { #expect(FilePaths.isPlain(p), "\(p)") }
+        for p in ["/", "", "a/b", "/a/", "/a//b", "/a/./b", "/a/../b", "/a/.", "/a/.."] { #expect(!FilePaths.isPlain(p), "\(p)") }
+    }
 }

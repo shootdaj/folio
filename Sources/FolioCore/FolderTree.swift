@@ -28,6 +28,8 @@ public final class FolderTree {
     /// How many folders have been read from disk (the tests check the laziness with it).
     public private(set) var listCount = 0
     private var cache: [String: [TreeFolder]] = [:]
+    /// Folders read off the main thread (`prime`), all of their subfolders, waiting for `children(of:)`.
+    private var primed: [String: [TreeFolder]] = [:]
 
     public init(showHidden: Bool = false) {
         self.showHidden = showHidden
@@ -39,18 +41,35 @@ public final class FolderTree {
     public func children(of path: String) -> [TreeFolder] {
         if let known = cache[path] { return known }
         listCount += 1
-        let kids = Self.subfolders(of: path).filter { showHidden || !$0.isHidden || revealed.contains($0.path) }
+        let kids = shown(primed.removeValue(forKey: path) ?? Self.subfolders(of: path))
         cache[path] = kids
         return kids
+    }
+
+    /// The folders of a read that the tree shows: hidden ones only when shown or revealed.
+    public func shown(_ all: [TreeFolder]) -> [TreeFolder] {
+        all.filter { showHidden || !$0.isHidden || revealed.contains($0.path) }
+    }
+
+    /// Hands over folders read off the main thread (`subfolders(of:)`, every subfolder): the next
+    /// `children(of:)` of each uses them instead of the disk. Folders already in the tree are left alone.
+    public func prime(_ lists: [String: [TreeFolder]]) {
+        for (path, list) in lists where cache[path] == nil { primed[path] = list }
     }
 
     /// The cached children, without reading anything.
     public func cachedChildren(of path: String) -> [TreeFolder]? { cache[path] }
 
     /// Something changed in `path`: its children are read again the next time.
-    public func invalidate(_ path: String) { cache[path] = nil }
+    public func invalidate(_ path: String) {
+        cache[path] = nil
+        primed[path] = nil
+    }
 
-    public func invalidateAll() { cache.removeAll() }
+    public func invalidateAll() {
+        cache.removeAll()
+        primed.removeAll()
+    }
 
     /// Makes the hidden folders on `chain` (from a root down to the current folder) part of the tree.
     /// Returns the loaded nodes that now have a child they did not list, in chain order, for reloading.
@@ -112,14 +131,33 @@ public final class FolderTree {
     private static let keys: [URLResourceKey] = [.isDirectoryKey, .isPackageKey, .isSymbolicLinkKey, .isHiddenKey]
 
     /// Every folder in `path` (hidden ones marked), natural order. Files and packages are left out.
+    ///
+    /// `readdir` gives each entry's type with its name, so the files of a large folder cost nothing: only
+    /// folders, links and entries of unknown type (some network drives) are looked at more closely.
     public static func subfolders(of path: String) -> [TreeFolder] {
-        let folder = URL(fileURLWithPath: path, isDirectory: true)
-        guard let urls = try? FileManager.default.contentsOfDirectory(
-            at: folder, includingPropertiesForKeys: keys, options: []) else { return [] }
+        guard let dir = opendir(path) else { return [] }
+        defer { closedir(dir) }
         let parent = path == "/" ? "" : path
         var out: [TreeFolder] = []
-        for url in urls {
-            guard let values = try? url.resourceValues(forKeys: Set(keys)) else { continue }
+        while let entry = readdir(dir) {
+            let type = Int32(entry.pointee.d_type)
+            guard type == DT_DIR || type == DT_LNK || type == DT_UNKNOWN else { continue }
+            let name = withUnsafeBytes(of: entry.pointee.d_name) { raw in
+                String(decoding: raw.prefix(Int(entry.pointee.d_namlen)), as: UTF8.self)
+            }
+            guard name != ".", name != ".." else { continue }
+            let url = URL(fileURLWithPath: parent + "/" + name, isDirectory: type == DT_DIR)
+            if type == DT_DIR {
+                // A plain folder: its hidden flag from one lstat, and only a name with an extension can
+                // be a package (an app, a bundle), which Launch Services decides.
+                var st = stat()
+                let flagged = fstatat(dirfd(dir), name, &st, AT_SYMLINK_NOFOLLOW) == 0
+                    && st.st_flags & UInt32(UF_HIDDEN) != 0
+                if Self.hasExtension(name), (try? url.resourceValues(forKeys: [.isPackageKey]))?.isPackage == true { continue }
+                out.append(TreeFolder(name: name, path: parent + "/" + name, isHidden: flagged || name.hasPrefix("."), isLink: false))
+                continue
+            }
+            guard let values = try? url.resourceValues(forKeys: keySet) else { continue }
             var isDirectory = values.isDirectory ?? false
             var isPackage = values.isPackage ?? false
             let isLink = values.isSymbolicLink ?? false
@@ -129,11 +167,20 @@ public final class FolderTree {
                 isPackage = target?.isPackage ?? false
             }
             guard isDirectory && !isPackage else { continue }
-            let name = url.lastPathComponent
             out.append(TreeFolder(name: name, path: parent + "/" + name,
                                   isHidden: (values.isHidden ?? false) || name.hasPrefix("."), isLink: isLink))
         }
-        return out.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        let names = out.map { StandardOrder.key($0.name) }
+        let order = StandardOrder()
+        return out.indices.sorted { order.compare(names[$0], names[$1]) < 0 }.map { out[$0] }
+    }
+
+    private static let keySet = Set(keys)
+
+    /// "Name.ext", not ".hidden" or "name.".
+    static func hasExtension(_ name: String) -> Bool {
+        guard let dot = name.utf8.lastIndex(of: UInt8(ascii: ".")) else { return false }
+        return dot != name.utf8.startIndex && name.utf8.index(after: dot) != name.utf8.endIndex
     }
 
     private static func isHiddenFolder(_ path: String, name: String) -> Bool {

@@ -68,6 +68,8 @@ public struct ListLayout: Sendable {
     public let depths: [Int]
     /// The items at the top level: the folder's own items, as the status bar counts them.
     public let topLevelCount: Int
+    /// Each item's `FilePaths.itemKey`, when the layout was made off the main thread with them.
+    public var keys: [String]?
 
     public var isGrouped: Bool { !groups.isEmpty }
 

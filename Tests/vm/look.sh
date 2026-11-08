@@ -267,7 +267,7 @@ quit_folio
 for k in session accentHue theme accent quickAccessPins navPaneCollapsed homeCollapsed favorites recentFiles addressHistory \
          navPaneExpandToCurrent navPaneShown navPaneWidth showHiddenItems defaultView detailsColumns showFileExtensions \
          showThumbnails compactView sidePane itemCheckBoxes searchBoxWidth fullPathInTitle showStatusBar \
-         navPaneShowAllFolders navPaneShowNetwork navPaneShowThisPC navPaneShowHidden; do
+         navPaneShowAllFolders navPaneShowNetwork navPaneShowThisPC navPaneShowHidden detailsSize; do
     defaults delete com.anshul.folio "$k" >/dev/null 2>&1
 done
 # View > Navigation pane > Always expand to current folder off, so the sidebar shows D4's three cards

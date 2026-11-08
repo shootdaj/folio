@@ -18,21 +18,24 @@ final class RenameEditor: NSObject, NSTextFieldDelegate {
     var isActive: Bool { row != nil }
 
     /// Over the Name cell of `tableRow`; `row` is the item it renames.
-    func begin(in table: NSTableView, tableRow: Int, row: Int, entry: FileEntry, textX: CGFloat) {
+    func begin(in table: NSTableView, tableRow: Int, row: Int, entry: FileEntry, textX: CGFloat,
+               fontSize: CGFloat = 13, height: CGFloat = 28) {
         guard let column = table.tableColumns.firstIndex(where: { $0.identifier.rawValue == SortKey.name.rawValue }) else { return }
         let cell = table.frameOfCell(atColumn: column, row: tableRow)
-        begin(in: table, cell: cell, row: row, entry: entry, textX: textX)
+        begin(in: table, cell: cell, row: row, entry: entry, textX: textX, fontSize: fontSize, height: height)
     }
 
     /// Over a name drawn at `textX` inside `cell` (the icon grid's label line).
-    func begin(in host: NSView, cell: NSRect, row: Int, entry: FileEntry, textX: CGFloat) {
+    /// `fontSize` and `height` follow View > Details Size in the Details list.
+    func begin(in host: NSView, cell: NSRect, row: Int, entry: FileEntry, textX: CGFloat,
+               fontSize: CGFloat = 13, height: CGFloat = 28) {
         end()
         let table = host
-        let font = Typeface.ui(13, weight: 500)
+        let font = Typeface.ui(fontSize, weight: 500)
         let want = textWidth(entry.name, font: font) + 40
         let x = cell.minX + textX - 7 - 3
         let width = max(120, min(max(cell.maxX - x, 120), want)) + 6
-        box.frame = NSRect(x: x, y: (cell.midY - 14).rounded(), width: width, height: 28)
+        box.frame = NSRect(x: x, y: (cell.midY - height / 2).rounded(), width: width, height: height)
         box.field.font = font
         box.field.textColor = ThemeColors.current.text.ns
         box.field.stringValue = entry.name

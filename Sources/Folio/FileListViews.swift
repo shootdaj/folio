@@ -4,10 +4,8 @@ import FolioCore
 /// D4 list metrics: `--row-h` 26, a 32 pt column head, `--gut-l` 14 and `--gut-r` 44, cells padded 10.
 @MainActor
 enum ListMetrics {
-    /// Native's list, for the window controller: Finder's 24 pt row (20 pt compact).
+    /// Native's list: Finder's 24 pt row at Small (DetailsSize has the rows).
     enum native {
-        static let rowHeight: CGFloat = 24
-        static let compactRowHeight: CGFloat = 20
         static let groupRowHeight: CGFloat = 28
         static let headerHeight: CGFloat = 24
         static let gutterLeft: CGFloat = 20
@@ -17,9 +15,6 @@ enum ListMetrics {
     }
     private static var isNative: Bool { ThemeController.shared.look == .native }
 
-    static let rowHeight: CGFloat = 26
-    /// View > Compact view.
-    static let compactRowHeight: CGFloat = 22
     /// A Group by header row ("Today (3)").
     static var groupRowHeight: CGFloat { isNative ? native.groupRowHeight : 32 }
     static var headerHeight: CGFloat { isNative ? native.headerHeight : 32 }
@@ -33,6 +28,15 @@ enum ListMetrics {
     static var gutterRight: CGFloat { isNative ? native.gutterRight : 44 }
     /// Where a row's content starts inside the Name cell (the gutter; cells are already 10 pt in).
     static var rowLead: CGFloat { gutterLeft }
+
+    // View > Details Size
+    static var size: DetailsSize { ListOptions.detailsSize }
+    /// The Details row for the look, the size and Compact View.
+    static var currentRowHeight: CGFloat { size.rowHeight(native: isNative, compact: ListOptions.compact) }
+    /// The name's point size; the other columns add `textDelta` to their own.
+    static var textSize: CGFloat { size.textSize }
+    static var textDelta: CGFloat { size.textDelta }
+    static var iconSize: CGFloat { size.iconSize }
 }
 
 /// What the list asks of its window controller: Explorer's selection rules live there (ListSelection).
@@ -155,7 +159,8 @@ final class FolioTableView: NSTableView {
         let minX = shift + NameCellView.disclosureX - 3
         // With check boxes it ends where the check box's own target starts (checkboxRect).
         let maxX = showsCheckboxes ? shift + NameCellView.boxX - 4 : shift + NameCellView.disclosureX + NameCellView.disclosureSize + 2
-        return NSRect(x: cell.minX + minX, y: cell.midY - 10, width: maxX - minX, height: 20)
+        let h = max(20, cell.height - 4)
+        return NSRect(x: cell.minX + minX, y: cell.midY - h / 2, width: maxX - minX, height: h)
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -819,7 +824,7 @@ final class NameCellView: NSTableCellView, RowCellView, ThemeAware, NSViewToolTi
     static let disclosureX: CGFloat = 2
     static let disclosureSize: CGFloat = 10
     /// How far a row's content (triangle, check box, icon, name) moves right per level under an open folder.
-    static func contentShift(depth: Int) -> CGFloat { CGFloat(max(0, depth)) * 16 }
+    static func contentShift(depth: Int) -> CGFloat { CGFloat(max(0, depth)) * ListMetrics.iconSize }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -883,7 +888,8 @@ final class NameCellView: NSTableCellView, RowCellView, ThemeAware, NSViewToolTi
         }
         if isCut || entry.isHidden || isFlagDimmed { NSGraphicsContext.current?.cgContext.setAlpha(0.45) }
         let iconX = shift + ListMetrics.rowLead + (showsCheckbox ? Self.boxShift + 8 : 0)
-        let icon = NSRect(x: iconX, y: (mid - 8).rounded(), width: 16, height: 16)
+        let iconSize = ListMetrics.iconSize
+        let icon = NSRect(x: iconX, y: (mid - iconSize / 2).rounded(), width: iconSize, height: iconSize)
         if let customIcon, entry.isFolder {
             customIcon.draw(in: icon, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
         } else {
@@ -894,13 +900,18 @@ final class NameCellView: NSTableCellView, RowCellView, ThemeAware, NSViewToolTi
                 ItemIcon.draw(name: entry.name, isFolder: entry.isFolder, in: icon, palette: p, glow: selected || hovered)
             }
         }
-        var textX = iconX + 16 + 9
-        if entry.isLink { ItemIcon.drawLinkBadge(in: NSRect(x: iconX - 2, y: mid + 1, width: 9, height: 9), palette: p) }
+        var textX = iconX + iconSize + 9
+        if entry.isLink {
+            // The badge grows with the icon, at the same corner.
+            let scale = iconSize / 16
+            ItemIcon.drawLinkBadge(in: NSRect(x: iconX - 2 * scale, y: mid + scale, width: 9 * scale, height: 9 * scale), palette: p)
+        }
         if !tagColors.isEmpty {
             textX += TagDots.draw(tagColors, x: textX - 2, midY: mid, p) + 4
         }
         let shown = entry.displayName(extensions: showsExtension)
-        let font = Typeface.ui(13, weight: 500)
+        let textSize = ListMetrics.textSize
+        let font = Typeface.ui(textSize, weight: 500)
         let maxW = max(0, bounds.width - textX - (entry.isCloudOnly ? 22 : 0))
         let nameColor = onAccent ? p.onAccent : p.text
         if !highlights.isEmpty {
@@ -910,7 +921,8 @@ final class NameCellView: NSTableCellView, RowCellView, ThemeAware, NSViewToolTi
                 let x0 = textWidth(ns.substring(to: r.location), font: font)
                 let w = textWidth(ns.substring(with: r), font: font)
                 guard x0 < maxW else { continue }
-                let rect = NSRect(x: textX + x0 - 1, y: mid - 9, width: min(w + 2, maxW - x0 + 1), height: 18)
+                let markH = textSize + 5
+                let rect = NSRect(x: textX + x0 - 1, y: mid - markH / 2, width: min(w + 2, maxW - x0 + 1), height: markH)
                 if native {
                     // The system's find highlight, with no ring.
                     fillRounded(rect, radius: 3, NSColor.findHighlightColor)
@@ -923,16 +935,17 @@ final class NameCellView: NSTableCellView, RowCellView, ThemeAware, NSViewToolTi
         }
         let nameW = drawLine(shown, font: font, color: nameColor, x: textX, midY: mid, maxWidth: maxW)
         if let underline, underline == .always || hovered {
-            fillRect(NSRect(x: textX, y: (mid + 7).rounded(), width: nameW, height: 1), nameColor.withAlpha(0.7))
+            fillRect(NSRect(x: textX, y: (mid + textSize / 2 + 0.5).rounded(), width: nameW, height: 1), nameColor.withAlpha(0.7))
         }
         if entry.isCloudOnly {
             // Online only: a cloud after the name, as Explorer marks OneDrive files.
+            let c = textSize + 1
+            let cloud = NSRect(x: textX + nameW + 6, y: (mid - c / 2).rounded(), width: c, height: c)
             if native {
-                Glyph.drawSymbol(named: "icloud", in: NSRect(x: textX + nameW + 6, y: mid - 7, width: 14, height: 14),
-                                 color: onAccent ? p.onAccent.ns : p.muted.ns, pointSize: 14, weight: .regular)
+                Glyph.drawSymbol(named: "icloud", in: cloud, color: onAccent ? p.onAccent.ns : p.muted.ns, pointSize: c, weight: .regular)
                 return
             }
-            Glyph.cloud.draw(in: NSRect(x: textX + nameW + 6, y: mid - 7, width: 14, height: 14), color: p.muted.ns, lineWidth: 1.6)
+            Glyph.cloud.draw(in: cloud, color: p.muted.ns, lineWidth: 1.6)
         }
     }
 }
@@ -1008,7 +1021,8 @@ final class TextCellView: NSTableCellView, RowCellView {
         if isCut { NSGraphicsContext.current?.cgContext.setAlpha(0.45) }
         let native = ThemeController.shared.look == .native
         let onAccent = (superview as? FolioRowView)?.textOnAccent ?? false
-        let font = mono ? Typeface.mono(native ? 13 : 12) : Typeface.ui(13)
+        let delta = ListMetrics.textDelta
+        let font = mono ? Typeface.mono((native ? 13 : 12) + delta) : Typeface.ui(13 + delta)
         if pending && text.isEmpty {
             fillRect(NSRect(x: alignRight ? bounds.maxX - 18 : 0, y: bounds.midY, width: 18, height: 1), p.line2)
             return

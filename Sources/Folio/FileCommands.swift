@@ -15,6 +15,7 @@ enum ListOptions {
     static let thumbnailsKey = "showThumbnails"
     static let compactKey = "compactView"
     static let sidePaneKey = "sidePane"
+    static let detailsSizeKey = "detailsSize"
 
     /// View > Show > File name extensions: on unless turned off.
     static var showExtensions: Bool {
@@ -32,6 +33,17 @@ enum ListOptions {
     static var compact: Bool {
         get { UserDefaults.standard.bool(forKey: compactKey) }
         set { set(newValue, compactKey) }
+    }
+
+    /// View > Details Size: the Details list's text, icons and rows (read from the cached options, as
+    /// every cell asks while it draws).
+    static var detailsSize: DetailsSize {
+        get { folder.detailsSize }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: detailsSizeKey)
+            reload()
+            NotificationCenter.default.post(name: didChange, object: nil)
+        }
     }
 
     /// The right-hand pane: Preview (Option+P), Details (Option+Shift+P), or none.
@@ -297,8 +309,9 @@ extension BrowserWindowController: FileListDelegate {
         }
         let iconX = ListMetrics.rowLead + (tableView.showsCheckboxes ? NameCellView.boxShift + 8 : 0)
             + NameCellView.contentShift(depth: layout.depth(ofItem: row))
-        let textX = iconX + 16 + 9
-        renamer.begin(in: tableView, tableRow: tableRow(ofItem: row), row: row, entry: entry, textX: textX)
+        let textX = iconX + ListMetrics.iconSize + 9
+        renamer.begin(in: tableView, tableRow: tableRow(ofItem: row), row: row, entry: entry, textX: textX,
+                      fontSize: ListMetrics.textSize, height: max(28, tableView.rowHeight + 4))
     }
 
     /// Enter, Tab, Shift+Tab or a click away. False keeps the box open (a name that can't be used).

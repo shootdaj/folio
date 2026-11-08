@@ -75,17 +75,23 @@ public enum SortEngine {
     /// Folders form a block (on top ascending, at the bottom descending); then each key in turn, each in
     /// its own direction; ties break on Name in the first key's direction (Explorer's Type ties break by
     /// Name and reverse with it), then on the path, so the order is total.
+    ///
+    /// Names and text values become Core Foundation strings once per item, and the sort moves indices:
+    /// `localizedStandardCompare` on Swift strings converted both strings on every comparison.
     public static func sort(_ entries: [FileEntry], by spec: SortSpec, folders: FolderPlacement = .followSort,
                             metadata: (FileEntry) -> ItemMetadata? = { _ in nil }) -> [FileEntry] {
         let terms = spec.terms
         let wantsMeta = terms.contains { $0.key.needsMetadata }
-        let keyed = entries.map { e -> (FileEntry, [ColumnValue]) in
+        let values = entries.map { e -> [ColumnValue] in
             let meta = wantsMeta ? metadata(e) : nil
-            return (e, terms.map { ColumnValues.value(e, $0.key, meta) })
+            return terms.map { ColumnValues.value(e, $0.key, meta) }
         }
+        let texts = values.map { row in row.map { v -> CFString? in if case .text(let t) = v { StandardOrder.key(t) } else { nil } } }
+        let names = entries.map { StandardOrder.key($0.name) }
+        let order = StandardOrder()
         let up = spec.ascending
-        return keyed.sorted { a, b in
-            let (ea, eb) = (a.0, b.0)
+        let sorted = entries.indices.sorted { a, b in
+            let (ea, eb) = (entries[a], entries[b])
             if ea.isFolder != eb.isFolder {
                 switch folders {
                 case .followSort: return up ? ea.isFolder : eb.isFolder
@@ -93,14 +99,44 @@ public enum SortEngine {
                 }
             }
             for (i, term) in terms.enumerated() {
-                let c = ColumnValue.compare(a.1[i], b.1[i])
+                let c: Int
+                if let x = texts[a][i], let y = texts[b][i] {
+                    c = order.compare(x, y)
+                } else {
+                    c = ColumnValue.compare(values[a][i], values[b][i])
+                }
                 if c != 0 { return term.ascending ? c < 0 : c > 0 }
             }
-            switch ea.name.localizedStandardCompare(eb.name) {
-            case .orderedAscending: return up
-            case .orderedDescending: return !up
-            case .orderedSame: return up ? ea.url.path < eb.url.path : ea.url.path > eb.url.path
+            switch order.compare(names[a], names[b]) {
+            case -1: return up
+            case 1: return !up
+            default: return up ? ea.url.path < eb.url.path : ea.url.path > eb.url.path
             }
-        }.map(\.0)
+        }
+        return sorted.map { entries[$0] }
+    }
+}
+
+/// `localizedStandardCompare` (Finder's name order) on strings made into Core Foundation strings once:
+/// case- and width-insensitive, numbers by value, forced to a total order, in the current locale.
+public struct StandardOrder: @unchecked Sendable {
+    private static let flags: CFStringCompareFlags = [.compareCaseInsensitive, .compareNumerically,
+                                                       .compareWidthInsensitive, .compareForcedOrdering]
+    private let locale = CFLocaleCopyCurrent()
+
+    public init() {}
+
+    /// A real Core Foundation copy of `s` (a bridged Swift string is slow to compare).
+    public static func key(_ s: String) -> CFString {
+        CFStringCreateCopy(nil, NSString(string: s)) ?? (s as CFString)
+    }
+
+    /// -1, 0 or 1.
+    public func compare(_ a: CFString, _ b: CFString) -> Int {
+        switch CFStringCompareWithOptionsAndLocale(a, b, CFRange(location: 0, length: CFStringGetLength(a)), Self.flags, locale) {
+        case .compareLessThan: -1
+        case .compareGreaterThan: 1
+        default: 0
+        }
     }
 }

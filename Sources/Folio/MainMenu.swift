@@ -185,6 +185,7 @@ enum MainMenu {
         }
         items.append(.separator())
         items.append(item("Compact View", #selector(BrowserWindowController.toggleCompactView(_:))))
+        items.append(submenu("Details Size", detailsSizeItems()))
         items.append(submenu("Show", showItems()))
         items.append(.separator())
         items.append(item("Make This the Default View", #selector(BrowserWindowController.makeDefaultView(_:))))
@@ -193,6 +194,14 @@ enum MainMenu {
             items.append(item("Choose Details...", #selector(BrowserWindowController.chooseDetails(_:))))
         }
         return items
+    }
+
+    /// View > Details Size: the four sizes, and a step up (Cmd++) or down (Cmd+-).
+    static func detailsSizeItems() -> [NSMenuItem] {
+        DetailsSize.allCases.map { choice($0.title, #selector(BrowserWindowController.setDetailsSize(_:)), $0.rawValue) }
+            + [.separator(),
+               item("Bigger", #selector(BrowserWindowController.detailsBigger(_:)), "+"),
+               item("Smaller", #selector(BrowserWindowController.detailsSmaller(_:)), "-")]
     }
 
     /// View > Show: the panes and what the list shows (Explorer's View > Show).

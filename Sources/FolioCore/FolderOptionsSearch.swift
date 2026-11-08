@@ -131,6 +131,8 @@ extension FolderOptions {
         case .check(.showPopupDescriptions): ["tooltips", "info tips"]
         case .check(.hideEmptyDrives), .check(.showDriveLetters): ["volumes", "disks"]
         case .radio(.typingSearchBox), .radio(.typingSelect): ["type ahead", "keyboard"]
+        case .radio(.detailsSmall), .radio(.detailsMedium), .radio(.detailsLarge), .radio(.detailsExtraLarge):
+            ["text size", "font size", "icon size", "bigger", "larger", "zoom", "list"]
         case .check(.expandToOpenFolder), .check(.showAllFolders), .check(.showNetwork), .check(.showThisPC):
             ["tree", "sidebar"]
         case .check(.navPaneShowHidden): ["tree", "sidebar", "dot files", "invisible"]

@@ -84,6 +84,12 @@ extension BrowserWindowController: GridHost {
     }
 
     @objc func toggleCompactView(_ sender: Any?) { ListOptions.compact.toggle() }
+    @objc func setDetailsSize(_ sender: Any?) {
+        guard let raw = (sender as? NSMenuItem)?.representedObject as? String, let size = DetailsSize(rawValue: raw) else { return }
+        ListOptions.detailsSize = size
+    }
+    @objc func detailsBigger(_ sender: Any?) { ListOptions.detailsSize = ListOptions.detailsSize.bigger }
+    @objc func detailsSmaller(_ sender: Any?) { ListOptions.detailsSize = ListOptions.detailsSize.smaller }
     @objc func toggleFileExtensions(_ sender: Any?) { ListOptions.showExtensions.toggle() }
     @objc func toggleThumbnails(_ sender: Any?) { ListOptions.thumbnails.toggle() }
     @objc func togglePreviewPane(_ sender: Any?) { ListOptions.sidePane = ListOptions.sidePane == .preview ? .none : .preview }
@@ -100,6 +106,11 @@ extension BrowserWindowController: GridHost {
             item.state = ViewCenter.shared.settings.isDefault ? .on : .off
             return !ViewCenter.shared.settings.isDefault
         case #selector(toggleCompactView(_:)): item.state = ListOptions.compact ? .on : .off
+        case #selector(setDetailsSize(_:)):
+            item.state = (item.representedObject as? String) == ListOptions.detailsSize.rawValue ? .on : .off
+            return true
+        case #selector(detailsBigger(_:)): return ListOptions.detailsSize != .extraLarge
+        case #selector(detailsSmaller(_:)): return ListOptions.detailsSize != .small
         case #selector(toggleFileExtensions(_:)): item.state = ListOptions.showExtensions ? .on : .off
         case #selector(toggleThumbnails(_:)):
             // "Always show icons, never thumbnails" is the same setting, the other way round.
