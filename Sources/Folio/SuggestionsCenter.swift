@@ -87,6 +87,21 @@ final class SuggestionsCenter: NSObject {
         return true
     }
 
+    /// A test run shows the Full Disk Access page without the real check. Off puts the earlier state back.
+    private var stateBeforeGate: SuggestionState?
+    func uitestForceAccessGate(_ on: Bool) {
+        guard !isRealHome else { return }
+        if on {
+            guard state != .needsAccess else { return }
+            stateBeforeGate = state
+            state = .needsAccess
+        } else if state == .needsAccess, let earlier = stateBeforeGate {
+            state = earlier
+            stateBeforeGate = nil
+        }
+        post()
+    }
+
     // MARK: Viewing
 
     /// A window shows the page (or stops). The scan starts after the page has been shown for a moment.

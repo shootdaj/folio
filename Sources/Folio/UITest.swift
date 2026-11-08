@@ -2,7 +2,7 @@ import AppKit
 import FolioCore
 
 /// `Folio --uitest <folder|new> --shot <file> [--theme dark|light|system] [--accent <hue 0-359>] [--look native|obsidian]
-///   [--tabs N] [--view <mode>] [--extra options|properties|preview|home]...`
+///   [--tabs N] [--view <mode>] [--extra options|properties|preview|home|suggestions|suggestions-empty|suggestions-access]...`
 ///
 /// Runs inside the test VM only (docs/plan/RULES.md, rule 0). Opens one window off-screen on a test
 /// folder, waits for it to render, then from inside the app:
@@ -40,8 +40,18 @@ struct UITestConfig {
     var view: ViewMode?
     /// `--extra`: the surfaces shot after step 3, in the order given.
     var extras: [String] = []
+    /// The run folder that holds the Suggestions fake homes `Home` and `Empty`, made when a suggestions extra is asked for.
+    var cleanupRun: URL?
+    /// The clock of the fake home: the sample dates and the scan agree on it.
+    var cleanupNow = Date()
+    /// Each file of the samples is this many bytes times its units.
+    static let cleanupUnit = 256 * 1024
 
-    static let extraNames = ["options", "properties", "preview", "home"]
+    var cleanupHome: URL? { cleanupRun?.appendingPathComponent("Home", isDirectory: true) }
+    var emptyHome: URL? { cleanupRun?.appendingPathComponent("Empty", isDirectory: true) }
+    var asksForSuggestions: Bool { extras.contains { $0.hasPrefix("suggestions") } }
+
+    static let extraNames = ["options", "properties", "preview", "home", "suggestions", "suggestions-empty", "suggestions-access"]
     static let viewNames: [String: ViewMode] = [
         "details": .details, "list": .list, "tiles": .tiles, "content": .content, "gallery": .gallery,
         "icons": .mediumIcons, "extraLargeIcons": .extraLargeIcons, "largeIcons": .largeIcons,
@@ -51,7 +61,7 @@ struct UITestConfig {
     static let usage = "usage: Folio --uitest <folder under /private/tmp/folio-tests/ | new> --shot <file.png> "
         + "[--theme dark|light|system] [--accent <hue 0-359>] [--look native|obsidian] "
         + "[--tabs N] [--view details|list|tiles|content|gallery|icons|extraLargeIcons|largeIcons|mediumIcons|smallIcons] "
-        + "[--extra options|properties|preview|home]..."
+        + "[--extra options|properties|preview|home|suggestions|suggestions-empty|suggestions-access]..."
 
     /// nil when `--uitest` is absent. Exits with code 2 on bad arguments.
     static func parse(_ args: [String]) -> UITestConfig? {
@@ -117,6 +127,21 @@ struct UITestConfig {
                 fail("refusing \(folder.path): --uitest only opens folders under " + UITestFixture.allowedRoots.joined(separator: ", "))
             }
         }
+        // The Suggestions fake homes live in the run folder next to Code, so one trash clears both.
+        var cleanupRun: URL?
+        let now = Date()
+        if extras.contains(where: { $0.hasPrefix("suggestions") }) {
+            let run = made ? folder.deletingLastPathComponent() : URL(fileURLWithPath:
+                "/private/tmp/folio-tests/uitest-\(ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: ""))-\(getpid())",
+                isDirectory: true)
+            do {
+                try UITestFixture.makeCleanupSamples(at: run.appendingPathComponent("Home", isDirectory: true),
+                                                     unit: cleanupUnit, now: now)
+                try FileManager.default.createDirectory(at: run.appendingPathComponent("Empty", isDirectory: true),
+                                                        withIntermediateDirectories: true)
+            } catch { fail("could not make the clean-up samples: \(error)") }
+            cleanupRun = run
+        }
         // Theme choices go to a throwaway store in $TMPDIR, never the app's real preferences.
         let prefsDir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("folio-uitest-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: prefsDir, withIntermediateDirectories: true)
@@ -125,7 +150,8 @@ struct UITestConfig {
         }
         let base = shot.hasSuffix(".png") ? String(shot.dropLast(4)) : shot
         return UITestConfig(folder: folder, madeFixture: made, shotBase: base, appearance: appearance, hue: hue, look: look,
-                            defaults: defaults, tabs: tabs, view: view, extras: extras)
+                            defaults: defaults, tabs: tabs, view: view, extras: extras,
+                            cleanupRun: cleanupRun, cleanupNow: now)
     }
 }
 
@@ -137,8 +163,10 @@ enum UITestRunner {
         var problems: [String] = []
         guard let window = c.window as? BrowserWindow else { return 1 }
         // If a synthesized click ever blocks the main thread, still end the run.
-        DispatchQueue.global().asyncAfter(deadline: .now() + 90) {
-            print("uitest: timed out after 90 s")
+        // A suggestions extra writes the samples, scans up to three times and shoots up to six times: longer.
+        let limit: Double = config.asksForSuggestions ? 240 : 90
+        DispatchQueue.global().asyncAfter(deadline: .now() + limit) {
+            print("uitest: timed out after \(Int(limit)) s")
             fflush(stdout)
             exit(3)
         }
@@ -271,9 +299,149 @@ enum UITestRunner {
             shot(window, config, suffix, c, &problems)
             c.navigate(to: config.folder)
             _ = await wait(timeout: 10, { c.isIdle })
+        case "suggestions":
+            await shootSuggestions(suffix, window, config, c, &problems)
+        case "suggestions-empty":
+            await shootSuggestionsEmpty(suffix, window, config, c, &problems)
+        case "suggestions-access":
+            await shootSuggestionsAccess(suffix, window, config, c, &problems)
         default:
             break
         }
+    }
+
+    // MARK: Suggestions
+
+    /// A path relative to the fake home. Only the folder is resolved, so a broken link keeps its own name.
+    private static func relative(_ url: URL, to home: URL) -> String {
+        let folder = url.deletingLastPathComponent().resolvingSymlinksInPath().appendingPathComponent(url.lastPathComponent).path
+        let base = home.resolvingSymlinksInPath().path
+        return folder.hasPrefix(base + "/") ? String(folder.dropFirst(base.count + 1)) : folder
+    }
+
+    private static func openSuggestions(_ c: BrowserWindowController) async {
+        if !c.history.isSuggestions {
+            c.goSuggestions(nil)
+            await settle(0.8)
+        }
+    }
+
+    private static func leaveSuggestions(_ config: UITestConfig, _ c: BrowserWindowController) async {
+        c.navigate(to: config.folder)
+        _ = await wait(timeout: 10, { c.isIdle })
+    }
+
+    private static func shootSuggestions(_ suffix: String, _ window: BrowserWindow, _ config: UITestConfig,
+                                         _ c: BrowserWindowController, _ problems: inout [String]) async {
+        let center = SuggestionsCenter.shared
+        guard let home = config.cleanupHome, configureSuggestions(home: home, config) else {
+            report("extra suggestions: the fake home was refused")
+            problems.append("extra suggestions")
+            return
+        }
+        center.autoScanAllowed = true
+        await openSuggestions(c)
+        // The report must be for the fake home: a run that showed the empty home first scans again.
+        if center.report?.home != center.home, center.state != .scanning { center.rescan() }
+        guard await wait(timeout: 40, { center.state == .done && center.report?.home == center.home }) else {
+            report("extra suggestions: the scan did not finish in 40 s (state \(center.state))")
+            problems.append("suggestions scan")
+            shot(window, config, suffix, c, &problems)
+            await leaveSuggestions(config, c)
+            return
+        }
+        await settle(0.8)
+        guard let result = center.report else { return }
+        var seen: [SuggestionKind: Set<String>] = [:]
+        for s in result.suggestions { seen[s.kind, default: []].formUnion(s.items.map { relative($0.url, to: home) }) }
+        for expectation in UITestFixture.cleanupExpected {
+            let want = Set(expectation.paths)
+            let got = seen[expectation.kind] ?? []
+            if got != want {
+                report("extra suggestions: \(expectation.kind.rawValue) missing \(want.subtracting(got).sorted()) extra \(got.subtracting(want).sorted())")
+                problems.append("suggestions \(expectation.kind.rawValue)")
+            }
+        }
+        if seen.values.contains(where: { $0.contains { $0.contains("Tool.app/") } }) { problems.append("suggestions inside an app") }
+        let counts = SuggestionKind.allCases.map { "\($0.rawValue) \(seen[$0]?.count ?? 0)" }.joined(separator: ", ")
+        report("extra suggestions: \(c.suggestionsStatusText); \(counts)")
+        shot(window, config, suffix, c, &problems)
+
+        // Move one large unused row to the Trash, then bring it back with Undo.
+        if ListOptions.folder.confirmDelete {
+            report("extra suggestions: Display delete confirmation is on, so the Trash and Undo steps are skipped")
+            await leaveSuggestions(config, c)
+            return
+        }
+        guard let suggestion = result.suggestions.first(where: { $0.kind == .largeUnused }), let item = suggestion.items.first else {
+            problems.append("suggestions trash row")
+            await leaveSuggestions(config, c)
+            return
+        }
+        func listed() -> Bool { center.report?.suggestions.contains { $0.id == suggestion.id } ?? false }
+        c.suggestionsTrash(suggestion, item: item)
+        let left = await wait(timeout: 15, { !listed() })
+        await settle(0.6)
+        report("extra suggestions: Move to Trash on \(item.url.lastPathComponent): the row " + (left ? "left" : "did not leave"))
+        if !left { problems.append("suggestions trash") }
+        shot(window, config, suffix + "-trashed", c, &problems)
+
+        OperationCenter.shared.undo(window: window)
+        let back = await wait(timeout: 15, { listed() })
+        await settle(0.6)
+        report("extra suggestions: Undo: the row " + (back ? "returned" : "did not return"))
+        if !back { problems.append("suggestions undo") }
+        shot(window, config, suffix + "-undone", c, &problems)
+        await leaveSuggestions(config, c)
+    }
+
+    private static func shootSuggestionsEmpty(_ suffix: String, _ window: BrowserWindow, _ config: UITestConfig,
+                                              _ c: BrowserWindowController, _ problems: inout [String]) async {
+        let center = SuggestionsCenter.shared
+        guard let empty = config.emptyHome, configureSuggestions(home: empty, config) else {
+            report("extra suggestions-empty: the empty home was refused")
+            problems.append("extra suggestions-empty")
+            return
+        }
+        center.autoScanAllowed = true
+        let before = center.lastScan
+        await openSuggestions(c)
+        // A first scan starts by itself after the page has been shown; otherwise ask for one.
+        if center.state != .scanning, center.report?.home != center.home { center.rescan() }
+        guard await wait(timeout: 40, { center.state == .done && center.report?.home == center.home && center.lastScan != before }) else {
+            report("extra suggestions-empty: the scan did not finish in 40 s (state \(center.state))")
+            problems.append("suggestions-empty scan")
+            await leaveSuggestions(config, c)
+            return
+        }
+        await settle(0.8)
+        let count = center.report?.suggestions.count ?? -1
+        report("extra suggestions-empty: \(c.suggestionsStatusText), \(count) suggestions")
+        if count != 0 { problems.append("suggestions-empty not empty") }
+        shot(window, config, suffix, c, &problems)
+        await leaveSuggestions(config, c)
+        // Later extras find the sample home again.
+        if let home = config.cleanupHome { _ = configureSuggestions(home: home, config) }
+    }
+
+    private static func shootSuggestionsAccess(_ suffix: String, _ window: BrowserWindow, _ config: UITestConfig,
+                                               _ c: BrowserWindowController, _ problems: inout [String]) async {
+        let center = SuggestionsCenter.shared
+        if center.isRealHome, let home = config.cleanupHome { _ = configureSuggestions(home: home, config) }
+        await openSuggestions(c)
+        center.uitestForceAccessGate(true)
+        await settle(0.8)
+        report("extra suggestions-access: \(c.suggestionsStatusText)")
+        if center.state != .needsAccess { problems.append("suggestions-access gate") }
+        shot(window, config, suffix, c, &problems)
+        center.uitestForceAccessGate(false)
+        await leaveSuggestions(config, c)
+    }
+
+    /// Points the center at a fake home of this run, with floors the 256 KiB samples can meet.
+    private static func configureSuggestions(home: URL, _ config: UITestConfig) -> Bool {
+        let settings = SuggestionConfig.uitest(home: home, now: config.cleanupNow, unit: Int64(UITestConfig.cleanupUnit))
+        return SuggestionsCenter.shared.configure(home: home, config: settings, defaults: config.defaults)
     }
 
     private static func shootDialog(_ known: Set<ObjectIdentifier>, _ suffix: String, _ config: UITestConfig,
@@ -298,7 +466,11 @@ enum UITestRunner {
             let run = config.folder.deletingLastPathComponent()
             let keepRun = config.shotBase.hasPrefix(run.path + "/")
                 || config.shotBase.hasPrefix("/private" + run.path + "/")
-            try? FileManager.default.trashItem(at: keepRun ? config.folder : run, resultingItemURL: nil)
+            var gone = keepRun ? [config.folder] : [run]
+            if keepRun { gone += [config.cleanupHome, config.emptyHome].compactMap { $0 } }
+            for url in gone { try? FileManager.default.trashItem(at: url, resultingItemURL: nil) }
+        } else if let run = config.cleanupRun {
+            try? FileManager.default.trashItem(at: run, resultingItemURL: nil)
         }
         return code
     }

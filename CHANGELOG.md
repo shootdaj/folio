@@ -9,6 +9,19 @@ pushed; the release workflow publishes the section below with that number as the
 
 ### Added
 
+- **Suggestions.** A new place in the navigation pane (sparkles icon) and in Go > Suggestions
+  (Cmd+Shift+S) that finds what you can clean up in your home folder. It offers the Trash, large files
+  you have not used for six months, duplicate files, old Downloads, installers, app caches, Xcode
+  DerivedData, build folders (node_modules and others) in projects that are idle, empty folders and
+  broken links. Each card shows its rows with the size, the date and the reason. Move to Trash takes a
+  row or the rows a card shows, checks each file against the disk first, and can be undone with Cmd+Z.
+  A duplicate group keeps one copy, and you can choose which. Reveal shows an item in its folder, and
+  Ignore hides it until you use the ignored-items button at the bottom of the page. The scan starts when the page is shown, reads
+  only metadata except to compare the files that could be duplicates, and never opens a package such as
+  an app. Without Full Disk Access the page says so and offers Scan anyway. Native uses system colors
+  and symbols, and D4 Obsidian uses its cards, mono heads and accent line. A build older than this
+  one opens `/` for a Suggestions tab that was saved in a session, because it does not know the place.
+
 - **Native shows the selected item's details on the right.** The pane comes up when items are
   selected and goes when none are, as Finder's preview column does. One item shows its name, kind,
   Tags and Comments and its details; several show how many and their size. An image shows as a

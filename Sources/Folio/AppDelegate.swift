@@ -63,6 +63,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             // A test run never scans the real home: the center waits for a fixture home.
             SuggestionsCenter.shared.useUITestDefaults(uitest.defaults)
             SuggestionsCenter.shared.autoScanAllowed = true
+            // A suggestions extra scans the fake home of the run, never the real one.
+            if let home = uitest.cleanupHome {
+                SuggestionsCenter.shared.configure(
+                    home: home, config: .uitest(home: home, now: uitest.cleanupNow, unit: Int64(UITestConfig.cleanupUnit)),
+                    defaults: uitest.defaults)
+            }
             let controller = BrowserWindowController(
                 folder: uitest.folder,
                 options: .init(size: UITestRunner.windowSize, uitest: true, historyDefaults: uitest.defaults))
