@@ -75,7 +75,7 @@ final class SidePaneView: NSView, NSTextFieldDelegate {
     var onEdit: ((URL, _ tags: [String]?, _ comment: String?) -> Void)?
 
     private let quickLook = QuickLookBox()
-    private let close = ChromeButton(glyph: .close, label: "Close pane", target: nil, action: nil)
+    private let close: NSButton = SidePaneView.makeClose()
     // Details
     private var entry: FileEntry?
     private var summary: (title: String, subtitle: String, isFolder: Bool) = ("", "", true)
@@ -85,13 +85,39 @@ final class SidePaneView: NSView, NSTextFieldDelegate {
     private let comments = PaneField(label: "Comments")
     private static let headerH: CGFloat = 36
 
+    /// Native: Finder's own metrics and system colours, as the plan's Native look asks.
+    private var native: Bool { ThemeController.shared.look == .native }
+    private var headerH: CGFloat { native ? 32 : Self.headerH }
+    private var iconSide: CGFloat { native ? 96 : Self.iconSide }
+    private var rowH: CGFloat { native ? 18 : Self.rowH }
+    /// Native's Tags and Comments wells are a little shorter than D4's 30 and 48.
+    private var tagsH: CGFloat { native ? 24 : 30 }
+    private var commentsH: CGFloat { native ? 40 : 48 }
+
+    /// D4's close button is a glyph in the chrome style. Native's is a plain `xmark` symbol.
+    private static func makeClose() -> NSButton {
+        guard ThemeController.shared.look == .native else {
+            return ChromeButton(glyph: .close, label: "Close pane", target: nil, action: nil)
+        }
+        let button = NSButton(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        button.isBordered = false
+        button.title = ""
+        button.imagePosition = .imageOnly
+        let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
+        button.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close pane")?.withSymbolConfiguration(config)
+        button.contentTintColor = NSColor.secondaryLabelColor
+        button.toolTip = "Close pane"
+        button.setAccessibilityLabel("Close pane")
+        return button
+    }
+
     override init(frame: NSRect) {
         super.init(frame: frame)
         addSubview(quickLook)
         addSubview(close)
         close.target = self
         close.action = #selector(closePressed(_:))
-        close.iconSize = 14
+        (close as? ChromeButton)?.iconSize = 14
         for field in [tags, comments] {
             field.delegate = self
             addSubview(field)
@@ -189,23 +215,80 @@ final class SidePaneView: NSView, NSTextFieldDelegate {
 
     override func layout() {
         super.layout()
-        close.frame = NSRect(x: bounds.width - 6 - 28, y: 4, width: 28, height: 28)
-        quickLook.frame = NSRect(x: 1, y: Self.headerH, width: bounds.width - 2, height: max(0, bounds.height - Self.headerH - 1))
+        if native {
+            close.frame = NSRect(x: bounds.width - 8 - 24, y: (headerH - 24) / 2, width: 24, height: 24)
+        } else {
+            close.frame = NSRect(x: bounds.width - 6 - 28, y: 4, width: 28, height: 28)
+        }
+        quickLook.frame = NSRect(x: 1, y: headerH, width: bounds.width - 2, height: max(0, bounds.height - headerH - 1))
         // Tags and Comments right under the item, where they stay in view; the details follow.
         var y = fieldsTop
         for field in [tags, comments] {
-            let h: CGFloat = field === comments ? 48 : 30
+            let h: CGFloat = field === comments ? commentsH : tagsH
             field.frame = NSRect(x: 14, y: y + 18, width: bounds.width - 28, height: h)
             y += 18 + h + 8
         }
     }
 
     private static let iconSide: CGFloat = 80
-    private var fieldsTop: CGFloat { Self.headerH + 12 + Self.iconSide + 50 }
-    private var detailsTop: CGFloat { entry == nil ? fieldsTop : fieldsTop + 18 + 30 + 8 + 18 + 48 + 14 }
+    private var fieldsTop: CGFloat { native ? nativeFieldsTop : Self.headerH + 12 + Self.iconSide + 50 }
+    private var detailsTop: CGFloat {
+        if native { return entry == nil ? nativeFieldsTop : nativeDetailsTop }
+        return entry == nil ? fieldsTop : fieldsTop + 18 + 30 + 8 + 18 + 48 + 14
+    }
+    private var nativeFieldsTop: CGFloat { 32 + 12 + 96 + 50 }
+    private var nativeDetailsTop: CGFloat { nativeFieldsTop + 18 + 24 + 8 + 18 + 40 + 14 }
+    /// Native's key column ends here and the values start a gap after it, as in Finder's Get Info.
+    private static let nativeKeyRight: CGFloat = 124
     private static let rowH: CGFloat = 21
 
+    /// Native: the window background, a separator on the left edge only, and Finder's quiet text.
+    private func drawNative() {
+        fillRect(bounds, NSColor.windowBackgroundColor)
+        fillRect(NSRect(x: 0, y: 0, width: 1, height: bounds.height), NSColor.separatorColor)
+        let head = kind == .preview ? "Preview" : "Details"
+        drawLine(head, font: Typeface.ui(11, weight: 600), color: NSColor.secondaryLabelColor, x: 14, midY: headerH / 2)
+        guard kind == .details else { return }
+        let side = iconSide
+        let icon = NSRect(x: (bounds.width - side) / 2, y: headerH + 12, width: side, height: side)
+        if let thumbnail {
+            let size = thumbnail.size
+            let scale = min(icon.width / max(1, size.width), icon.height / max(1, size.height))
+            let w = size.width * scale, h = size.height * scale
+            thumbnail.draw(in: NSRect(x: icon.midX - w / 2, y: icon.maxY - h, width: w, height: h), from: .zero,
+                           operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+        } else {
+            let image = entry.map { NSWorkspace.shared.icon(forFile: $0.url.path) } ?? NSWorkspace.shared.icon(for: .folder)
+            image.draw(in: icon, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+        }
+        let nameFont = Typeface.ui(15, weight: 600)
+        let ty = icon.maxY + 16
+        drawLine(summary.title, font: nameFont, color: NSColor.labelColor,
+                 x: max(14, bounds.midX - textWidth(summary.title, font: nameFont) / 2), midY: ty, maxWidth: bounds.width - 28)
+        let sub = Typeface.ui(12)
+        drawLine(summary.subtitle, font: sub, color: NSColor.secondaryLabelColor,
+                 x: max(14, bounds.midX - textWidth(summary.subtitle, font: sub) / 2), midY: ty + 20, maxWidth: bounds.width - 28)
+        if entry != nil {
+            for field in [tags, comments] where !field.isHidden {
+                drawLine(field.label, font: Typeface.ui(11, weight: 600), color: NSColor.secondaryLabelColor, x: 14,
+                         midY: field.frame.minY - 9)
+            }
+            fillRect(NSRect(x: 14, y: detailsTop - 8, width: bounds.width - 28, height: 1), NSColor.separatorColor)
+        }
+        var y = detailsTop
+        let font = Typeface.ui(11)
+        let keyRight = Self.nativeKeyRight
+        for (key, value) in rows {
+            drawLine(key, font: font, color: NSColor.secondaryLabelColor, x: keyRight, midY: y + rowH / 2, maxWidth: keyRight - 14,
+                     alignRight: true)
+            drawLine(value, font: font, color: NSColor.labelColor, x: keyRight + 8, midY: y + rowH / 2,
+                     maxWidth: bounds.width - keyRight - 8 - 14)
+            y += rowH
+        }
+    }
+
     override func draw(_ dirtyRect: NSRect) {
+        if native { drawNative(); return }
         let p = ThemeColors.current
         fillRect(bounds, p.side)
         fillRect(NSRect(x: 0, y: 0, width: 1, height: bounds.height), p.line)
@@ -260,7 +343,7 @@ final class SidePaneView: NSView, NSTextFieldDelegate {
                 e.setAccessibilityRole(.staticText)
                 e.setAccessibilityLabel(text)
                 e.setAccessibilityParent(self)
-                let y = i < 2 ? Self.headerH + 12 + Self.iconSide + CGFloat(i) * 20 : detailsTop + CGFloat(i - 2) * Self.rowH
+                let y = i < 2 ? headerH + 12 + iconSide + CGFloat(i) * 20 : detailsTop + CGFloat(i - 2) * rowH
                 e.setAccessibilityFrameInParentSpace(NSRect(x: 14, y: y, width: bounds.width - 28, height: 20))
                 kids.append(e)
             }
@@ -281,7 +364,7 @@ final class PaneField: NSView {
         field.isBordered = false
         field.drawsBackground = false
         field.focusRingType = .none
-        field.font = Typeface.mono(12)
+        field.font = ThemeController.shared.look == .native ? Typeface.ui(12) : Typeface.mono(12)
         field.textColor = ThemeColors.current.text.ns
         field.placeholderString = label == "Tags" ? "Add tags, separated by commas" : "Add a comment"
         field.setAccessibilityLabel(label)
@@ -314,6 +397,12 @@ final class PaneField: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         let p = ThemeColors.current
+        if ThemeController.shared.look == .native {
+            // A quiet well. Editing takes the system's focus ring colour.
+            fillRounded(bounds, radius: 6, NSColor.quaternarySystemFill)
+            if isEditing { strokeRounded(bounds, radius: 6, NSColor.keyboardFocusIndicatorColor.withAlphaComponent(0.6), width: 2) }
+            return
+        }
         fillRounded(bounds, radius: 4, p.s2)
         strokeRounded(bounds, radius: 4, isEditing ? p.accent : p.line2)
     }
