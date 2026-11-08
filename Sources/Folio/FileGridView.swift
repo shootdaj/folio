@@ -118,13 +118,58 @@ final class GridCellView: NSView, NSViewToolTipOwner {
         switch mode {
         case .smallIcons, .list: return NSRect(x: icon.maxX + 6, y: 0, width: bounds.width - icon.maxX - 10, height: bounds.height)
         case .tiles, .content: return NSRect(x: icon.maxX + 12, y: icon.minY - 2, width: bounds.width - icon.maxX - 20, height: 20)
-        default: return NSRect(x: 4, y: icon.maxY + 4, width: bounds.width - 8, height: 20)
+        default:
+            if isNative, let pill = namePillRect { return pill }
+            return NSRect(x: 4, y: icon.maxY + 4, width: bounds.width - 8, height: 20)
         }
     }
+
+    private var isNative: Bool { ThemeController.shared.look == .native }
+
+    /// Native: the selected-name pill hugs the name, up to two lines. F2's box is the same rect.
+    private var namePillRect: NSRect? {
+        guard let entry else { return nil }
+        let icon = iconRect
+        let font = Typeface.ui(13)
+        let maxW = bounds.width - 8
+        let name = entry.displayName(extensions: showsExtension)
+        let para = NSMutableParagraphStyle()
+        para.alignment = .center
+        para.lineBreakMode = .byWordWrapping
+        let text = NSAttributedString(string: name, attributes: [.font: font, .paragraphStyle: para])
+        let line = ceil(font.ascender - font.descender + 2)
+        let box = text.boundingRect(with: NSSize(width: maxW - 10, height: line * 2), options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
+        let w = min(maxW, ceil(box.width) + 10)
+        let h = min(line * 2, max(line, ceil(box.height))) + 4
+        return NSRect(x: ((bounds.width - w) / 2).rounded(), y: icon.maxY + 6, width: w, height: h)
+    }
+
+    /// Native: the window is key and the grid has focus, so the selection draws in the accent.
+    private var isActive: Bool {
+        guard let window, window.isKeyWindow else { return false }
+        return window.firstResponder is FileGridView
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        NotificationCenter.default.removeObserver(self)
+        guard let window else { return }
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
+            NotificationCenter.default.addObserver(self, selector: #selector(keyChanged), name: name, object: window)
+        }
+    }
+
+    @objc private func keyChanged() { if isSelected { needsDisplay = true } }
+
+    deinit { NotificationCenter.default.removeObserver(self) }
 
     override func draw(_ dirtyRect: NSRect) {
         guard let entry else { return }
         let p = ThemeColors.current
+        if isNative {
+            drawNative(entry, p)
+            return
+        }
         let r = bounds.insetBy(dx: 2, dy: 2)
         if isSelected {
             fillRounded(r, radius: 8, p.selectionFill)
@@ -151,6 +196,37 @@ final class GridCellView: NSView, NSViewToolTipOwner {
         NSGraphicsContext.restoreGraphicsState()
     }
 
+    private var isIconMode: Bool {
+        switch mode {
+        case .smallIcons, .list, .tiles, .content: return false
+        default: return true
+        }
+    }
+
+    /// Native: a plate behind the icon and an accent pill under the name in icon modes, a rounded
+    /// inset fill in the row-like modes, a 2 pt accent outline for a drop and no hover wash.
+    private func drawNative(_ entry: FileEntry, _ p: ThemeColors) {
+        let fill = isActive ? p.selectionFill : p.selectionInactive
+        let plate = iconRect.insetBy(dx: -4, dy: -4)
+        let row = bounds.insetBy(dx: 4, dy: 1)
+        if isSelected {
+            if isIconMode {
+                fillRounded(plate, radius: 6, fill)
+                if let pill = namePillRect { fillRounded(pill, radius: 5, fill) }
+            } else {
+                fillRounded(row, radius: 5, fill)
+            }
+        }
+        if isDropTarget { strokeRounded(isIconMode ? plate : row, radius: isIconMode ? 6 : 5, p.accent, width: 2) }
+        if isFocusItem && !isSelected { strokeRounded(isIconMode ? plate : row, radius: isIconMode ? 6 : 5, p.accentSoft, width: 2) }
+        if mode == .content { fillRect(NSRect(x: 8, y: bounds.maxY - 1, width: bounds.width - 16, height: 1), p.line) }
+        NSGraphicsContext.saveGraphicsState()
+        if isCut || entry.isHidden || isFlagDimmed { NSGraphicsContext.current?.cgContext.setAlpha(0.45) }
+        drawIcon(entry, p)
+        drawText(entry, p)
+        NSGraphicsContext.restoreGraphicsState()
+    }
+
     private func drawIcon(_ entry: FileEntry, _ p: ThemeColors) {
         let icon = iconRect
         if let thumbnail {
@@ -160,16 +236,25 @@ final class GridCellView: NSView, NSViewToolTipOwner {
             let w = size.width * scale, h = size.height * scale
             let frame = NSRect(x: icon.midX - w / 2, y: icon.maxY - h, width: w, height: h).integral
             thumbnail.draw(in: frame, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
-            strokeRounded(frame.insetBy(dx: -0.5, dy: -0.5), radius: 1, p.line2)
-            if showsTypeBadge, frame.width >= 40 {
-                let b = max(14, min(24, frame.width * 0.22))
-                let badge = NSRect(x: frame.maxX - b - 2, y: frame.maxY - b - 2, width: b, height: b)
-                fillRounded(badge.insetBy(dx: -2, dy: -2), radius: 3, p.s1.withAlpha(0.9))
-                ItemIcon.drawFile(named: entry.name, in: badge, palette: p)
+            if isNative {
+                strokeRounded(frame.insetBy(dx: -0.5, dy: -0.5), radius: 0, p.line, width: 0.5)
+                if showsTypeBadge, frame.width >= 40 {
+                    let b = max(14, min(24, frame.width * 0.22))
+                    ItemIcon.draw(name: entry.name, isFolder: false,
+                                  in: NSRect(x: frame.maxX - b - 2, y: frame.maxY - b - 2, width: b, height: b), palette: p)
+                }
+            } else {
+                strokeRounded(frame.insetBy(dx: -0.5, dy: -0.5), radius: 1, p.line2)
+                if showsTypeBadge, frame.width >= 40 {
+                    let b = max(14, min(24, frame.width * 0.22))
+                    let badge = NSRect(x: frame.maxX - b - 2, y: frame.maxY - b - 2, width: b, height: b)
+                    fillRounded(badge.insetBy(dx: -2, dy: -2), radius: 3, p.s1.withAlpha(0.9))
+                    ItemIcon.drawFile(named: entry.name, in: badge, palette: p)
+                }
             }
         } else if entry.isFolder {
             let h = icon.width * 16 / 20
-            ItemIcon.drawFolder(in: NSRect(x: icon.minX, y: icon.midY - h / 2, width: icon.width, height: h), palette: p, lit: isSelected)
+            ItemIcon.drawFolder(in: NSRect(x: icon.minX, y: icon.midY - h / 2, width: icon.width, height: h), palette: p, lit: isSelected && !isNative)
         } else {
             ItemIcon.drawFile(named: entry.name, in: icon, palette: p)
         }
@@ -181,17 +266,22 @@ final class GridCellView: NSView, NSViewToolTipOwner {
 
     private func drawText(_ entry: FileEntry, _ p: ThemeColors) {
         let name = entry.displayName(extensions: showsExtension)
-        let tone = isSelected ? p.accent : p.text
-        let font = Typeface.ui(13, weight: isSelected ? 600 : 400)
+        let native = isNative
+        // Native: white on the pill or row when the selection is active, no weight change.
+        let onSelection = native && isSelected && isActive
+        let tone = native ? (onSelection ? p.selectedText : p.text) : (isSelected ? p.accent : p.text)
+        let font = Typeface.ui(13, weight: isSelected && !native ? 600 : 400)
+        let detailColor = onSelection ? p.selectedText : p.text2
+        let detailFont = native ? NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular) : Typeface.ui(12)
         let nr = nameRect
         switch mode {
         case .smallIcons, .list:
             drawLine(name, font: font, color: tone, x: nr.minX, midY: nr.midY, maxWidth: nr.width)
         case .tiles, .content:
-            drawLine(name, font: Typeface.ui(13, weight: 600), color: tone, x: nr.minX, midY: nr.midY, maxWidth: nr.width)
+            drawLine(name, font: Typeface.ui(13, weight: native ? 400 : 600), color: tone, x: nr.minX, midY: nr.midY, maxWidth: nr.width)
             if mode == .tiles {
                 for (i, d) in details.prefix(2).enumerated() {
-                    drawLine(d.value, font: Typeface.ui(12), color: p.text2, x: nr.minX, midY: nr.maxY + 8 + CGFloat(i) * 16, maxWidth: nr.width)
+                    drawLine(d.value, font: detailFont, color: detailColor, x: nr.minX, midY: nr.maxY + 8 + CGFloat(i) * 16, maxWidth: nr.width)
                 }
             } else {
                 // Content: Type under the name; Date modified and Size in the rightmost column, Explorer's
@@ -205,7 +295,7 @@ final class GridCellView: NSView, NSViewToolTipOwner {
                 if let kind = details.first {
                     // Too narrow for a column of their own: dimensions or duration follow the type.
                     let line = ([kind.value] + (mediaFits ? [] : media.map(\.value))).joined(separator: "  \u{00B7}  ")
-                    drawLine(line, font: Typeface.ui(12), color: p.text2, x: nr.minX, midY: nr.maxY + 9,
+                    drawLine(line, font: detailFont, color: detailColor, x: nr.minX, midY: nr.maxY + 9,
                              maxWidth: max(nr.width * 0.4, right - colW - nr.minX - 12))
                 }
                 for (col, list) in [(1, main), (0, media)] {
@@ -213,8 +303,8 @@ final class GridCellView: NSView, NSViewToolTipOwner {
                     guard x > nr.minX + min(220, nr.width * 0.4) else { continue }
                     for (line, d) in list.prefix(2).enumerated() {
                         let y = bounds.midY - 9 + CGFloat(line) * 18
-                        let kw = drawLine(d.key + ": ", font: Typeface.ui(12), color: p.muted, x: x, midY: y)
-                        drawLine(d.value, font: Typeface.mono(12), color: p.text2, x: x + kw, midY: y, maxWidth: colW - kw - 12)
+                        let kw = drawLine(d.key + ": ", font: Typeface.ui(12), color: native ? detailColor : p.muted, x: x, midY: y)
+                        drawLine(d.value, font: native ? detailFont : Typeface.mono(12), color: detailColor, x: x + kw, midY: y, maxWidth: colW - kw - 12)
                     }
                 }
             }
@@ -224,7 +314,8 @@ final class GridCellView: NSView, NSViewToolTipOwner {
             para.alignment = .center
             para.lineBreakMode = .byTruncatingMiddle
             let lines: CGFloat = mode == .mediumIcons ? 2 : 2
-            let box = NSRect(x: nr.minX, y: nr.minY, width: nr.width, height: ceil(font.ascender - font.descender + 2) * lines)
+            var box = NSRect(x: nr.minX, y: nr.minY, width: nr.width, height: ceil(font.ascender - font.descender + 2) * lines)
+            if native { box = nr.insetBy(dx: 5, dy: 2) }
             let text = NSAttributedString(string: name, attributes: [.font: font, .foregroundColor: tone.ns, .paragraphStyle: para])
             text.draw(with: box, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
         }
