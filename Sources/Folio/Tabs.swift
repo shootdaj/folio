@@ -313,6 +313,7 @@ extension BrowserWindowController {
         pane.setPlaces(pins.places)
         pane.onNavigate = { [weak self] url in self?.navigate(to: url) }
         pane.onHome = { [weak self] in self?.goHome(nil) }
+        pane.onPage = { [weak self] place in self?.navigate(to: place.url) }
         pane.onOpenInNewTab = { [weak self] url in self?.openInNewTab(url, activate: false) }
         pane.onPinsEdited = { [weak self] edit in self?.editPins(edit) }
         pane.onEject = { [weak self] v in self?.ejectVolume(v) }
@@ -444,6 +445,10 @@ extension BrowserWindowController {
             add("Open", #selector(goHome(_:)))
             add("Open in new tab", #selector(nodeOpenHomeTab(_:)))
             return menu
+        case .suggestions:
+            add("Open", #selector(goSuggestions(_:)))
+            add("Open in new tab", #selector(nodeOpenSuggestionsTab(_:)))
+            return menu
         case .device:
             add("Import pictures and videos", #selector(openImageCapture(_:)))
             return menu
@@ -501,6 +506,7 @@ extension BrowserWindowController {
     @objc func nodeOpen(_ sender: Any?) { if let url = nodeURL(sender) { navigate(to: url) } }
     @objc func nodeOpenTab(_ sender: Any?) { if let url = nodeURL(sender) { openInNewTab(url, activate: true) } }
     @objc func nodeOpenHomeTab(_ sender: Any?) { openInNewTab(NavigationHistory.home, activate: true) }
+    @objc func nodeOpenSuggestionsTab(_ sender: Any?) { openInNewTab(NavigationHistory.suggestions, activate: true) }
     @objc func nodeOpenWindow(_ sender: Any?) { if let url = nodeURL(sender) { appDelegate?.openWindow(at: url) } }
     @objc func nodeTerminal(_ sender: Any?) { if let url = nodeURL(sender) { openTerminal(at: [url]) } }
     @objc func nodeBrowse(_ sender: Any?) { VolumeCenter.shared.browse() }

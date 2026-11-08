@@ -100,6 +100,8 @@ final class SideNode: NSObject, @unchecked Sendable {
     enum Kind {
         case header(Section), footer(Section)
         case home
+        /// The Suggestions page, a special place like Home.
+        case suggestions
         case pin(QuickAccessPlace, index: Int)
         case cloud(CloudPlace)
         case recycle
@@ -130,6 +132,15 @@ final class SideNode: NSObject, @unchecked Sendable {
 
     var url: URL? { path.map { URL(fileURLWithPath: $0, isDirectory: true) } }
 
+    /// The special place this row opens, if it is one.
+    var page: SpecialPlace? {
+        switch kind {
+        case .home: .home
+        case .suggestions: .suggestions
+        default: nil
+        }
+    }
+
     @MainActor var title: String {
         switch kind {
         case .header(.quickAccess): PlaceNames.quickAccess
@@ -140,6 +151,7 @@ final class SideNode: NSObject, @unchecked Sendable {
         case .details: ""
         case .footer: ""
         case .home: "Home"
+        case .suggestions: PlaceNames.suggestions
         case .pin(let place, _): place.title
         case .cloud(let c): c.name
         case .recycle: PlaceNames.recycleBin
@@ -163,6 +175,7 @@ final class SideNode: NSObject, @unchecked Sendable {
 final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate {
     var onNavigate: ((URL) -> Void)?
     var onHome: (() -> Void)?
+    var onPage: ((SpecialPlace) -> Void)?
     var onOpenInNewTab: ((URL) -> Void)?
     var onPinsEdited: ((PinEdit) -> Void)?
     var onEject: ((VolumeCapacity) -> Void)?
@@ -186,6 +199,7 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
     private var headers: [SideNode.Section: SideNode] = [:]
     private var footers: [SideNode.Section: SideNode] = [:]
     private let homeNode = SideNode(.home)
+    private let suggestionsNode = SideNode(.suggestions)
     private let recycleNode = SideNode(.recycle)
     private var cloudNodes: [SideNode] = []
     private let browseNode = SideNode(.browse)
@@ -364,7 +378,7 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
     private func children(of section: SideNode.Section) -> [SideNode] {
         let network = shareNodes + serverNodes + (noticeNode.map { [$0] } ?? []) + [browseNode, connectNode]
         switch section {
-        case .quickAccess: return [homeNode] + pinNodes + cloudNodes + (layoutOptions.showAllFolders ? [] : [recycleNode])
+        case .quickAccess: return [homeNode] + pinNodes + cloudNodes + [suggestionsNode] + (layoutOptions.showAllFolders ? [] : [recycleNode])
         case .thisPC: return volumeNodes + deviceNodes
         case .network: return network
         // The top of the Mac: Home, the drives, Network and the Recycle Bin, as Explorer's Desktop root.
@@ -497,7 +511,7 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
 
     /// Whether a row is the place the window shows (drawn lit, as D4's `.sitem.on`).
     func isCurrent(_ node: SideNode) -> Bool {
-        if case .home = node.kind { return currentPage == .home }
+        if let page = node.page { return currentPage == page }
         guard currentPage == nil, let path = node.path else { return false }
         return resolvedKey(path) == currentPath
     }
@@ -560,6 +574,7 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
             guard let outline else { return }
             if outline.isItemExpanded(node) { outline.collapseItem(node) } else { outline.expandItem(node) }
         case .home: onHome?()
+        case .suggestions: onPage?(.suggestions)
         case .pin, .volume, .share, .folder, .cloud, .recycle: if let url = node.url { onNavigate?(url) }
         case .connect: onConnect?()
         case .browse: onBrowse?()
@@ -570,7 +585,7 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
     }
 
     func middleClicked(_ node: SideNode) {
-        if let url = node.url { onOpenInNewTab?(url) }
+        if let url = node.url ?? node.page?.url { onOpenInNewTab?(url) }
     }
 
     func menu(for node: SideNode) -> NSMenu? { menuProvider?(node) }
@@ -1124,7 +1139,7 @@ class SidebarOutlineView: NSOutlineView {
         navigateTimer?.invalidate()
         let timer = Timer(timeInterval: 0.45, repeats: false) { _ in
             MainActor.assumeIsolated { [weak self] in
-                guard let self, let node = self.selectedNode, node.url != nil || { if case .home = node.kind { true } else { false } }()
+                guard let self, let node = self.selectedNode, node.url != nil || node.page != nil
                 else { return }
                 self.pane?.activate(node)
             }
@@ -1319,6 +1334,7 @@ final class SideRowView: NSTableRowView {
     private func nativeSymbol(_ node: SideNode) -> String? {
         switch node.kind {
         case .home: return "house"
+        case .suggestions: return "sparkles"
         case .pin(let place, _):
             switch place.title {
             case "Downloads": return "arrow.down.circle"
@@ -1409,6 +1425,8 @@ final class SideRowView: NSTableRowView {
         switch node.kind {
         case .home:
             drawLine("Home", font: font, color: label, x: textX, midY: mid, maxWidth: bounds.width - textX - 20)
+        case .suggestions:
+            drawLine(PlaceNames.suggestions, font: font, color: label, x: textX, midY: mid, maxWidth: bounds.width - textX - 20)
         case .pin(let place, _):
             let room = bounds.width - textX - 20
             let pw = place.prefix.isEmpty ? 0 : drawLine(place.prefix, font: font, color: secondary, x: textX, midY: mid, maxWidth: room)
@@ -1488,6 +1506,9 @@ final class SideRowView: NSTableRowView {
         case .home:
             Glyph.home.draw(in: icon, color: glyph)
             drawLine("Home", font: font, color: label, x: textX, midY: mid, maxWidth: room)
+        case .suggestions:
+            Glyph.sparkles.draw(in: icon, color: glyph)
+            drawLine(PlaceNames.suggestions, font: font, color: label, x: textX, midY: mid, maxWidth: room)
         case .pin(let place, _):
             drawPlace(place, icon: icon, textX: textX, room: room, glyph: glyph, label: label, p)
         case .cloud(let c):

@@ -15,7 +15,7 @@ enum Glyph: Hashable, CaseIterable {
     // D4: the sort arrow, the copy window's alert, undo and stop, several selected, and the code folder.
     case sortUp, alert, undo, stop, stack, code
     // Suggestions.
-    case sparkles
+    case sparkles, eyeOff
 
     fileprivate enum Part {
         case path(String)
@@ -83,6 +83,10 @@ enum Glyph: Hashable, CaseIterable {
         case .plus: [.path("M12 5v14M5 12h14")]
         case .sparkles: [.path("M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"),
                          .path("M20 3v4M22 5h-4M4 17v2M5 18H3")]
+        case .eyeOff: [.path("M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"),
+                       .path("M14.084 14.158a3 3 0 0 1-4.242-4.242"),
+                       .path("M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"),
+                       .path("m2 2 20 20")]
         case .home: [.path("M3 10.5 12 3l9 7.5"), .path("M5 9v11a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9")]
         case .eject: [.path("m12 5 7 9H5z"), .path("M5 18.5h14")]
         case .globe: [.circle(12, 12, 9), .path("M3 12h18"), .path("M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18")]
@@ -187,6 +191,7 @@ extension Glyph {
         case .view: "list.bullet"
         case .plus: "plus"
         case .sparkles: "sparkles"
+        case .eyeOff: "eye.slash"
         case .home: "house"
         case .eject: "eject.fill"
         case .globe: "globe"
