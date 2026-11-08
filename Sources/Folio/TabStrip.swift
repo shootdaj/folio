@@ -70,7 +70,12 @@ final class TabStripView: NSView, NSDraggingSource {
     /// all of itself, so a tab drag reorders or tears out instead of moving the window (as Chromium does
     /// for its tab strip in the same place).
     @objc(_opaqueRectForWindowMoveWhenInTitlebar)
-    func opaqueRectForWindowMoveWhenInTitlebar() -> NSRect { bounds }
+    func opaqueRectForWindowMoveWhenInTitlebar() -> NSRect { native ? .zero : bounds }
+
+    /// Native look: flat equal-width tabs on a 28 pt row, with no icons and no underline.
+    private var native: Bool { ThemeController.shared.look == .native }
+    private static let nativeLead: CGFloat = 8, nativePlusW: CGFloat = 28, nativeMaxW: CGFloat = 240
+    private static let nativeTabH: CGFloat = 28, nativeMinW: CGFloat = 24
 
     // MARK: Geometry
 
@@ -84,6 +89,12 @@ final class TabStripView: NSView, NSDraggingSource {
 
     /// Each tab's width: its title's, cut down evenly when they do not all fit (2 pt apart).
     private var widths: [CGFloat] {
+        if native {
+            guard !items.isEmpty else { return [] }
+            let room = bounds.width - Self.nativeLead - Self.nativePlusW
+            let each = min(Self.nativeMaxW, max(Self.nativeMinW, floor(room / CGFloat(items.count))))
+            return Array(repeating: each, count: items.count)
+        }
         let natural = items.map { min(Self.maxW, ceil(naturalWidth($0))) }
         let room = bounds.width - Self.plusW - 2 * CGFloat(max(0, items.count))
         let total = natural.reduce(0, +)
@@ -95,16 +106,25 @@ final class TabStripView: NSView, NSDraggingSource {
     func tabRect(_ i: Int) -> NSRect {
         let w = widths
         guard w.indices.contains(i) else { return .zero }
+        if native {
+            return NSRect(x: Self.nativeLead + w.prefix(i).reduce(0, +), y: bounds.height - Self.nativeTabH - 1,
+                          width: w[i], height: Self.nativeTabH)
+        }
         let x = Self.lead + w.prefix(i).reduce(0, +) + CGFloat(i) * 2
         return NSRect(x: x, y: bounds.height - Self.tabH, width: w[i], height: Self.tabH)
     }
 
     private func closeRect(_ i: Int) -> NSRect {
         let r = tabRect(i)
+        if native { return NSRect(x: r.minX + 6, y: r.midY - 9, width: 18, height: 18) }
         return NSRect(x: r.maxX - 4 - 30, y: r.midY - 15, width: 30, height: 30)
     }
 
     private var plusRect: NSRect {
+        if native {
+            let end = items.isEmpty ? Self.nativeLead : tabRect(items.count - 1).maxX
+            return NSRect(x: end, y: bounds.height - Self.nativeTabH - 1, width: Self.nativePlusW, height: Self.nativeTabH)
+        }
         let end = items.isEmpty ? Self.lead : tabRect(items.count - 1).maxX + 2
         return NSRect(x: end, y: (bounds.height - 44) / 2, width: 44, height: 44)
     }
@@ -121,8 +141,69 @@ final class TabStripView: NSView, NSDraggingSource {
 
     // MARK: Drawing
 
+    /// Native look: the close mark shows on the active tab and under the pointer.
+    private func closeVisible(_ i: Int) -> Bool { items.count > 1 && (i == activeIndex || hovered == i) }
+
+    private func drawNative(_ p: ThemeColors) {
+        for (i, item) in items.enumerated() {
+            let r = tabRect(i)
+            let on = i == activeIndex
+            let fill = r.insetBy(dx: 1, dy: 1)
+            if on {
+                p.s3.setFill()
+                NSBezierPath(roundedRect: fill, xRadius: 6, yRadius: 6).fill()
+            } else if hovered == i {
+                NSColor.quaternarySystemFill.setFill()
+                NSBezierPath(roundedRect: fill, xRadius: 6, yRadius: 6).fill()
+            }
+            if dropTab == i { strokeRounded(fill, radius: 6, p.accent) }
+            let font = NSFont.systemFont(ofSize: 12)
+            let lineH = ceil(font.ascender - font.descender)
+            let style = NSMutableParagraphStyle()
+            style.lineBreakMode = .byTruncatingTail
+            style.alignment = .center
+            let attrs: [NSAttributedString.Key: Any] = [.font: font, .paragraphStyle: style,
+                .foregroundColor: on ? NSColor.labelColor : NSColor.secondaryLabelColor]
+            let rect = NSRect(x: r.minX + 26, y: (r.midY - lineH / 2).rounded(), width: max(0, r.width - 52), height: lineH)
+            NSAttributedString(string: item.title, attributes: attrs)
+                .draw(with: rect, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
+            if closeVisible(i) {
+                let c = closeRect(i)
+                let hot = hoveredClose && hovered == i
+                if hot {
+                    NSColor.tertiarySystemFill.setFill()
+                    NSBezierPath(roundedRect: c, xRadius: 4, yRadius: 4).fill()
+                }
+                drawSymbol("xmark", in: c, pointSize: 9, color: hot ? .labelColor : .secondaryLabelColor)
+            }
+        }
+        if let at = insertAt {
+            let x = at < items.count ? tabRect(at).minX : (items.isEmpty ? Self.nativeLead : tabRect(items.count - 1).maxX)
+            NSColor.controlAccentColor.setFill()
+            NSRect(x: x - 1, y: bounds.height - Self.nativeTabH + 3, width: 2, height: Self.nativeTabH - 6).fill()
+        }
+        let plus = plusRect
+        if hoveredPlus {
+            NSColor.quaternarySystemFill.setFill()
+            NSBezierPath(roundedRect: plus.insetBy(dx: 2, dy: 3), xRadius: 6, yRadius: 6).fill()
+        }
+        drawSymbol("plus", in: plus, pointSize: 12, color: hoveredPlus ? .labelColor : .secondaryLabelColor)
+        NSColor.separatorColor.setFill()
+        NSRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1).fill()
+    }
+
+    private func drawSymbol(_ name: String, in rect: NSRect, pointSize: CGFloat, color: NSColor) {
+        let config = NSImage.SymbolConfiguration(pointSize: pointSize, weight: .medium)
+            .applying(.init(paletteColors: [color]))
+        guard let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(config) else { return }
+        let s = image.size
+        image.draw(in: NSRect(x: rect.midX - s.width / 2, y: rect.midY - s.height / 2, width: s.width, height: s.height),
+                   from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         let p = ThemeColors.current
+        if native { drawNative(p); return }
         for (i, item) in items.enumerated() {
             let r = tabRect(i)
             let on = i == activeIndex
@@ -232,7 +313,7 @@ final class TabStripView: NSView, NSDraggingSource {
             if event.clickCount == 2 { onNew?() } else { window?.performDrag(with: event) }
             return
         }
-        if items.count > 1, closeRect(i).contains(start) {
+        if items.count > 1, closeRect(i).contains(start), !native || i == activeIndex || hovered == i {
             // Closes when the button comes up over the x, as a button does.
             guard let window else { return }
             while let next = MouseTracking.next(window, [.leftMouseUp, .leftMouseDragged]) {
