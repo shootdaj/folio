@@ -262,8 +262,9 @@ final class FolioTableView: NSTableView {
         listDelegate?.listDragExited(self)
     }
 
+    // No super call: NSTableView and NSOutlineView do not implement draggingEnded, and the call throws inside the
+    // drag completion. The drag then never ends for the system, and Mission Control stops working.
     override func draggingEnded(_ sender: NSDraggingInfo) {
-        super.draggingEnded(sender)
         listDelegate?.listDragExited(self)
     }
 

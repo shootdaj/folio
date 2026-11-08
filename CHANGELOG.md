@@ -194,6 +194,9 @@ pushed; the release workflow publishes the section below with that number as the
 
 ### Fixed
 
+- **Mission Control works again after a drag over the sidebar or the file list.** The drag ended with an
+  error inside the system's drag code ("unrecognized selector draggingEnded"), so macOS still saw a drag, and
+  Mission Control did not open by key or by mouse until Folio quit.
 - **"Show hidden files, folders and drives" can be chosen in Folder Options.** AppKit made one radio
   group of every radio in a view, so View > Advanced settings had one group, not two. "Select the typed
   item in the view" then turned the hidden-files radio off again at once, and neither hidden-files radio
