@@ -273,8 +273,25 @@ public struct SuggestionReport: Sendable {
 public enum SuggestionVerify {
     /// The items whose device, inode, size and modified date are still the ones the scan saw.
     /// For a folder this is the folder's own entry only. A change deeper in the tree does not show here,
-    /// so Move to Trash of a folder can still move a changed tree. The move can be undone.
+    /// so an "empty folder" is also checked with `hasNoFiles`. Other folders can still move a changed tree.
+    /// The move can be undone.
     public static func current(_ items: [SuggestionItem], fs: any ScanFileSystem) -> [SuggestionItem] {
         items.filter { fs.stamp($0.url) == $0.stamp }
+    }
+
+    /// True when nothing but folders lies below this folder. A file, a link, a package or a folder that
+    /// cannot be read counts as content. A very large tree counts as content, so the answer is safe.
+    public static func hasNoFiles(_ folder: URL, fs: any ScanFileSystem, limit: Int = 5_000) -> Bool {
+        var stack = [folder]
+        var seen = 0
+        while let dir = stack.popLast() {
+            guard let entries = try? fs.list(dir) else { return false }
+            for e in entries {
+                seen += 1
+                guard seen <= limit, e.type == .folder, !e.isPackage else { return false }
+                stack.append(dir.appendingPathComponent(e.name, isDirectory: true))
+            }
+        }
+        return true
     }
 }

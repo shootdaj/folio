@@ -136,6 +136,25 @@ import Testing
         #expect(Set(plan.keys) == [folder.items[0].id, inner.items[0].id], "both rows are hidden")
     }
 
+    @Test func anEmptyFolderThatGotAFileDeeperDownIsNotMoved() throws {
+        let t = try TestTree()
+        defer { t.close() }
+        let fs = LiveScanFileSystem()
+        let empty = try t.folder("e/outer")
+        try t.folder("e/outer/inner")
+        let stamp = try #require(fs.stamp(empty))
+        let it = SuggestionItem(url: empty, isFolder: true, bytes: 0, logicalBytes: 0, stamp: stamp)
+        let s = Suggestion(kind: .emptyFolders, id: it.id, items: [it], bytes: 0, reason: .emptyFolder)
+        let before = SuggestionActions.trashPlan(of: [s], pending: [], ignores: none, fs: fs)
+        #expect(before.urls == [empty], "still empty: it goes")
+        // A file arrives two levels down. The outer folder's own stamp does not change.
+        try t.file("e/outer/inner/new.txt")
+        try FileManager.default.setAttributes([.modificationDate: stamp.modified ?? Date()], ofItemAtPath: empty.path)
+        let after = SuggestionActions.trashPlan(of: [s], pending: [], ignores: none, fs: fs)
+        #expect(after.isEmpty)
+        #expect(after.changed == 1)
+    }
+
     @Test func aPendingKeyIsNotSentAgain() {
         let a = single(.largeUnused, "/t/a.bin", ino: 1)
         let plan = SuggestionActions.trashPlan(of: [a], pending: [a.items[0].id], ignores: none, fs: disk([a]))

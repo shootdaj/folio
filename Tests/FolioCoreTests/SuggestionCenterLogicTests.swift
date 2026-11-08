@@ -146,4 +146,14 @@ import Testing
         #expect(hash.totalBytes == 70)
         #expect(report.excluding(.init()).suggestions.count == 4)
     }
+
+    @Test func aPageShownBeforeLaunchEndedNeverCountsAsShown() {
+        let launched = Date(timeIntervalSince1970: 1000)
+        let restored = launched.addingTimeInterval(-1)
+        let later = launched.addingTimeInterval(5)
+        let now = launched.addingTimeInterval(10)
+        #expect(SuggestionSchedule.shownFor(since: [restored], allowedSince: launched, now: now) == 0)
+        #expect(SuggestionSchedule.shownFor(since: [restored, later], allowedSince: launched, now: now) == 5)
+        #expect(SuggestionSchedule.shownFor(since: [later], allowedSince: nil, now: now) == 0)
+    }
 }

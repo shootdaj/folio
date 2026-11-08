@@ -224,7 +224,10 @@ final class OperationCenter {
     }
 
     /// `cancelled` runs when the user says no to the delete confirmation, so the caller can undo what it set up.
-    func trash(_ urls: [URL], window: NSWindow?, cancelled: (@MainActor () -> Void)? = nil) {
+    /// `recheck` runs after the user says yes and before the move. It returns the URLs that may still go
+    /// (nothing: the move does not happen). A sheet can stay open while the files change.
+    func trash(_ urls: [URL], window: NSWindow?, cancelled: (@MainActor () -> Void)? = nil,
+               recheck: (@MainActor () -> [URL])? = nil) {
         guard !urls.isEmpty else { return }
         // Folder Options > Display delete confirmation dialog (off by default, as in Explorer).
         if ListOptions.folder.confirmDelete, let window {
@@ -238,7 +241,11 @@ final class OperationCenter {
                     if let cancelled { MainActor.assumeIsolated { cancelled() } }
                     return
                 }
-                MainActor.assumeIsolated { OperationCenter.shared.trashNow(urls, window: window) }
+                MainActor.assumeIsolated {
+                    let now = recheck?() ?? urls
+                    guard !now.isEmpty else { return }
+                    OperationCenter.shared.trashNow(now, window: window)
+                }
             }
             return
         }

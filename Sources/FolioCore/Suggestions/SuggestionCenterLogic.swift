@@ -19,6 +19,13 @@ public enum SuggestionSchedule {
         granted || !isRealHome ? .idle : .needsAccess
     }
 
+    /// How long the longest-shown page has been shown, counting only views that began after launch and
+    /// session restore ended. A restored page never scans by itself; the user must show it again or press Rescan.
+    public static func shownFor(since views: [Date], allowedSince: Date?, now: Date) -> TimeInterval {
+        guard let allowedSince else { return 0 }
+        return views.filter { $0 >= allowedSince }.min().map { now.timeIntervalSince($0) } ?? 0
+    }
+
     /// True when a scan starts by itself now. It never starts while access is missing, while a scan runs,
     /// after a failure (the user clicks Rescan then), or before launch and session restore end.
     public static func shouldStartAutomatically(allowed: Bool, viewing: Bool, shownFor: TimeInterval,

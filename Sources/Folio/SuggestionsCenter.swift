@@ -25,8 +25,13 @@ final class SuggestionsCenter: NSObject {
 
     /// False until the app has finished launching and restoring its session. Nothing scans by itself before.
     var autoScanAllowed = false {
-        didSet { if autoScanAllowed { evaluate() } }
+        didSet {
+            autoScanAllowedSince = autoScanAllowed ? (autoScanAllowedSince ?? Date()) : nil
+            if autoScanAllowed { evaluate() }
+        }
     }
+    /// When launch ended. A page that was shown before this (a restored tab) does not start a scan by itself.
+    private var autoScanAllowedSince: Date?
 
     // MARK: Where it scans
 
@@ -137,7 +142,10 @@ final class SuggestionsCenter: NSObject {
     private func evaluate() {
         guard !refusesScans else { return }
         updateAccess()
-        let shownFor = viewers.values.min().map { Date().timeIntervalSince($0) } ?? 0
+        // The real home is never scanned by itself while Folio is in the background (a login item, a hidden launch).
+        let visible = !isRealHome || NSApp.isActive
+        let now = Date()
+        let shownFor = visible ? SuggestionSchedule.shownFor(since: Array(viewers.values), allowedSince: autoScanAllowedSince, now: now) : 0
         if SuggestionSchedule.shouldStartAutomatically(allowed: autoScanAllowed, viewing: !viewers.isEmpty, shownFor: shownFor,
                                                        state: state, lastScan: lastScan, now: Date()) {
             startScan()
@@ -245,8 +253,10 @@ final class SuggestionsCenter: NSObject {
 
     /// The plan for a Move to Trash, checked against the disk now (device, inode, size and date; for a
     /// duplicate group also the kept copy).
-    func trashPlan(of suggestions: [Suggestion], item: SuggestionItem? = nil) -> SuggestionTrashPlan {
-        SuggestionActions.trashPlan(of: suggestions, item: item, pending: pending, ignores: ignores.snapshot, fs: fs)
+    /// `allowing` holds ids that a Move to Trash already marked as pending, for the check after its sheet.
+    func trashPlan(of suggestions: [Suggestion], item: SuggestionItem? = nil, allowing: [String] = []) -> SuggestionTrashPlan {
+        SuggestionActions.trashPlan(of: suggestions, item: item, pending: pending.subtracting(allowing),
+                                    ignores: ignores.snapshot, fs: fs)
     }
 
     /// The Trash that Empty Trash may clear: the real Trash, or in a test run the Trash of the fixture home.

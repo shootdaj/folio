@@ -23,7 +23,8 @@ extension BrowserWindowController {
         updateWatches()
         let items = tabs.tabs.map { tab in
             var item = TabItem(id: tab.id, title: tab.history.search.map { s in
-                                   "Search Results in " + (s.everywhere ? PlaceNames.thisComputer : displayName(tab.current))
+                                   "Search Results in " + (s.everywhere ? PlaceNames.thisComputer
+                                    : tab.history.isSpecial ? PlaceNames.title(.home) : displayName(tab.current))
                                } ?? tabTitle(tab), page: tab.history.special,
                                folder: tab.history.isSpecial ? nil : tab.current)
             item.isSearch = tab.history.search != nil

@@ -133,6 +133,8 @@ final class SuggestionsView: NSView {
     private var layout = Layout()
     private var lastHeight: CGFloat = 0
     private var axParts: [AddressPart] = []
+    /// The accessibility element of each focusable row, by row id, so the keyboard focus can be told to VoiceOver.
+    private var axRows: [String: AddressPart] = [:]
 
     private enum NativeMetrics {
         static let pad: CGFloat = 20, inset: CGFloat = 8, headH: CGFloat = 28, rowH: CGFloat = 40, groupH: CGFloat = 30
@@ -249,13 +251,11 @@ final class SuggestionsView: NSView {
     private func makeNativeLayout(width: CGFloat) -> Layout {
         typealias M = NativeMetrics
         var out = Layout()
-        let x = M.pad, w = max(240, width - 2 * M.pad), right = x + w
+        let x = M.pad, w = max(0, width - 2 * M.pad), right = x + w
         let st = state
         let digits = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular)
 
         // Header: title, the one button on the right, and the line under the title.
-        out.labels.append(Label(text: PlaceNames.suggestions, font: .systemFont(ofSize: 20, weight: .semibold), color: .labelColor,
-                                x: x, midY: 28))
         var headerButton: (Command, String)?
         switch st.phase {
         case .scanning: headerButton = (.stop, "Stop")
@@ -263,11 +263,16 @@ final class SuggestionsView: NSView {
         case .needsAccess: break
         case .done, .failed: headerButton = (.rescan, "Rescan")
         }
+        var titleRoom = w
         if let (command, title) = headerButton {
             let bw = buttonWidth(title, .plain)
+            titleRoom = max(0, w - bw - 10)
             out.controls.append(Placement(command: command, title: title, style: .plain,
                                           frame: NSRect(x: right - bw, y: 28 - M.buttonH / 2, width: bw, height: M.buttonH)))
         }
+        // The title gives way to the button on a narrow pane.
+        out.labels.append(Label(text: PlaceNames.suggestions, font: .systemFont(ofSize: 20, weight: .semibold), color: .labelColor,
+                                x: x, midY: 28, maxWidth: titleRoom))
         var subtitle: String
         switch st.phase {
         case .scanning: subtitle = SuggestionPage.progressText(st.progress)
@@ -331,10 +336,15 @@ final class SuggestionsView: NSView {
             out.labels.append(Label(text: SuggestionPage.sectionTotal(s), font: digits, color: .secondaryLabelColor, x: edge, midY: mid,
                                     alignRight: true))
             let tw = textWidth(s.title, font: .systemFont(ofSize: 11, weight: .semibold))
+            let countText = ByteText.grouped(s.count)
+            // The title shrinks first, so the count, the total and the button keep their place on a narrow pane.
+            let totalW = textWidth(SuggestionPage.sectionTotal(s), font: digits)
+            let countW = textWidth(countText, font: .systemFont(ofSize: 11))
+            let room = min(max(80, w * 0.5), max(0, edge - totalW - 8 - x - countW - 6))
             out.labels.append(Label(text: s.title, font: .systemFont(ofSize: 11, weight: .semibold), color: .secondaryLabelColor,
-                                    x: x, midY: mid, maxWidth: max(80, w * 0.5)))
-            out.labels.append(Label(text: ByteText.grouped(s.count), font: .systemFont(ofSize: 11), color: .tertiaryLabelColor,
-                                    x: x + min(tw, max(80, w * 0.5)) + 6, midY: mid))
+                                    x: x, midY: mid, maxWidth: room))
+            out.labels.append(Label(text: countText, font: .systemFont(ofSize: 11), color: .tertiaryLabelColor,
+                                    x: x + min(tw, room) + 6, midY: mid))
             out.lines.append(NSRect(x: x, y: y + M.headH - 1, width: w, height: 1))
             y += M.headH
             for row in s.rows {
@@ -386,13 +396,17 @@ final class SuggestionsView: NSView {
         func buttons(_ list: [(Command, String, OSButton.Style)]) {
             y += 10
             let widths = list.map { buttonWidth($0.1, $0.2) }
-            var bx = cx - (widths.reduce(0, +) + CGFloat(list.count - 1) * 10) / 2
+            let total = widths.reduce(0, +) + CGFloat(list.count - 1) * 10
+            // Two buttons that do not fit on one line go one under the other, each inside the pane.
+            let stacked = total > width - 2 * NativeMetrics.pad
+            var bx = max(NativeMetrics.pad, cx - total / 2)
             for (i, b) in list.enumerated() {
+                if stacked { bx = max(NativeMetrics.pad, cx - widths[i] / 2) }
                 out.controls.append(Placement(command: b.0, title: b.1, style: b.2,
                                               frame: NSRect(x: bx, y: y, width: widths[i], height: NativeMetrics.buttonH)))
-                bx += widths[i] + 10
+                if stacked { y += NativeMetrics.buttonH + 8 } else { bx += widths[i] + 10 }
             }
-            y += NativeMetrics.buttonH
+            if stacked { y -= 8 } else { y += NativeMetrics.buttonH }
         }
         let head = NSFont.systemFont(ofSize: 15, weight: .semibold)
         switch state.phase {
@@ -444,12 +458,10 @@ final class SuggestionsView: NSView {
         typealias M = D4Metrics
         let p = ThemeColors.current
         var out = Layout()
-        let x = M.pad, w = max(240, width - 2 * M.pad), right = x + w
+        let x = M.pad, w = max(0, width - 2 * M.pad), right = x + w
         let st = state
         let note = Typeface.mono(11)
 
-        out.labels.append(Label(text: PlaceNames.suggestions, font: Typeface.ui(18, weight: 700), color: p.text, x: x, midY: 28,
-                                tone: \.text))
         var headerButton: (Command, String)?
         switch st.phase {
         case .scanning: headerButton = (.stop, "Stop")
@@ -457,11 +469,16 @@ final class SuggestionsView: NSView {
         case .needsAccess: break
         case .done, .failed: headerButton = (.rescan, "Rescan")
         }
+        var titleRoom = w
         if let (command, title) = headerButton {
             let bw = buttonWidth(title, .plain)
+            titleRoom = max(0, w - bw - 10)
             out.controls.append(Placement(command: command, title: title, style: .plain,
                                           frame: NSRect(x: right - bw, y: 28 - M.buttonH / 2, width: bw, height: M.buttonH)))
         }
+        // The title gives way to the button on a narrow pane.
+        out.labels.append(Label(text: PlaceNames.suggestions, font: Typeface.ui(18, weight: 700), color: p.text, x: x, midY: 28,
+                                maxWidth: titleRoom, tone: \.text))
         out.labels.append(Label(text: d4Subtitle(), font: Typeface.mono(11, weight: 500), color: p.muted, x: x, midY: 54,
                                 maxWidth: w, tone: \.muted))
         var y: CGFloat = 70
@@ -509,7 +526,11 @@ final class SuggestionsView: NSView {
                                     x: edge, midY: mid, alignRight: true, tone: \.text2))
             let caption = Typeface.caption(s.title)
             let capFont = Typeface.mono(12, weight: 600), kern = Typeface.labelKern(12)
-            let cap = min(textWidth(caption, font: capFont, kern: kern), max(80, w * 0.4))
+            let totalW = textWidth(SuggestionPage.sectionTotal(s), font: Typeface.mono(12, weight: 500))
+            let countW = textWidth(ByteText.grouped(s.count), font: Typeface.mono(12, weight: 500))
+            // The caption shrinks first, so the count, the total and the button keep their place on a narrow pane.
+            let capRoom = min(max(80, w * 0.4), max(0, edge - totalW - 8 - (x + 14) - countW - 6))
+            let cap = min(textWidth(caption, font: capFont, kern: kern), capRoom)
             out.labels.append(Label(text: caption, font: capFont, color: p.muted, x: x + 14, midY: mid, maxWidth: cap, tone: \.muted,
                                     kern: kern))
             out.labels.append(Label(text: ByteText.grouped(s.count), font: Typeface.mono(12, weight: 500), color: p.muted,
@@ -569,13 +590,17 @@ final class SuggestionsView: NSView {
         func buttons(_ list: [(Command, String, OSButton.Style)]) {
             y += 12
             let widths = list.map { buttonWidth($0.1, $0.2) }
-            var bx = cx - (widths.reduce(0, +) + CGFloat(list.count - 1) * 10) / 2
+            let total = widths.reduce(0, +) + CGFloat(list.count - 1) * 10
+            // Two buttons that do not fit on one line go one under the other, each inside the pane.
+            let stacked = total > width - 2 * D4Metrics.pad
+            var bx = max(D4Metrics.pad, cx - total / 2)
             for (i, b) in list.enumerated() {
+                if stacked { bx = max(D4Metrics.pad, cx - widths[i] / 2) }
                 out.controls.append(Placement(command: b.0, title: b.1, style: b.2,
                                               frame: NSRect(x: bx, y: y, width: widths[i], height: D4Metrics.buttonH)))
-                bx += widths[i] + 10
+                if stacked { y += D4Metrics.buttonH + 8 } else { bx += widths[i] + 10 }
             }
-            y += D4Metrics.buttonH
+            if stacked { y -= 8 } else { y += D4Metrics.buttonH }
         }
         let head = Typeface.ui(16, weight: 700)
         switch state.phase {
@@ -906,6 +931,10 @@ final class SuggestionsView: NSView {
         focusedID = id
         updateStrip()
         needsDisplay = true
+        for (rowID, element) in axRows { element.setAccessibilitySelected(rowID == id) }
+        if let id, let element = axRows[id] {
+            NSAccessibility.post(element: element, notification: .focusedUIElementChanged)
+        }
         if scroll, let b = box(id) { scrollToVisible(b.rect.insetBy(dx: 0, dy: -4)) }
     }
 
@@ -956,6 +985,7 @@ final class SuggestionsView: NSView {
 
     private func rebuildAccessibility() {
         var parts: [AddressPart] = []
+        var rows: [String: AddressPart] = [:]
         for (s, rect) in layout.heads {
             let e = AddressPart()
             e.setAccessibilityRole(.staticText)
@@ -972,6 +1002,10 @@ final class SuggestionsView: NSView {
                                     + (b.row.isFocusable && !b.row.place.isEmpty ? ", in " + b.row.place : ""))
             e.setAccessibilityParent(self)
             e.setAccessibilityFrameInParentSpace(b.rect)
+            if b.row.isFocusable {
+                rows[b.row.id] = e
+                e.setAccessibilitySelected(focusedID == b.row.id)
+            }
             if let item = b.row.item {
                 let suggestion = b.row.suggestion
                 e.press = { [weak self] in self?.onReveal?(suggestion, item) }
@@ -988,6 +1022,12 @@ final class SuggestionsView: NSView {
             parts.append(e)
         }
         axParts = parts
+        axRows = rows
+    }
+
+    /// The row that has the keyboard focus, for VoiceOver.
+    override var accessibilityFocusedUIElement: Any? {
+        focusedID.flatMap { axRows[$0] }
     }
 
     override func accessibilityChildren() -> [Any]? {

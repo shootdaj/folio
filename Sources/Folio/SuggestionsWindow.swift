@@ -115,7 +115,16 @@ extension BrowserWindowController {
         }
         let keys = plan.keys
         center.markTrashing(keys)
-        OperationCenter.shared.trash(plan.urls, window: window, cancelled: { center.unmarkTrashing(keys) })
+        OperationCenter.shared.trash(plan.urls, window: window, cancelled: { center.unmarkTrashing(keys) }, recheck: {
+            // The confirmation sheet may have been open a long time: check the files again before they move.
+            let again = center.trashPlan(of: suggestions, item: item, allowing: keys)
+            let left = Set(again.keys)
+            let dropped = keys.filter { !left.contains($0) }
+            if !dropped.isEmpty { center.unmarkTrashing(dropped) }
+            if again.isEmpty { NSSound.beep() }
+            if again.changed > 0 || !again.staleGroups.isEmpty { center.rescan() }
+            return again.urls
+        })
         let count = plan.urls.count
         NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested, userInfo: [
             .announcement: count == 1 ? "Moved 1 item to the \(PlaceNames.recycleBin)"

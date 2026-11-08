@@ -71,7 +71,9 @@ public enum SuggestionActions {
                     continue
                 }
             }
-            let ok = SuggestionVerify.current(items, fs: fs)
+            var ok = SuggestionVerify.current(items, fs: fs)
+            // A folder's stamp misses a file added deeper down, and "empty" is the whole reason to move it.
+            if s.kind == .emptyFolders { ok = ok.filter { SuggestionVerify.hasNoFiles($0.url, fs: fs) } }
             changed += items.count - ok.count
             verified += ok
             bytes += ok.reduce(0) { $0 + $1.bytes }
