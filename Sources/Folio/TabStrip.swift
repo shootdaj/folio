@@ -289,7 +289,7 @@ final class TabStripView: NSView, NSDraggingSource {
     override func mouseMoved(with event: NSEvent) {
         let p = convert(event.locationInWindow, from: nil)
         let i = index(at: p)
-        let onClose = items.count > 1 && (i.map { closeRect($0).contains(p) && (!native || closeVisible($0) || hovered == $0) } ?? false)
+        let onClose = items.count > 1 && (i.map { closeRect($0).contains(p) } ?? false)
         let onPlus = plusRect.contains(p)
         if i != hovered || onClose != hoveredClose || onPlus != hoveredPlus {
             hovered = i
