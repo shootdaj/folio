@@ -58,7 +58,6 @@ final class QuickLookBox: NSView {
 /// The right-hand pane (`.pane` chassis): Preview (Option+P) or Details (Option+Shift+P), one at a time,
 /// as in Explorer.
 final class SidePaneView: NSView, NSTextFieldDelegate {
-    static let width: CGFloat = 340
     var kind: ListOptions.SidePane = .none {
         didSet {
             guard kind != oldValue else { return }
@@ -89,11 +88,12 @@ final class SidePaneView: NSView, NSTextFieldDelegate {
     private var native: Bool { ThemeController.shared.look == .native }
     private var headerH: CGFloat { native ? 32 : Self.headerH }
     private var iconSide: CGFloat { native ? 96 : Self.iconSide }
-    /// Native: an image shows as a picture across the pane, 220 pt high, instead of a 96 pt icon.
-    private static let imagePreviewH: CGFloat = 220
+    /// Native: an image shows as a picture across the pane instead of a 96 pt icon, its box growing
+    /// with the pane's width (220 pt high at the standard 340 pt, up to 480 pt).
+    private var imagePreviewH: CGFloat { min(480, max(160, ((bounds.width - 28) * 0.7).rounded())) }
     private var showsImagePreview: Bool { native && entry.map { Self.isImage($0) } == true }
     /// The picture or icon box at the top of Native's Details.
-    private var topBoxH: CGFloat { showsImagePreview ? Self.imagePreviewH : iconSide }
+    private var topBoxH: CGFloat { showsImagePreview ? imagePreviewH : iconSide }
 
     /// Images by extension, asked once per extension.
     private static var imageExtensions: [String: Bool] = [:]
@@ -155,6 +155,17 @@ final class SidePaneView: NSView, NSTextFieldDelegate {
 
     override var isFlipped: Bool { true }
 
+    /// Dragged wider or narrower: the picture box and the fields below it move, so all is laid out
+    /// and drawn again (a layer-backed view keeps its old drawing on a resize otherwise).
+    override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize != frame.size
+        super.setFrameSize(newSize)
+        if changed {
+            needsLayout = true
+            needsDisplay = true
+        }
+    }
+
     @objc private func closePressed(_ sender: Any?) { onClose?() }
 
     private func detailsHidden(_ hidden: Bool) {
@@ -208,7 +219,8 @@ final class SidePaneView: NSView, NSTextFieldDelegate {
             comments.isEnabled = meta != nil
             if ThumbnailCache.wants(e) {
                 // A picture across Native's pane needs a bigger thumbnail than the icon box.
-                let size: CGFloat = showsImagePreview ? 440 : 160
+                // Sized for the widest pane, so a drag wider does not ask Quick Look again.
+                let size: CGFloat = showsImagePreview ? 720 : 160
                 thumbnail = ThumbnailCache.shared.image(for: e, size: size) { [weak self] image in
                     guard let self, self.entry?.url == e.url else { return }
                     self.thumbnail = image
@@ -278,7 +290,7 @@ final class SidePaneView: NSView, NSTextFieldDelegate {
         let side = iconSide
         // An image fills a box across the pane; anything else has its icon (or thumbnail) in a square.
         let icon = showsImagePreview
-            ? NSRect(x: 14, y: headerH + 12, width: max(0, bounds.width - 28), height: Self.imagePreviewH)
+            ? NSRect(x: 14, y: headerH + 12, width: max(0, bounds.width - 28), height: imagePreviewH)
             : NSRect(x: (bounds.width - side) / 2, y: headerH + 12, width: side, height: side)
         if let thumbnail {
             let size = thumbnail.size

@@ -330,6 +330,10 @@ extension BrowserWindowController {
         pane.menuProvider = { [weak self] node in self?.nodeMenu(node) }
         pane.dropHost = self
         pane.onTreeChanged = { [weak self] in self?.sessionChanged() }
+        // The right-hand pane's width, dragged at its left edge, is kept for every window.
+        let store = SidebarStore(defaults: .standard)
+        chassis.sidePaneWidth = CGFloat(store.sidePaneWidth.map(SidePaneSize.clamped) ?? SidePaneSize.standard)
+        chassis.onSidePaneResized = { width in SidebarStore(defaults: .standard).setSidePaneWidth(width.map(Double.init)) }
         chassis.onSidebarResized = { [weak self] width in
             SidebarStore(defaults: .standard).setWidth(Double(width))
             self?.chassis.needsLayout = true

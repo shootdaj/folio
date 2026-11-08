@@ -19,6 +19,11 @@ pushed; the release workflow publishes the section below with that number as the
   pane and its pane that stays until it is closed. The Tags box no longer cuts off the bottom of its
   text in Native.
 
+- **The right-hand pane can be resized.** Drag its left edge (Preview or Details, in both looks): from
+  220 to 720 pt, and the list always keeps at least 360 pt. A double-click on the edge gives back the
+  standard 340 pt. The width is kept for every window and across launches. Native's image preview
+  grows with the pane (220 pt high at 340 pt wide, up to 480 pt).
+
 - **Search settings.** Folder Options has a "Search settings" box at the right of its tabs. Typing
   lists the matching settings of General, View and Search together, each with its tab and group, and
   each works in the list. A word matches at the start of a word in the title, the group, the tooltip or
