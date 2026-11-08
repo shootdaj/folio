@@ -7,7 +7,9 @@ import FolioCore
 @MainActor
 final class ProgressWindowController {
     private var window: ProgressPanel?
-    private let content = ProgressContentView()
+    private var content = ProgressContentView()
+    /// The look the window and the cards were built for.
+    private var builtLook = ThemeController.shared.look
     private var panels: [JobPanelView] = []
     private var lastTick = ProcessInfo.processInfo.systemUptime
     /// Hide was pressed: the window stays away until a job needs an answer or the chip is clicked.
@@ -16,11 +18,49 @@ final class ProgressWindowController {
     /// 680 pt for D4's tray, a plain 520 pt window in Native.
     static var width: CGFloat { ThemeController.shared.isNative ? 520 : 680 }
 
-    func add(_ job: any ProgressJob) {
+    init() {
+        // The controller lives as long as the app, so the observer is never removed.
+        NotificationCenter.default.addObserver(forName: ThemeController.didChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.lookChanged() }
+        }
+    }
+
+    private func makePanel(for job: any ProgressJob) -> JobPanelView {
         let panel = JobPanelView(job: job)
         panel.onHide = { [weak self] in self?.hide() }
         panel.onClose = { OperationCenter.shared.dismiss(job) }
         panel.onHeightChange = { [weak self] in self?.relayout() }
+        return panel
+    }
+
+    /// A look switch: build the window and the cards again so the new look's setup runs. The jobs go on.
+    private func rebuildForLook() {
+        let old = window
+        let wasVisible = old?.isVisible ?? false
+        let topLeft = old.map { NSPoint(x: $0.frame.minX, y: $0.frame.maxY) }
+        old?.orderOut(nil)
+        old?.contentView = nil
+        for panel in panels { panel.removeFromSuperview() }
+        window = nil
+        builtLook = ThemeController.shared.look
+        content = ProgressContentView()
+        panels = panels.map { makePanel(for: $0.job) }
+        for panel in panels { content.addSubview(panel) }
+        guard wasVisible, !panels.isEmpty else { return }
+        let w = makeWindow()
+        relayout()
+        if let topLeft { w.setFrameTopLeftPoint(topLeft) }
+        relayout()
+        w.orderFront(nil)
+    }
+
+    private func lookChanged() {
+        if builtLook != ThemeController.shared.look { rebuildForLook() }
+    }
+
+    func add(_ job: any ProgressJob) {
+        if builtLook != ThemeController.shared.look { rebuildForLook() }
+        let panel = makePanel(for: job)
         panels.append(panel)
         content.addSubview(panel)
         hiddenByUser = false

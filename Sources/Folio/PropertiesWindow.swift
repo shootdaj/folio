@@ -115,11 +115,15 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
         }
     }
 
+    /// "name Info" in Native, "name Properties" in D4.
+    private func windowTitle(for name: String) -> String {
+        name + (ThemeController.shared.look == .native ? " Info" : " Properties")
+    }
+
     private func reload() {
         infos = urls.map(ItemInfo.read)
         let title = urls.count == 1 ? (infos.first?.name ?? "") : "\(urls.count) items"
-        let native = ThemeController.shared.look == .native
-        window?.title = title + (native ? " Info" : " Properties")
+        window?.title = windowTitle(for: title)
         header.title = title + " Properties"
         header.infos = infos
         nameField.stringValue = urls.count == 1 ? (infos.first?.name ?? "") : "\(urls.count) items selected"
@@ -629,8 +633,12 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
 
     @objc private func themeChanged(_ note: Notification) {
         applyChrome()
+        let name = urls.count == 1 ? (infos.first?.name ?? "") : "\(urls.count) items"
+        window?.title = windowTitle(for: name)
+        nameField.font = Typeface.ui(15, weight: ThemeController.shared.look == .native ? 600 : 650)
         nameField.textColor = ThemeColors.current.text.ns
         layout()
+        build()
         if let content = window?.contentView { refreshTheme(in: content) }
     }
 
