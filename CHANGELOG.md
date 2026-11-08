@@ -9,6 +9,16 @@ pushed; the release workflow publishes the section below with that number as the
 
 ### Added
 
+- **Native shows the selected item's details on the right.** The pane comes up when items are
+  selected and goes when none are, as Finder's preview column does. One item shows its name, kind,
+  Tags and Comments and its details; several show how many and their size. An image shows as a
+  picture across the top of the pane (220 pt high), in place of the icon. The navigation pane no
+  longer has a Details section in Native. The pane is on by default in Native: its close button, or
+  View > Show > Details Pane (Option+Shift+P), turns it off and on. It stays out of the way on Home and
+  in Gallery, which previews the picture itself. D4 Obsidian keeps its Details card in the navigation
+  pane and its pane that stays until it is closed. The Tags box no longer cuts off the bottom of its
+  text in Native.
+
 - **Search settings.** Folder Options has a "Search settings" box at the right of its tabs. Typing
   lists the matching settings of General, View and Search together, each with its tab and group, and
   each works in the list. A word matches at the start of a word in the title, the group, the tooltip or

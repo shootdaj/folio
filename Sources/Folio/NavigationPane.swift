@@ -226,12 +226,14 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
         return SideNode(.cloud(CloudPlace(name: FileManager.default.displayName(atPath: home.path), path: home.path)))
     }()
 
-    /// The cards shown, top to bottom: D4's Quick access, This PC and Details, then Network.
+    /// The cards shown, top to bottom: D4's Quick access, This PC and Details, then Network. Native has
+    /// no Details section: the selected item's details are in the pane on the right.
     var sections: [SideNode.Section] {
         var out: [SideNode.Section] = [.quickAccess]
-        if layoutOptions.showAllFolders { return out + [.allFolders, .details] }
+        let details: [SideNode.Section] = Self.native ? [] : [.details]
+        if layoutOptions.showAllFolders { return out + [.allFolders] + details }
         if layoutOptions.showThisPC { out.append(.thisPC) }
-        out.append(.details)
+        out += details
         if layoutOptions.showNetwork { out.append(.network) }
         return out
     }

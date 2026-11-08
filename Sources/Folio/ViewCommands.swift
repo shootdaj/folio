@@ -363,8 +363,26 @@ extension BrowserWindowController: GridHost {
     func selectionDidChange() {
         let selected = selectedEntries
         sessionChanged()
-        chassis.sidebar.pane.details = DetailsCard.make(history.isHome ? [] : selected)
+        // Native shows the item's details in the pane on the right; D4 in the sidebar's card.
+        if !ThemeController.shared.isNative {
+            chassis.sidebar.pane.details = DetailsCard.make(history.isHome ? [] : selected)
+        }
+        let before = chassis.sidePaneKind
+        chassis.sidePaneKind = shownSidePane
+        // The pane coming up shows the selection at once, not up to 0.1 s later with what it had.
+        if before == .none, chassis.sidePaneKind != .none { previewWork?.cancel(); updatePreviews(); return }
         updatePreviewsSoon()
+    }
+
+    /// The right-hand pane on screen: the one chosen, except that Native's Details pane follows the
+    /// selection (DetailsPaneRule), and Home has none.
+    var shownSidePane: ListOptions.SidePane {
+        let chosen = ListOptions.sidePane
+        guard chosen == .details else { return history.isHome ? .none : chosen }
+        // Gallery previews the selection itself: Native's pane would show the same picture again.
+        if ThemeController.shared.isNative, viewMode == .gallery { return .none }
+        return DetailsPaneRule.shows(chosen: true, followsSelection: ThemeController.shared.isNative,
+                                     selectedCount: selection.rows.count, isHome: history.isHome) ? .details : .none
     }
 
     /// The Preview pane, Gallery and Quick Look follow the selection. A held arrow key changes it 30
@@ -379,11 +397,11 @@ extension BrowserWindowController: GridHost {
         DispatchQueue.main.asyncAfter(deadline: .now() + wait, execute: work)
     }
 
-    private func updatePreviews() {
+    func updatePreviews() {
         previewWork = nil
         lastPreviewUpdate = CACurrentMediaTime()
         let selected = selectedEntries
-        if ListOptions.sidePane != .none, !history.isHome {
+        if chassis.sidePaneKind != .none, !history.isHome {
             var meta: ItemMetadata?
             if selected.count == 1, let one = selected.first {
                 meta = MetadataCache.shared.cached(one)

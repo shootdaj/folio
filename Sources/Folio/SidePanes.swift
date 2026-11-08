@@ -89,6 +89,22 @@ final class SidePaneView: NSView, NSTextFieldDelegate {
     private var native: Bool { ThemeController.shared.look == .native }
     private var headerH: CGFloat { native ? 32 : Self.headerH }
     private var iconSide: CGFloat { native ? 96 : Self.iconSide }
+    /// Native: an image shows as a picture across the pane, 220 pt high, instead of a 96 pt icon.
+    private static let imagePreviewH: CGFloat = 220
+    private var showsImagePreview: Bool { native && entry.map { Self.isImage($0) } == true }
+    /// The picture or icon box at the top of Native's Details.
+    private var topBoxH: CGFloat { showsImagePreview ? Self.imagePreviewH : iconSide }
+
+    /// Images by extension, asked once per extension.
+    private static var imageExtensions: [String: Bool] = [:]
+    private static func isImage(_ e: FileEntry) -> Bool {
+        guard !e.isFolder else { return false }
+        let ext = (e.name as NSString).pathExtension.lowercased()
+        if let known = imageExtensions[ext] { return known }
+        let answer = UTType(filenameExtension: ext)?.conforms(to: .image) ?? false
+        imageExtensions[ext] = answer
+        return answer
+    }
     private var rowH: CGFloat { native ? 18 : Self.rowH }
     /// Native's Tags and Comments wells are a little shorter than D4's 30 and 48.
     private var tagsH: CGFloat { native ? 24 : 30 }
@@ -191,7 +207,9 @@ final class SidePaneView: NSView, NSTextFieldDelegate {
             tags.isEnabled = meta != nil
             comments.isEnabled = meta != nil
             if ThumbnailCache.wants(e) {
-                thumbnail = ThumbnailCache.shared.image(for: e, size: 160) { [weak self] image in
+                // A picture across Native's pane needs a bigger thumbnail than the icon box.
+                let size: CGFloat = showsImagePreview ? 440 : 160
+                thumbnail = ThumbnailCache.shared.image(for: e, size: size) { [weak self] image in
                     guard let self, self.entry?.url == e.url else { return }
                     self.thumbnail = image
                     self.needsDisplay = true
@@ -244,7 +262,7 @@ final class SidePaneView: NSView, NSTextFieldDelegate {
         if native { return entry == nil ? nativeFieldsTop : nativeDetailsTop }
         return entry == nil ? fieldsTop : fieldsTop + 18 + 30 + 8 + 18 + 48 + 14
     }
-    private var nativeFieldsTop: CGFloat { 32 + 12 + 96 + 50 }
+    private var nativeFieldsTop: CGFloat { 32 + 12 + topBoxH + 50 }
     private var nativeDetailsTop: CGFloat { nativeFieldsTop + 18 + 24 + 8 + 18 + 40 + 14 }
     /// Native's key column ends here and the values start a gap after it, as in Finder's Get Info.
     private static let nativeKeyRight: CGFloat = 124
@@ -258,13 +276,26 @@ final class SidePaneView: NSView, NSTextFieldDelegate {
         drawLine(head, font: Typeface.ui(11, weight: 600), color: NSColor.secondaryLabelColor, x: 14, midY: headerH / 2)
         guard kind == .details else { return }
         let side = iconSide
-        let icon = NSRect(x: (bounds.width - side) / 2, y: headerH + 12, width: side, height: side)
+        // An image fills a box across the pane; anything else has its icon (or thumbnail) in a square.
+        let icon = showsImagePreview
+            ? NSRect(x: 14, y: headerH + 12, width: max(0, bounds.width - 28), height: Self.imagePreviewH)
+            : NSRect(x: (bounds.width - side) / 2, y: headerH + 12, width: side, height: side)
         if let thumbnail {
             let size = thumbnail.size
             let scale = min(icon.width / max(1, size.width), icon.height / max(1, size.height))
             let w = size.width * scale, h = size.height * scale
-            thumbnail.draw(in: NSRect(x: icon.midX - w / 2, y: icon.maxY - h, width: w, height: h), from: .zero,
-                           operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+            // The picture is centred in its box, with Finder's slightly rounded corners; a thumbnail
+            // in the icon square sits on its bottom edge.
+            let r = NSRect(x: icon.midX - w / 2, y: showsImagePreview ? icon.midY - h / 2 : icon.maxY - h, width: w, height: h)
+            NSGraphicsContext.saveGraphicsState()
+            if showsImagePreview { NSBezierPath(roundedRect: r, xRadius: 6, yRadius: 6).addClip() }
+            thumbnail.draw(in: r, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+            NSGraphicsContext.restoreGraphicsState()
+        } else if showsImagePreview, let entry {
+            // Still loading: the file's icon in the middle of the box.
+            let r = NSRect(x: icon.midX - side / 2, y: icon.midY - side / 2, width: side, height: side)
+            FinderIconCache.shared.icon(url: entry.url, isDir: false, modified: entry.modified)
+                .draw(in: r, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
         } else {
             let image = entry.map { FinderIconCache.shared.icon(url: $0.url, isDir: summary.isFolder, modified: $0.modified) }
                 ?? FinderIconCache.shared.icon(name: "", isDir: true)
@@ -352,7 +383,7 @@ final class SidePaneView: NSView, NSTextFieldDelegate {
                 e.setAccessibilityRole(.staticText)
                 e.setAccessibilityLabel(text)
                 e.setAccessibilityParent(self)
-                let y = i < 2 ? headerH + 12 + iconSide + CGFloat(i) * 20 : detailsTop + CGFloat(i - 2) * rowH
+                let y = i < 2 ? headerH + 12 + topBoxH + CGFloat(i) * 20 : detailsTop + CGFloat(i - 2) * rowH
                 e.setAccessibilityFrameInParentSpace(NSRect(x: 14, y: y, width: bounds.width - 28, height: 20))
                 kids.append(e)
             }
@@ -400,7 +431,10 @@ final class PaneField: NSView {
 
     override func layout() {
         super.layout()
-        field.frame = bounds.insetBy(dx: 8, dy: 6)
+        // 6 pt above and below, but never shorter than a 12 pt line needs (Native's 24 pt Tags well
+        // left 12 pt and cut the text's foot off). D4's wells keep their 18 and 36 pt fields.
+        let h = max(17, bounds.height - 12)
+        field.frame = NSRect(x: 8, y: (bounds.height - h) / 2, width: max(0, bounds.width - 16), height: h)
         field.textColor = ThemeColors.current.text.ns
     }
 

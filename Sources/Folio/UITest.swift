@@ -263,7 +263,7 @@ enum UITestRunner {
             await settle(1.5)
             report("extra preview: \(c.entries[index].name) in the Preview pane")
             shot(window, config, suffix, c, &problems)
-            c.chassis.sidePaneKind = ListOptions.sidePane
+            c.chassis.sidePaneKind = c.shownSidePane
         case "home":
             c.goHome(nil)
             await settle(1.0)

@@ -46,11 +46,15 @@ enum ListOptions {
         }
     }
 
-    /// The right-hand pane: Preview (Option+P), Details (Option+Shift+P), or none.
+    /// The right-hand pane: Preview (Option+P), Details (Option+Shift+P), or none. Native starts with
+    /// Details, which comes up only while items are selected (DetailsPaneRule).
     enum SidePane: String { case none, preview, details }
 
     static var sidePane: SidePane {
-        get { UserDefaults.standard.string(forKey: sidePaneKey).flatMap(SidePane.init(rawValue:)) ?? .none }
+        get {
+            UserDefaults.standard.string(forKey: sidePaneKey).flatMap(SidePane.init(rawValue:))
+                ?? (ThemeController.shared.isNative ? .details : .none)
+        }
         set {
             UserDefaults.standard.set(newValue.rawValue, forKey: sidePaneKey)
             NotificationCenter.default.post(name: didChange, object: nil)

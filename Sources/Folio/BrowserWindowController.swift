@@ -480,7 +480,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         chassis.pane.gridScroll.documentView = grid
         chassis.sidePane.onClose = { ListOptions.sidePane = .none }
         chassis.sidePane.onEdit = { [weak self] url, tags, comment in self?.editMetadata(url, tags: tags, comment: comment) }
-        chassis.sidePaneKind = ListOptions.sidePane
+        chassis.sidePaneKind = shownSidePane
         toolbar.address.onClearToken = { [weak self] column in self?.clearFilter(column) }
         renamer.onCommit = { [weak self] name, move in self?.commitRename(name, move: move) ?? true }
         renamer.onEnd = { [weak self] in self?.renameEnded() }
@@ -1125,7 +1125,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<layout.rows.count))
         }
         grid.compact = ListOptions.compact
-        chassis.sidePaneKind = ListOptions.sidePane
+        chassis.sidePaneKind = shownSidePane
         if !entries.isEmpty {
             tableView.reloadData(forRowIndexes: IndexSet(integersIn: 0..<layout.rows.count), columnIndexes: IndexSet(tableView.tableColumns.indices))
             if !viewMode.usesTable { grid.reloadData() }
