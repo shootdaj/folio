@@ -13,7 +13,8 @@ final class ProgressWindowController {
     /// Hide was pressed: the window stays away until a job needs an answer or the chip is clicked.
     private var hiddenByUser = false
 
-    static let width: CGFloat = 680
+    /// 680 pt for D4's tray, a plain 520 pt window in Native.
+    static var width: CGFloat { ThemeController.shared.isNative ? 520 : 680 }
 
     func add(_ job: any ProgressJob) {
         let panel = JobPanelView(job: job)
@@ -81,6 +82,7 @@ final class ProgressWindowController {
 
     private func makeWindow() -> ProgressPanel {
         if let window { return window }
+        if ThemeController.shared.isNative { return makeNativeWindow() }
         let w = ProgressPanel(contentRect: NSRect(x: 0, y: 0, width: Self.width, height: 440),
                               styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         w.title = "Progress"
@@ -98,16 +100,45 @@ final class ProgressWindowController {
         return w
     }
 
+    /// Native: a titled window on the default background. Its close button hides it, like Hide.
+    private func makeNativeWindow() -> ProgressPanel {
+        let w = ProgressPanel(contentRect: NSRect(x: 0, y: 0, width: Self.width, height: 300),
+                              styleMask: [.titled, .closable, .nonactivatingPanel], backing: .buffered, defer: false)
+        w.title = "Progress"
+        w.backgroundColor = .windowBackgroundColor
+        w.isReleasedWhenClosed = false
+        w.hidesOnDeactivate = false
+        w.becomesKeyOnlyIfNeeded = true
+        w.isFloatingPanel = false
+        w.level = .normal
+        w.onClose = { [weak self] in self?.hide() }
+        w.contentView = content
+        window = w
+        return w
+    }
+
     private func relayout() {
+        let native = ThemeController.shared.isNative
         var y: CGFloat = 0
+        let gap: CGFloat = native ? 0 : 10
         for panel in panels {
             let h = panel.preferredHeight
             panel.frame = NSRect(x: 0, y: y, width: Self.width, height: h)
-            y += h + 10
+            y += h + gap
         }
-        let height = max(1, y - 10)
+        let height = max(1, y - gap)
         content.panelCount = panels.count
         guard let window else { return }
+        if native {
+            let visible = (window.screen ?? NSScreen.main)?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+            let frameH = min(window.frameRect(forContentRect: NSRect(x: 0, y: 0, width: Self.width, height: height)).height,
+                             visible.height)
+            var top = min(window.frame.maxY, visible.maxY)
+            if top - frameH < visible.minY { top = visible.minY + frameH }
+            window.setFrame(NSRect(x: window.frame.minX, y: top - frameH, width: window.frame.width, height: frameH), display: true)
+            content.needsDisplay = true
+            return
+        }
         let visible = (window.screen ?? NSScreen.main)?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let h = min(height, visible.height)
         // The top stays put as the conflict card comes and goes, unless that would push the bottom off screen.
@@ -120,7 +151,14 @@ final class ProgressWindowController {
 }
 
 final class ProgressPanel: NSPanel {
+    /// Native: the close button hides the window instead of closing it.
+    var onClose: (() -> Void)?
+
     override var canBecomeKey: Bool { true }
+
+    override func close() {
+        if let onClose { onClose() } else { super.close() }
+    }
 }
 
 /// The window's content: clear, the cards draw themselves.
@@ -180,11 +218,40 @@ final class JobPanelView: NSView {
     private let toLink = LinkArea()
 
     /// The copy card's height.
-    static let bodyH: CGFloat = 320
+    static var bodyH: CGFloat { ThemeController.shared.isNative ? 232 : 320 }
+
+    // Native: real subviews. D4 never adds them.
+    fileprivate let kindIcon = NSImageView()
+    fileprivate let titleLabel = nativeLabel(13, weight: .semibold)
+    fileprivate let routeLabel = nativeLabel(11, secondary: true)
+    fileprivate let fromKey = nativeLabel(11, secondary: true)
+    fileprivate let toKey = nativeLabel(11, secondary: true)
+    fileprivate let fromPath = nativeLabel(11, mode: .byTruncatingMiddle)
+    fileprivate let toPath = nativeLabel(11, mode: .byTruncatingMiddle)
+    fileprivate let bar = NSProgressIndicator()
+    fileprivate let doneLabel = nativeLabel(11, secondary: true)
+    fileprivate let percentLabel = nativeLabel(11, secondary: true, alignment: .right)
+    fileprivate let statKeys = (0..<3).map { _ in nativeLabel(11, secondary: true) }
+    fileprivate let statValues = (0..<3).map { _ in nativeLabel(13) }
+    fileprivate let noteLabel = nativeLabel(11, secondary: true)
+    fileprivate let topIcon = NSImageView()
+    fileprivate let topTitle = nativeLabel(13, weight: .semibold)
+    fileprivate let topSub = nativeLabel(11, secondary: true)
+    fileprivate let topCount = nativeLabel(11, secondary: true, alignment: .right)
+    fileprivate let sideKeys = (0..<2).map { _ in nativeLabel(11, secondary: true) }
+    fileprivate let sideIcons = (0..<2).map { _ in NSImageView() }
+    fileprivate let sideNames = (0..<2).map { _ in nativeLabel(13, weight: .semibold) }
+    fileprivate let sideFacts = (0..<2).map { _ in nativeLabel(11, secondary: true) }
+    fileprivate let sideTags = (0..<2).map { _ in nativeLabel(11, secondary: true) }
+    /// Native: what each side of the conflict draws behind its labels.
+    fileprivate var sideBorders: [NSColor] = [.separatorColor, .separatorColor]
+    /// Native: the last footer button titles, to lay out again when one changes.
+    fileprivate var nativeButtonTitles = ""
 
     init(job: any ProgressJob) {
         self.job = job
         super.init(frame: NSRect(x: 0, y: 0, width: ProgressWindowController.width, height: Self.bodyH))
+        defer { if ThemeController.shared.isNative { setUpNative() } }
         for v in [headLight, cardLight] as [NSView] { addSubview(v); v.isHidden = true }
         cardLight.tone = { $0.part }
         cardLight.blinking = true
@@ -239,6 +306,7 @@ final class JobPanelView: NSView {
 
     /// The card above the copy card (conflict, problem or what was decided), 0 when there is none.
     private var topH: CGFloat {
+        if ThemeController.shared.isNative { return nativeTopH }
         if showsConflict { return 66 + cardH + 12 + 44 + 10 + 20 + 14 }
         if showsProblem { return 66 + 44 + 14 }
         if showsResolution { return 14 + 30 + 14 }
@@ -269,6 +337,7 @@ final class JobPanelView: NSView {
         }
         if let armedAt, t - armedAt > 3 { self.armedAt = nil }
         applyState(s)
+        if ThemeController.shared.isNative { refreshNative(s) }
         needsDisplay = true
         if preferredHeight != before { needsLayout = true; return true }
         return false
@@ -356,6 +425,7 @@ final class JobPanelView: NSView {
 
     override func layout() {
         super.layout()
+        if ThemeController.shared.isNative { layoutNative(); return }
         let w = bounds.width
         let y0 = bodyTop
         let hideW = hideButton.fit()
@@ -429,6 +499,7 @@ final class JobPanelView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         guard let s = snap else { return }
+        if ThemeController.shared.isNative { drawNative(); return }
         let p = ThemeColors.current
         if showsConflict, let c = s.conflict { drawConflict(c, p) }
         if showsProblem, let problem = s.problem { drawProblem(problem, p) }
@@ -683,6 +754,258 @@ final class JobPanelView: NSView {
         let r = topCard(p.ok, p)
         Glyph.check.draw(in: NSRect(x: 20, y: r.midY - 9, width: 18, height: 18), color: p.ok.ns)
         drawLine(text, font: Typeface.ui(13), color: p.text2, x: 48, midY: r.midY, maxWidth: r.width - 66)
+    }
+}
+
+/// A system-font label for the Native cards.
+@MainActor
+private func nativeLabel(_ size: CGFloat, weight: NSFont.Weight = .regular, secondary: Bool = false,
+                         mode: NSLineBreakMode = .byTruncatingTail, alignment: NSTextAlignment = .left) -> NSTextField {
+    let l = NSTextField(labelWithString: "")
+    l.font = NSFont.systemFont(ofSize: size, weight: weight)
+    l.textColor = secondary ? .secondaryLabelColor : .labelColor
+    l.lineBreakMode = mode
+    l.alignment = alignment
+    l.cell?.usesSingleLineMode = true
+    return l
+}
+
+// MARK: Native
+
+extension JobPanelView {
+    /// Native card geometry, in points.
+    private var nativeSideH: CGFloat { compare ? 92 : 70 }
+    private var nativeRow: CGFloat { 28 }
+
+    fileprivate var nativeTopH: CGFloat {
+        if showsConflict { return 60 + nativeSideH + 12 + nativeRow + 8 + 18 + 16 }
+        if showsProblem { return 60 + nativeRow + 16 }
+        if showsResolution { return 48 }
+        return 0
+    }
+
+    fileprivate func setUpNative() {
+        let icons: [NSImageView] = [kindIcon, topIcon] + sideIcons
+        for v in icons { v.imageScaling = .scaleProportionallyUpOrDown; addSubview(v) }
+        kindIcon.contentTintColor = .controlAccentColor
+        bar.isIndeterminate = false
+        bar.minValue = 0
+        bar.maxValue = 1
+        bar.style = .bar
+        addSubview(bar)
+        let labels: [NSTextField] = [titleLabel, routeLabel, fromKey, toKey, fromPath, toPath, doneLabel, percentLabel, noteLabel,
+                                     topTitle, topSub, topCount] + statKeys + statValues + sideKeys + sideNames + sideFacts + sideTags
+        for l in labels { addSubview(l) }
+        fromKey.stringValue = "From"
+        toKey.stringValue = "To"
+        for (i, key) in ["Speed", "Time left", "Items"].enumerated() { statKeys[i].stringValue = key }
+        // The links sit over the paths, above the labels.
+        for v in [fromLink, toLink] as [NSView] { v.removeFromSuperview(); addSubview(v) }
+        topIcon.isHidden = true
+    }
+
+    private func put(_ l: NSTextField, _ text: String) { if l.stringValue != text { l.stringValue = text } }
+
+    fileprivate func refreshNative(_ s: JobSnapshot) {
+        let conflict = showsConflict, problem = showsProblem, resolved = showsResolution
+        // A new button title can change its width, so the row needs a new layout.
+        let titles = cancelButton.title + "|" + pauseButton.title
+        if titles != nativeButtonTitles { nativeButtonTitles = titles; needsLayout = true }
+        // The LEDs are D4's. A lit one would show its dot at the corner.
+        headLight.isHidden = true
+        cardLight.isHidden = true
+        let symbol = s.kind == .move ? "arrow.right.circle" : s.kind == .compress ? "doc.zipper" : s.kind == .extract ? "archivebox" : "doc.on.doc"
+        if kindIcon.toolTip != symbol {
+            kindIcon.toolTip = symbol
+            kindIcon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+                .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 26, weight: .regular))
+        }
+        put(titleLabel, title(s))
+        let from = (s.sources.first?.deletingLastPathComponent() ?? s.destination).standardizedFileURL
+        let to = s.destination.standardizedFileURL
+        let short = to.path == "/" ? "/" : to.pathComponents.suffix(2).joined(separator: "/")
+        put(routeLabel, from.lastPathComponent + " \u{2192} " + short)
+        put(fromPath, from.path)
+        put(toPath, to.path)
+        bar.doubleValue = shown
+        let shownBytes = s.state == .done ? s.bytesTotal : Int64(Double(s.bytesTotal) * shown)
+        put(doneLabel, ProgressText.bytesOf(shownBytes, s.bytesTotal))
+        put(percentLabel, "\(s.state == .done ? 100 : Int((shown * 100).rounded(.down)))%")
+        let speed: String, left: String
+        switch s.state {
+        case .preparing: speed = "Counting"; left = "Counting"
+        case .running:
+            speed = ProgressText.speed(s.speed)
+            left = s.secondsLeft.map(ProgressText.timeLeft) ?? "Working out"
+        case .paused: speed = "Paused"; left = "Paused"
+        case .waitingOnConflict, .waitingOnProblem: speed = "Idle"; left = "Waiting on you"
+        case .done: speed = "Done"; left = "Done"
+        case .cancelled: speed = "Stopped"; left = "Stopped"
+        }
+        put(statValues[0], speed)
+        put(statValues[1], left)
+        put(statValues[2], ByteText.grouped(s.itemsDone) + " of " + ByteText.grouped(s.itemsTotal))
+        if conflict {
+            let n = s.conflictsLeft
+            put(noteLabel, n == 1 ? "1 conflict is waiting for you" : "\(n) conflicts are waiting for you")
+        } else {
+            var now = ""
+            if let name = s.currentName, !s.state.isFinished { now = name + ", " }
+            let itemsLeft = max(0, s.itemsTotal - s.itemsDone)
+            now += ByteText.grouped(itemsLeft) + (itemsLeft == 1 ? " item" : " items") + " left"
+            if s.skipped > 0 { now += ", \(s.skipped) skipped" }
+            put(noteLabel, now)
+        }
+        // The card above.
+        let showTop = conflict || problem || resolved
+        topIcon.isHidden = !showTop
+        topTitle.isHidden = !showTop
+        topSub.isHidden = !(conflict || problem)
+        topCount.isHidden = !conflict
+        let sideViews: [NSView] = sideKeys + sideIcons + sideNames + sideFacts
+        for v in sideViews { v.isHidden = !conflict }
+        for t in sideTags { t.isHidden = !(conflict && compare) }
+        if conflict, let c = s.conflict {
+            setTop(symbol: nil)
+            let folder = c.destination.deletingLastPathComponent().lastPathComponent
+            let from = c.source.deletingLastPathComponent().lastPathComponent
+            put(topTitle, c.incoming.name + " is already in " + folder)
+            put(topSub, "The copy keeps going while you decide.")
+            put(topCount, s.conflictsLeft == 1 ? "1 conflict" : "\(s.conflictsLeft) conflicts")
+            let newer = c.incomingIsNewer
+            let older = c.existing.modified.flatMap { e in c.incoming.modified.map { e.timeIntervalSince($0) > 1 } } ?? false
+            let delta = c.sizeDelta
+            let keys = ["In \(folder)", "From \(from)"]
+            let sides = [c.existing, c.incoming]
+            let tags = [[older ? "Newer" : newer ? "Older" : "Same date", delta < 0 ? "Larger" : delta > 0 ? "Smaller" : "Same size"],
+                        [newer ? "Newer" : older ? "Older" : "Same date",
+                         delta > 0 ? "Larger by " + ByteText.kilobytes(delta) : delta < 0 ? "Smaller" : "Same size"]]
+            let wins = [older || delta < 0, newer || delta > 0]
+            for i in 0..<2 {
+                put(sideKeys[i], keys[i])
+                put(sideNames[i], c.incoming.name)
+                var line = facts(sides[i])
+                if i == 1 && newer { line += ", newer" }
+                put(sideFacts[i], line)
+                put(sideTags[i], tags[i].joined(separator: ", "))
+                sideIcons[i].image = FinderIconCache.shared.icon(name: c.incoming.name, isDir: sides[i].isFolder)
+                sideBorders[i] = i == 1 && newer ? NSColor.systemGreen.withAlphaComponent(0.6)
+                    : (compare && wins[i] ? .controlAccentColor : .separatorColor)
+            }
+        } else if problem, let pr = s.problem {
+            setTop(symbol: nil)
+            put(topTitle, pr.url.lastPathComponent)
+            put(topSub, pr.message)
+        } else if resolved, let resolution {
+            setTop(symbol: "checkmark.circle.fill")
+            topIcon.contentTintColor = .systemGreen
+            put(topTitle, resolution)
+        }
+    }
+
+    /// The icon of the card above: the caution icon, or a symbol.
+    private func setTop(symbol: String?) {
+        let key = symbol ?? "caution"
+        guard topIcon.toolTip != key else { return }
+        topIcon.toolTip = key
+        if let symbol {
+            topIcon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+                .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 22, weight: .regular))
+        } else {
+            topIcon.image = NSImage(named: NSImage.cautionName)
+            topIcon.contentTintColor = nil
+        }
+    }
+
+    fileprivate func layoutNative() {
+        let w = bounds.width, pad: CGFloat = 20
+        let btnH = OSButton.height, rowPad = (nativeRow - btnH) / 2
+        // The card above.
+        if showsResolution {
+            topIcon.frame = NSRect(x: pad, y: 12, width: 24, height: 24)
+            topTitle.frame = NSRect(x: pad + 34, y: 15, width: w - pad * 2 - 34, height: 18)
+        } else {
+            topIcon.frame = NSRect(x: pad, y: 14, width: 32, height: 32)
+            let countW: CGFloat = showsConflict ? 90 : 0
+            topCount.frame = NSRect(x: w - pad - countW, y: 17, width: countW, height: 15)
+            topTitle.frame = NSRect(x: 64, y: 14, width: w - 64 - pad - countW - 8, height: 18)
+            topSub.frame = NSRect(x: 64, y: 33, width: w - 64 - pad, height: 15)
+        }
+        let cw = (w - pad * 2 - 8) / 2
+        for i in 0..<2 {
+            let x = pad + CGFloat(i) * (cw + 8)
+            sideKeys[i].frame = NSRect(x: x + 12, y: 60 + 8, width: cw - 24, height: 14)
+            sideIcons[i].frame = NSRect(x: x + 12, y: 60 + 26, width: 32, height: 32)
+            sideNames[i].frame = NSRect(x: x + 52, y: 60 + 27, width: cw - 64, height: 17)
+            sideFacts[i].frame = NSRect(x: x + 52, y: 60 + 44, width: cw - 64, height: 15)
+            sideTags[i].frame = NSRect(x: x + 12, y: 60 + 66, width: cw - 24, height: 15)
+        }
+        var x = pad
+        let by = 60 + nativeSideH + 12 + rowPad
+        for b in [replaceButton, skipButton, keepButton] {
+            let bw = b.fit()
+            b.frame = NSRect(x: x, y: by, width: bw, height: btnH)
+            x += bw + 8
+        }
+        let cmpW = compareButton.fit()
+        compareButton.frame = NSRect(x: w - pad - cmpW, y: by, width: cmpW, height: btnH)
+        let cy = 60 + nativeSideH + 12 + nativeRow + 8
+        applyAllCheck.frame = NSRect(x: pad, y: cy, width: applyAllCheck.fit(), height: 18)
+        let ix = applyAllCheck.isHidden ? pad : applyAllCheck.frame.maxX + 20
+        identicalCheck.frame = NSRect(x: ix, y: cy, width: identicalCheck.fit(), height: 18)
+        x = pad
+        for b in [retryButton, skipProblemButton, stopButton] {
+            let bw = b.fit(minimum: 80)
+            b.frame = NSRect(x: x, y: 60 + rowPad, width: bw, height: btnH)
+            x += bw + 8
+        }
+        // The copy card.
+        let y0 = bodyTop
+        let hideW = hideButton.fit()
+        hideButton.frame = NSRect(x: w - pad - hideW, y: y0 + 16 + rowPad, width: hideW, height: btnH)
+        kindIcon.frame = NSRect(x: pad, y: y0 + 16, width: 32, height: 32)
+        titleLabel.frame = NSRect(x: 64, y: y0 + 16, width: hideButton.frame.minX - 64 - 8, height: 17)
+        routeLabel.frame = NSRect(x: 64, y: y0 + 34, width: hideButton.frame.minX - 64 - 8, height: 15)
+        let valueX: CGFloat = 52
+        fromKey.frame = NSRect(x: pad, y: y0 + 64, width: 32, height: 15)
+        toKey.frame = NSRect(x: pad, y: y0 + 83, width: 32, height: 15)
+        fromPath.frame = NSRect(x: valueX, y: y0 + 64, width: w - valueX - pad, height: 15)
+        toPath.frame = NSRect(x: valueX, y: y0 + 83, width: w - valueX - pad, height: 15)
+        fromLink.frame = fromPath.frame
+        toLink.frame = toPath.frame
+        bar.frame = NSRect(x: pad, y: y0 + 108, width: w - pad * 2, height: 10)
+        doneLabel.frame = NSRect(x: pad, y: y0 + 124, width: (w - pad * 2) * 0.7, height: 15)
+        percentLabel.frame = NSRect(x: w - pad - 60, y: y0 + 124, width: 60, height: 15)
+        let col = (w - pad * 2) / 3
+        for i in 0..<3 {
+            statKeys[i].frame = NSRect(x: pad + CGFloat(i) * col, y: y0 + 150, width: col - 8, height: 14)
+            statValues[i].frame = NSRect(x: pad + CGFloat(i) * col, y: y0 + 165, width: col - 8, height: 17)
+        }
+        let fy = y0 + 192
+        let cancelW = cancelButton.fit(minimum: 80), pauseW = pauseButton.fit(minimum: 80)
+        cancelButton.frame = NSRect(x: w - pad - cancelW, y: fy + rowPad, width: cancelW, height: btnH)
+        pauseButton.frame = NSRect(x: cancelButton.frame.minX - 8 - pauseW, y: fy + rowPad, width: pauseW, height: btnH)
+        noteLabel.frame = NSRect(x: pad, y: fy + 6, width: pauseButton.frame.minX - pad - 12, height: 15)
+    }
+
+    /// Native draws only the hairline between the cards and the two sides' boxes. The rest is subviews.
+    fileprivate func drawNative() {
+        let w = bounds.width
+        if topH > 0 {
+            NSColor.separatorColor.setFill()
+            NSRect(x: 0, y: topH + 4.5, width: w, height: 1).fill()
+        }
+        guard showsConflict else { return }
+        let cw = (w - 40 - 8) / 2
+        for i in 0..<2 {
+            let box = NSRect(x: 20 + CGFloat(i) * (cw + 8), y: 60, width: cw, height: nativeSideH)
+            let path = NSBezierPath(roundedRect: box.insetBy(dx: 0.5, dy: 0.5), xRadius: 6, yRadius: 6)
+            NSColor.controlBackgroundColor.setFill()
+            path.fill()
+            sideBorders[i].setStroke()
+            path.lineWidth = 1
+            path.stroke()
+        }
     }
 }
 
