@@ -98,7 +98,7 @@ public struct ItemInfo: Sendable, Equatable {
             sizeOnDisk: isDir ? nil : allocated.map(Int64.init) ?? (exists ? Int64(st.st_blocks) * 512 : nil),
             created: v?.creationDate,
             modified: v?.contentModificationDate,
-            lastOpened: lastUsed(url) ?? v?.contentAccessDate,
+            lastOpened: SpotlightDates.lastUsed(url) ?? v?.contentAccessDate,
             isLocked: v?.isUserImmutable ?? (st.st_flags & UInt32(UF_IMMUTABLE) != 0),
             isHidden: v?.isHidden ?? false,
             isQuarantined: ExtendedAttributes.has(url, "com.apple.quarantine"),
@@ -106,12 +106,6 @@ public struct ItemInfo: Sendable, Equatable {
             group: exists ? groupName(st.st_gid) : "",
             permissions: Permissions(mode: UInt16(st.st_mode)),
             tags: v?.tagNames ?? [])
-    }
-
-    /// Finder's "Last opened": Spotlight's last-used date when it has one.
-    private static func lastUsed(_ url: URL) -> Date? {
-        guard let item = MDItemCreateWithURL(nil, url as CFURL) else { return nil }
-        return MDItemCopyAttribute(item, kMDItemLastUsedDate) as? Date
     }
 
     private static func userName(_ uid: uid_t) -> String {
@@ -350,5 +344,14 @@ public enum OpenWith {
     static func choice(_ app: URL) -> AppChoice {
         AppChoice(url: app, name: FileManager.default.displayName(atPath: app.path)
             .replacingOccurrences(of: ".app", with: ""))
+    }
+}
+
+/// Dates that only Spotlight knows.
+enum SpotlightDates {
+    /// Finder's "Last opened": Spotlight's last-used date when it has one.
+    static func lastUsed(_ url: URL) -> Date? {
+        guard let item = MDItemCreateWithURL(nil, url as CFURL) else { return nil }
+        return MDItemCopyAttribute(item, kMDItemLastUsedDate) as? Date
     }
 }
