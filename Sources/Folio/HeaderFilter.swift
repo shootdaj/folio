@@ -27,6 +27,7 @@ final class FilterPanelController {
     func show(below rect: NSRect, in view: NSView) {
         guard let window = view.window else { return }
         refresh()
+        if ThemeController.shared.isNative { panel.appearance = window.effectiveAppearance }
         let anchor = window.convertToScreen(view.convert(rect, to: nil))
         let size = panel.view.preferredSize
         var x = anchor.maxX - size.width + 6
@@ -131,7 +132,16 @@ final class FilterPanel: NSPanel {
         becomesKeyOnlyIfNeeded = true
         animationBehavior = .none
         self.title = title
-        contentView = view
+        if ThemeController.shared.isNative {
+            // Native: the system popover material behind the view, which draws no fill or border.
+            let material = ClickThroughEffectView(material: .popover, cornerRadius: 10)
+            view.frame = material.bounds
+            view.autoresizingMask = [.width, .height]
+            material.addSubview(view)
+            contentView = material
+        } else {
+            contentView = view
+        }
         view.setAccessibilityLabel(title)
     }
 
@@ -210,11 +220,18 @@ final class FilterView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         let p = ThemeColors.current
-        fillRounded(bounds, radius: 12, p.pop.over(p.bg))
-        strokeRounded(bounds, radius: 12, p.line2)
-        let head = Typeface.caption("Filter  " + column.title)
-        drawLine(head, font: Typeface.mono(12, weight: 600), color: p.muted, x: 14, midY: Self.headH / 2, kern: Typeface.labelKern(12))
-        fillRect(NSRect(x: 1, y: Self.headH - 1, width: bounds.width - 2, height: 1), p.line)
+        let native = ThemeController.shared.isNative
+        if native {
+            // No fill, no border and no head hairline: the popover material is the panel.
+            drawLine("Filter  " + column.title, font: Typeface.ui(11, weight: 600), color: NSColor.secondaryLabelColor, x: 14,
+                     midY: Self.headH / 2)
+        } else {
+            fillRounded(bounds, radius: 12, p.pop.over(p.bg))
+            strokeRounded(bounds, radius: 12, p.line2)
+            let head = Typeface.caption("Filter  " + column.title)
+            drawLine(head, font: Typeface.mono(12, weight: 600), color: p.muted, x: 14, midY: Self.headH / 2, kern: Typeface.labelKern(12))
+            fillRect(NSRect(x: 1, y: Self.headH - 1, width: bounds.width - 2, height: 1), p.line)
+        }
         let top = Self.headH + calendarH
         if column.isDate { fillRect(NSRect(x: 10, y: top - 4, width: bounds.width - 20, height: 1), p.line) }
         if !message.isEmpty {
@@ -336,7 +353,7 @@ final class MonthCalendarView: NSView {
             let inMonth = cal.isDate(d, equalTo: month, toGranularity: .month)
             let picked = isPicked(d)
             if picked {
-                fillRounded(r, radius: 3, p.accent)
+                fillRounded(r, radius: 3, ThemeController.shared.isNative ? NSColor.controlAccentColor : p.accent.ns)
             } else if d == today {
                 strokeRounded(r, radius: 3, p.accent)
             }
