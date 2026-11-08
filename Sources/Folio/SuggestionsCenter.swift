@@ -39,7 +39,8 @@ final class SuggestionsCenter: NSObject {
     private var accessOverride = false
     private let fs: any ScanFileSystem = LiveScanFileSystem()
 
-    private var home: URL { fixtureHome ?? FileManager.default.homeDirectoryForCurrentUser }
+    /// The folder the scan looks through: the real home, or a fixture home in a test run.
+    var home: URL { fixtureHome ?? FileManager.default.homeDirectoryForCurrentUser }
     var isRealHome: Bool { fixtureHome == nil }
     var ignores: SuggestionIgnores { SuggestionIgnores(defaults: defaults) }
     var ignoredCount: Int { ignores.count }

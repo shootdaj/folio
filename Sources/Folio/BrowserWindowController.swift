@@ -383,6 +383,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         center.addObserver(self, selector: #selector(volumesChanged(_:)), name: VolumeCenter.didChange, object: nil)
         center.addObserver(self, selector: #selector(serversChanged(_:)), name: VolumeCenter.serversChanged, object: nil)
         center.addObserver(self, selector: #selector(homeDataChanged(_:)), name: HomeData.didChange, object: nil)
+        center.addObserver(self, selector: #selector(suggestionsChanged(_:)), name: SuggestionsCenter.didChange, object: nil)
         center.addObserver(self, selector: #selector(viewModeChanged(_:)), name: ViewCenter.didChange, object: nil)
         center.addObserver(self, selector: #selector(columnsChanged(_:)), name: ColumnCenter.didChange, object: nil)
         center.addObserver(self, selector: #selector(devicesChanged(_:)), name: DeviceCenter.didChange, object: nil)
@@ -432,6 +433,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         wireNavigationPane()
         wireTabStrip()
         wireHome()
+        wireSuggestions()
         wireSearch()
         address.dropHost = self
         address.onMiddleClick = { [weak self] url in self?.openInNewTab(url, activate: false) }
@@ -610,7 +612,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         switch pane {
         case .address: toolbar.address.beginEditing()
         case .sidebar: chassis.sidebar.takeKeyboardFocus()
-        case .list: window?.makeFirstResponder(listView)
+        case .list: window?.makeFirstResponder(chassis.page == .suggestions ? chassis.suggestions.page : listView)
         }
     }
 
