@@ -31,6 +31,7 @@ extension BrowserWindowController {
         }
         chassis.tabStrip.items = items
         chassis.tabStrip.activeIndex = tabs.activeIndex
+        chassis.setTabRowVisible(items.count >= 2)
     }
 
     /// A folder tab's title: its name, or with Folder Options > Display the full path in the title bar,

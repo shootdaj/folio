@@ -52,7 +52,8 @@ final class BrowserWindow: NSWindow {
         guard !styleMask.contains(.fullScreen),
               let close = standardWindowButton(.closeButton),
               let container = close.superview?.superview else { return }
-        let bar = ChassisView.titleH
+        // Native centres the lights on the 52 pt toolbar band (there is no title bar).
+        let bar = ThemeController.shared.look == .native ? ChassisView.toolH : ChassisView.titleH
         var frame = container.frame
         frame.size.height = bar
         frame.origin.y = self.frame.height - bar
@@ -285,6 +286,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         // Small enough for two windows side by side on a 1024 pt screen (Window > Tile).
         window.minSize = NSSize(width: 500, height: 480)
         window.backgroundColor = ThemeColors.current.pane.ns
+        if ThemeController.shared.look == .native {
+            // The sidebar's material shows through a clear, non-opaque window.
+            window.isOpaque = false
+            window.backgroundColor = .clear
+        }
         window.allowsOffscreen = options.uitest
         window.collectionBehavior.insert(.fullScreenPrimary)
         if options.uitest { window.isRestorable = false }
@@ -369,6 +375,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         tableView.cornerView = nil
         tableView.style = .plain
         tableView.rowHeight = ListOptions.compact ? ListMetrics.compactRowHeight : ListMetrics.rowHeight
+        if ThemeController.shared.look == .native { tableView.rowHeight = ListOptions.compact ? 20 : 24 }
         // Group headers scroll with their rows; a header click sorts or adds a sort key, never selects a column.
         tableView.floatsGroupRows = false
         tableView.allowsColumnSelection = false
@@ -376,7 +383,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         tableView.backgroundColor = .clear
         tableView.gridStyleMask = []
         tableView.focusRingType = .none
-        tableView.usesAlternatingRowBackgroundColors = false
+        tableView.usesAlternatingRowBackgroundColors = ThemeController.shared.look == .native
+        if ThemeController.shared.look == .native { tableView.backgroundColor = .controlBackgroundColor }
         tableView.allowsMultipleSelection = true
         tableView.allowsColumnReordering = true
         tableView.allowsColumnResizing = true
@@ -1021,7 +1029,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         applyFolderOptions()
         applyNavigationPaneOptions()
         tableView.showsCheckboxes = ListOptions.checkboxes
-        let rowH = ListOptions.compact ? ListMetrics.compactRowHeight : ListMetrics.rowHeight
+        var rowH = ListOptions.compact ? ListMetrics.compactRowHeight : ListMetrics.rowHeight
+        if ThemeController.shared.look == .native { rowH = ListOptions.compact ? 20 : 24 }
         if tableView.rowHeight != rowH {
             tableView.rowHeight = rowH
             tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<layout.rows.count))
@@ -1056,7 +1065,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     }
 
     @objc private func themeChanged(_ note: Notification) {
-        window?.backgroundColor = ThemeColors.current.pane.ns
+        window?.backgroundColor = ThemeController.shared.look == .native ? .clear : ThemeColors.current.pane.ns
         if let content = window?.contentView { refreshTheme(in: content) }
         tableView.enumerateAvailableRowViews { rowView, _ in refreshTheme(in: rowView) }
         header.needsDisplay = true

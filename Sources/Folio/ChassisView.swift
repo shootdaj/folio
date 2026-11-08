@@ -5,7 +5,12 @@ import FolioCore
 /// 28 pt status bar. The body is the sidebar of spotlight cards (248 pt unless resized from its right
 /// edge, hidden from View > Navigation pane) and the list edge to edge beside it, or Home in its place.
 final class ChassisView: NSView {
-    static let titleH: CGFloat = 44, toolH: CGFloat = 52, statusH: CGFloat = 28
+    static let toolH: CGFloat = 52
+    /// Native has no title bar band and a thinner status bar. The tab row is 28 pt, shown from two tabs.
+    private static var native: Bool { ThemeController.shared.look == .native }
+    static var titleH: CGFloat { native ? 0 : 44 }
+    static var statusH: CGFloat { native ? 22 : 28 }
+    static let nativeTabH: CGFloat = 28
     static let sideW: CGFloat = 248
     static let sideMin: CGFloat = 180, sideMax: CGFloat = 480
 
@@ -41,6 +46,14 @@ final class ChassisView: NSView {
         }
     }
     private var statusHeight: CGFloat { statusShown ? Self.statusH : 0 }
+    /// Native only: the tab row has a height only while the window has two or more tabs.
+    private var tabRowShown = false
+    func setTabRowVisible(_ shown: Bool) {
+        guard Self.native, shown != tabRowShown else { return }
+        tabRowShown = shown
+        tabStrip.isHidden = !shown
+        needsLayout = true
+    }
     var sidePaneKind: ListOptions.SidePane = .none {
         didSet {
             guard sidePaneKind != oldValue else { return }
@@ -87,8 +100,40 @@ final class ChassisView: NSView {
 
     static var bodyTop: CGFloat { titleH + toolH }
 
+    /// Native: the body starts under the toolbar and, with two tabs or more, the tab row.
+    private var top: CGFloat { Self.native ? Self.toolH + (tabRowShown ? Self.nativeTabH : 0) : Self.bodyTop }
+
+    /// Native layout: the sidebar runs the full height above the status bar and the rest starts at its edge.
+    private func layoutNative() {
+        let w = bounds.width, h = bounds.height
+        let side = sidebarShown ? sideWidth : 0
+        let top = self.top
+        let bodyH = max(0, h - top - statusHeight)
+        titleBar.isHidden = true
+        titleBar.frame = NSRect(x: 0, y: 0, width: w, height: 0)
+        toolbar.frame = NSRect(x: side, y: 0, width: max(0, w - side), height: Self.toolH)
+        tabStrip.isHidden = !tabRowShown
+        tabStrip.frame = NSRect(x: side, y: Self.toolH, width: max(0, w - side), height: tabRowShown ? Self.nativeTabH : 0)
+        sidebar.isHidden = !sidebarShown
+        handle.isHidden = !sidebarShown
+        sidebar.frame = NSRect(x: 0, y: 0, width: side, height: max(0, h - statusHeight))
+        handle.frame = NSRect(x: side - 3, y: 0, width: 6, height: max(0, h - statusHeight))
+        let showsSide = sidePaneKind != .none && !showsHome
+        let sideW = showsSide ? min(SidePaneView.width, max(0, (w - side) / 2 - 40)) : 0
+        sidePane.isHidden = !showsSide
+        let mainW = max(0, w - side - sideW)
+        let optsH = showsSearchOptions && !showsHome ? searchOptions.preferredHeight(width: mainW) : 0
+        searchOptions.frame = NSRect(x: side, y: top, width: mainW, height: optsH)
+        pane.frame = NSRect(x: side, y: top + optsH, width: mainW, height: max(0, bodyH - optsH))
+        sidePane.frame = NSRect(x: side + mainW, y: top, width: sideW, height: bodyH)
+        home.frame = NSRect(x: side, y: top, width: max(0, w - side), height: bodyH)
+        status.frame = NSRect(x: side, y: h - Self.statusH, width: max(0, w - side), height: Self.statusH)
+        (window as? BrowserWindow)?.placeTrafficLights()
+    }
+
     override func layout() {
         super.layout()
+        if Self.native { layoutNative(); return }
         let w = bounds.width, h = bounds.height
         titleBar.frame = NSRect(x: 0, y: 0, width: w, height: Self.titleH)
         titleBar.layoutSubtreeIfNeeded()
@@ -116,6 +161,16 @@ final class ChassisView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
+        if Self.native {
+            // The sidebar draws its own material, the rest is the window's content color.
+            // Under the sidebar, below it, the window color shows beside the status bar.
+            let side = sidebarShown ? sideWidth : 0
+            NSColor.windowBackgroundColor.setFill()
+            NSRect(x: 0, y: 0, width: side, height: bounds.height).fill()
+            NSColor.controlBackgroundColor.setFill()
+            NSRect(x: side, y: 0, width: bounds.width - side, height: bounds.height).fill()
+            return
+        }
         fillRect(bounds, ThemeColors.current.pane)
     }
 
