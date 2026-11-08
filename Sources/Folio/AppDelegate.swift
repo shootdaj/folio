@@ -268,7 +268,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             } else {
                 if let size { window.setContentSize(size) }
                 if let point {
-                    window.setFrameTopLeftPoint(NSPoint(x: point.x - 120, y: point.y + ChassisView.titleH + 18))
+                    window.setFrameTopLeftPoint(NSPoint(x: point.x - 120, y: point.y + (ChassisView.titleH > 0 ? ChassisView.titleH : 28) + 18))
                 } else if windows.isEmpty {
                     window.center()
                 } else {

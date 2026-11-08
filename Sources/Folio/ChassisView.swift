@@ -6,11 +6,11 @@ import FolioCore
 /// edge, hidden from View > Navigation pane) and the list edge to edge beside it, or Home in its place.
 final class ChassisView: NSView {
     static let toolH: CGFloat = 52
-    /// Native has no title bar band and a thinner status bar. The tab row is 28 pt, shown from two tabs.
+    /// Native has no title bar band and a thinner status bar. The tab row is 28 pt plus a 1 pt rule, shown from two tabs.
     private static var native: Bool { ThemeController.shared.look == .native }
     static var titleH: CGFloat { native ? 0 : 44 }
     static var statusH: CGFloat { native ? 22 : 28 }
-    static let nativeTabH: CGFloat = 28
+    static let nativeTabH: CGFloat = 29
     static let sideW: CGFloat = 248
     static let sideMin: CGFloat = 180, sideMax: CGFloat = 480
 

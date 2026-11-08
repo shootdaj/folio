@@ -244,7 +244,12 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
         drawArrow(historyRect, open: dropdown?.isOpen("history") == true, down: true, hot: hovered == .history, p)
         if isEditing {
             // `.addr.edit`: the accent folder 12 pt in, then the path in Geist Mono.
-            ItemIcon.drawFolder(in: NSRect(x: 12, y: box.midY - 8, width: 16, height: 16), palette: p, lit: false)
+            let folder = NSRect(x: 12, y: box.midY - 8, width: 16, height: 16)
+            if native {
+                Glyph.drawSymbol(named: "folder", in: folder, color: p.text2.ns, pointSize: 14, weight: .regular)
+            } else {
+                ItemIcon.drawFolder(in: folder, palette: p, lit: false)
+            }
             return
         }
 

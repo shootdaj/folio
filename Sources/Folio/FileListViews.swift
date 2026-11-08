@@ -830,6 +830,17 @@ final class NameCellView: NSTableCellView, RowCellView, ThemeAware, NSViewToolTi
 
     override var isFlipped: Bool { true }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        NotificationCenter.default.removeObserver(self, name: FinderIconCache.didUpgrade, object: nil)
+        guard window != nil, ThemeController.shared.look == .native else { return }
+        NotificationCenter.default.addObserver(self, selector: #selector(iconsUpgraded), name: FinderIconCache.didUpgrade, object: nil)
+    }
+
+    @objc private func iconsUpgraded() { needsDisplay = true }
+
+    deinit { NotificationCenter.default.removeObserver(self) }
+
     func rowSelectionChanged(_ selected: Bool) {
         guard selected != self.selected else { return }
         self.selected = selected
@@ -876,7 +887,12 @@ final class NameCellView: NSTableCellView, RowCellView, ThemeAware, NSViewToolTi
         if let customIcon, entry.isFolder {
             customIcon.draw(in: icon, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
         } else {
-            ItemIcon.draw(name: entry.name, isFolder: entry.isFolder, in: icon, palette: p, glow: selected || hovered)
+            if native {
+                // Apps and packages upgrade to their own icon off the main thread, then redraw.
+                FinderIcon.draw(url: entry.url, isDir: entry.isFolder, isLink: false, in: icon)
+            } else {
+                ItemIcon.draw(name: entry.name, isFolder: entry.isFolder, in: icon, palette: p, glow: selected || hovered)
+            }
         }
         var textX = iconX + 16 + 9
         if entry.isLink { ItemIcon.drawLinkBadge(in: NSRect(x: iconX - 2, y: mid + 1, width: 9, height: 9), palette: p) }
@@ -912,30 +928,13 @@ final class NameCellView: NSTableCellView, RowCellView, ThemeAware, NSViewToolTi
         if entry.isCloudOnly {
             // Online only: a cloud after the name, as Explorer marks OneDrive files.
             if native {
-                drawSymbol("icloud", in: NSRect(x: textX + nameW + 6, y: mid - 7, width: 14, height: 14),
-                           color: onAccent ? p.onAccent : p.muted)
+                Glyph.drawSymbol(named: "icloud", in: NSRect(x: textX + nameW + 6, y: mid - 7, width: 14, height: 14),
+                                 color: onAccent ? p.onAccent.ns : p.muted.ns, pointSize: 14, weight: .regular)
                 return
             }
             Glyph.cloud.draw(in: NSRect(x: textX + nameW + 6, y: mid - 7, width: 14, height: 14), color: p.muted.ns, lineWidth: 1.6)
         }
     }
-}
-
-/// Draws an SF Symbol tinted `color`, fitted into `rect` (Native's cloud mark).
-@MainActor
-private func drawSymbol(_ name: String, in rect: NSRect, color: NSColor) {
-    let config = NSImage.SymbolConfiguration(pointSize: rect.height, weight: .regular)
-    guard let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(config) else { return }
-    let tinted = NSImage(size: symbol.size, flipped: false) { r in
-        symbol.draw(in: r)
-        color.setFill()
-        r.fill(using: .sourceIn)
-        return true
-    }
-    let scale = min(rect.width / symbol.size.width, rect.height / symbol.size.height)
-    let size = NSSize(width: symbol.size.width * scale, height: symbol.size.height * scale)
-    tinted.draw(in: NSRect(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2, width: size.width, height: size.height),
-                from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
 }
 
 /// Finder's tag dots: one per colour, overlapping a little, each ringed in the row's background.
