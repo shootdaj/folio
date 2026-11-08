@@ -133,6 +133,7 @@ final class SuggestionWalk {
     private var start: TimeInterval = 0
     private var stopped = false
     private var lookups = 0
+    private var pendingOpens = 0
     private var aliasResolves = 0
     private var homeDevice: Int32?
     private let homePath: String
@@ -157,14 +158,27 @@ final class SuggestionWalk {
         cutoffUnused = config.now.addingTimeInterval(-config.unusedFor)
     }
 
-    /// Runs both passes. `onFixedPlaces` gets the cards of pass 1 before the walk starts.
-    func run(onFixedPlaces: ([Suggestion]) -> Void = { _ in }) -> WalkResult {
+    /// The size of the Trash alone, as the card of pass 1 would show it.
+    func trashOnly() -> WalkResult {
+        IOPolicy.scoped {
+            start = config.elapsed()
+            trash()
+            result.stats.elapsed = config.elapsed() - start
+            result.cancelled = result.cancelled || isCancelled()
+            return result
+        }
+    }
+
+    /// Runs both passes. `onFixedPlaces` gets the cards of pass 1 before the walk starts. `onWalk` gets the
+    /// folders listed so far, the folders still waiting, the entries seen and the folder being listed.
+    func run(onFixedPlaces: ([Suggestion]) -> Void = { _ in },
+             onWalk: (_ listed: Int, _ pending: Int, _ entries: Int, _ current: String) -> Void = { _, _, _, _ in }) -> WalkResult {
         IOPolicy.scoped {
             start = config.elapsed()
             homeDevice = fs.stamp(config.home)?.device
             fixedPlaces()
             onFixedPlaces(result.suggestions)
-            if !stopped { walkHome() }
+            if !stopped { walkHome(onWalk) }
             result.stats.elapsed = config.elapsed() - start
             result.cancelled = result.cancelled || isCancelled()
             return result
@@ -292,14 +306,16 @@ final class SuggestionWalk {
         return modified < config.now.addingTimeInterval(-config.emptyFolderMinAge)
     }
 
-    private func walkHome() {
+    private func walkHome(_ onWalk: (Int, Int, Int, String) -> Void) {
         var stack: [Work] = [.open(config.home, nil, 0)]
+        pendingOpens = 1
         var frames: [Frame] = []
         while let work = stack.popLast(), !stopped {
             switch work {
             case .close:
                 close(&frames)
             case .open(let url, let entry, let depth):
+                pendingOpens -= 1
                 let entries: [ScanEntry]
                 do {
                     entries = try fs.list(url)
@@ -318,6 +334,8 @@ final class SuggestionWalk {
                     process(e, in: url, listing: entries, depth: depth, frame: &frames[frames.count - 1], opens: &opens)
                 }
                 stack.append(contentsOf: opens)
+                pendingOpens += opens.count
+                onWalk(result.stats.folders, pendingOpens, result.stats.entries, url.path)
             }
         }
     }

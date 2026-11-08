@@ -190,6 +190,8 @@ public struct SuggestionReport: Sendable {
     public var isPartial: Bool
     public var needsFullDiskAccess: Bool
     public var totalBytes: Int64
+    /// The files the scan read to hash them. A read changes the access date, so the app remembers these.
+    public var hashedFiles: [FileID] = []
 
     public init(suggestions: [Suggestion] = [], scannedAt: Date = Date(), home: URL, stats: ScanStats = ScanStats(),
                 skips: ScanSkips = ScanSkips(), denied: [URL] = [], isPartial: Bool = false,
