@@ -179,16 +179,28 @@ final class ChromeButtonCell: NSButtonCell {
         guard let button = controlView as? ChromeButton else { return }
         let p = ThemeColors.current
         let hot = isEnabled && button.isHovered
+        let native = ThemeController.shared.look == .native
         var tone = isEnabled ? button.tone(p) : p.faint
-        if hot, let hover = button.hoverTone { tone = hover(p) }
-        if isEnabled && (hot || isHighlighted) {
+        // Native keeps the tone on hover. Only the state layer shows it.
+        if hot, !native, let hover = button.hoverTone { tone = hover(p) }
+        if native {
+            // A 6 pt rounded state layer, 2 pt in: quaternary on hover, tertiary while pressed.
+            if isEnabled && (hot || isHighlighted) {
+                fillRounded(cellFrame.insetBy(dx: 2, dy: 2), radius: 6,
+                            isHighlighted ? NSColor.tertiarySystemFill : NSColor.quaternarySystemFill)
+            }
+        } else if isEnabled && (hot || isHighlighted) {
             // The state layer: currentColor at 8% (hover) or 14% (pressed), 5 pt in, radius 8.
             let inset = min(5, max(1, (min(cellFrame.width, cellFrame.height) - 24) / 2))
             fillRounded(cellFrame.insetBy(dx: inset, dy: inset), radius: 8, tone.withAlpha(isHighlighted ? 0.14 : 0.08))
         }
-        let s = button.iconSize * (isHighlighted ? 0.92 : 1)
+        let s = native ? min(button.iconSize, 15) : button.iconSize * (isHighlighted ? 0.92 : 1)
         let icon = NSRect(x: cellFrame.midX - s / 2, y: cellFrame.midY - s / 2, width: s, height: s)
-        button.glyph.draw(in: icon, color: tone.ns)
+        if native {
+            button.glyph.draw(in: icon, color: tone.ns, lineWidth: 2)
+        } else {
+            button.glyph.draw(in: icon, color: tone.ns)
+        }
         if let key = button.accessKey {
             // D4's kbd: line-2 outline with a 2 pt bottom edge, s2, Geist Mono 500 in text-2.
             let font = Typeface.mono(11, weight: 600)
