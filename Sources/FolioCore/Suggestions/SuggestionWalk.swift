@@ -258,6 +258,10 @@ final class SuggestionWalk {
             result.skips.add(.ignored, path: url.path)
             return
         }
+        if let why = fs.rootSkip(url, homeDevice: homeDevice) {
+            result.skips.add(why, path: url.path)
+            return
+        }
         let m = measure(url)
         if m.rootError == .denied { denied(url) }
         guard m.rootError == nil, m.allocated >= config.cacheMin, let item = folderItem(url, m) else { return }
@@ -282,6 +286,10 @@ final class SuggestionWalk {
         let url = config.home.appendingPathComponent(config.derivedData, isDirectory: true)
         guard !isIgnored(url) else {
             result.skips.add(.ignored, path: url.path)
+            return
+        }
+        if let why = fs.rootSkip(url, homeDevice: homeDevice) {
+            result.skips.add(why, path: url.path)
             return
         }
         let m = measure(url)
@@ -369,6 +377,8 @@ final class SuggestionWalk {
         if let key = frame.key, ignores.covers((key == "/" ? "" : key) + "/" + e.name) {
             result.skips.add(.ignored, path: url.path)
             frame.hasContent = true
+            // An ignored copy still takes part in a duplicate group, as the copy to keep. It is in no other kind.
+            if e.type == .file { ignoredFile(e, url, in: dir) }
             return
         }
         switch e.type {
@@ -432,6 +442,17 @@ final class SuggestionWalk {
         guard m.allocated >= config.buildFolderMin, let item = folderItem(url, m, date: idleSince, source: .modified) else { return }
         result.suggestions.append(Suggestion(kind: .buildFolders, id: item.id, items: [item], bytes: m.allocated,
                                              reason: .buildFolder(name: rule.name, projectIdleSince: idleSince)))
+    }
+
+    /// An ignored file is offered to the duplicate finder only, so the finder can keep it and offer the other copies.
+    private func ignoredFile(_ e: ScanEntry, _ url: URL, in dir: URL) {
+        guard wants(.duplicates), e.allocated >= config.duplicateMin, !e.isDataless, !e.isAlias, !e.isLocked,
+              !isManaged(url.path) else { return }
+        let dated = e.added ?? e.modified
+        let stamp = ItemStamp(device: e.device, inode: e.inode, logical: e.logical, modified: e.modified)
+        let item = SuggestionItem(url: url, isFolder: false, bytes: e.allocated, logicalBytes: e.logical, date: dated,
+                                  dateSource: dated == nil ? nil : (e.added != nil ? .added : .modified), stamp: stamp)
+        result.duplicateCandidates.append(DuplicateCandidate(item: item, linkCount: e.linkCount))
     }
 
     private func file(_ e: ScanEntry, _ url: URL, in dir: URL) {

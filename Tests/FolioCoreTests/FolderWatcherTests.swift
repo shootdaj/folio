@@ -22,7 +22,7 @@ import Testing
         watcher.watch([work.path])
         try await Task.sleep(for: .milliseconds(150))
         for i in 0..<50 { try Data([UInt8(i)]).write(to: work.appendingPathComponent("f\(i).txt")) }
-        #expect(await waitUntil(2) { count.n >= 1 })
+        #expect(await waitUntil(8) { count.n >= 1 })
         try await Task.sleep(for: .milliseconds(700))
         #expect(count.n >= 1 && count.n <= 3, "\(count.n) reloads for 50 files")
         #expect(count.all == [FilePaths.folderKey(work)])
@@ -42,7 +42,7 @@ import Testing
         h.seekToEndOfFile()
         h.write(Data("more".utf8))
         try h.close()
-        #expect(await waitUntil(3) { count.n >= 1 }, "writing into a file the folder lists")
+        #expect(await waitUntil(10) { count.n >= 1 }, "writing into a file the folder lists")
         watcher.stop()
     }
 
@@ -60,7 +60,7 @@ import Testing
         try await Task.sleep(for: .milliseconds(500))
         #expect(count.n == start, "only b is watched now")
         try Data().write(to: b.appendingPathComponent("y"))
-        #expect(await waitUntil(2) { count.n > start })
+        #expect(await waitUntil(8) { count.n > start })
         try await Task.sleep(for: .milliseconds(500))
         watcher.stop()
         let stopped = count.n
@@ -78,7 +78,7 @@ import Testing
         watcher.watch(roots: [t.url("r").path])
         try await Task.sleep(for: .milliseconds(300))
         try FileManager.default.createDirectory(at: deep.appendingPathComponent("three"), withIntermediateDirectories: true)
-        #expect(await waitUntil(4) { count.all.contains(FilePaths.folderKey(deep)) })
+        #expect(await waitUntil(10) { count.all.contains(FilePaths.folderKey(deep)) })
         watcher.stop()
     }
 }

@@ -58,6 +58,18 @@ public protocol ScanFileSystem: Sendable {
     func stamp(_ url: URL) -> ItemStamp?
 }
 
+extension ScanFileSystem {
+    /// Why a fixed place must not be measured: the root is a link, or it is on another device than home.
+    /// Nil when it is a plain folder on the home device, or when it is not there.
+    func rootSkip(_ url: URL, homeDevice: Int32?) -> SkipReason? {
+        var st = stat()
+        guard lstat(url.path, &st) == 0 else { return nil }
+        if st.st_mode & S_IFMT == S_IFLNK { return .symlink }
+        if let homeDevice, st.st_dev != homeDevice { return .otherDevice }
+        return nil
+    }
+}
+
 /// The real disk.
 public struct LiveScanFileSystem: ScanFileSystem {
     private static let kIsAlias: UInt16 = 0x8000

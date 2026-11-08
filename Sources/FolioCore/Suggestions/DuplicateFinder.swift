@@ -147,6 +147,9 @@ enum DuplicateFinder {
         let fd = open(url.path, O_RDONLY)
         guard fd >= 0 else { return nil }
         defer { close(fd) }
+        // A file that went to the cloud since the walk is not read, because the read would download it.
+        var st = stat()
+        guard fstat(fd, &st) == 0, st.st_flags & 0x4000_0000 == 0 else { return nil }  // SF_DATALESS
         _ = fcntl(fd, F_NOCACHE, 1)
         var hasher = SHA256()
         var buffer = [UInt8](repeating: 0, count: chunk)

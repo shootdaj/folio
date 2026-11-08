@@ -583,7 +583,7 @@ private struct FakeHome {
         let bookmark = try target.bookmarkData(options: .suitableForBookmarkFile)
         try URL.writeBookmarkData(bookmark, to: h.url("target alias"))
         #expect(h.rels(h.scan(), .brokenLinks).isEmpty)
-        try FileManager.default.trashItem(at: target, resultingItemURL: nil)
+        try FileManager.default.removeItem(at: target)
         #expect(h.rels(h.scan(), .brokenLinks) == ["target alias"])
     }
 

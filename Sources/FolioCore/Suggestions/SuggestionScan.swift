@@ -54,6 +54,11 @@ public struct SuggestionScanner: Sendable {
     /// is called at most every 0.1 s, and for the last step. Nothing is called after `isCancelled` says yes,
     /// and a cancelled scan returns an empty partial report.
     public func run(isCancelled: () -> Bool, onProgress: (ScanProgress) -> Void, onCards: ([Suggestion]) -> Void) -> SuggestionReport {
+        // The policy holds for the whole scan, the hashing too: a read must not download a cloud file.
+        IOPolicy.scoped { runScoped(isCancelled: isCancelled, onProgress: onProgress, onCards: onCards) }
+    }
+
+    private func runScoped(isCancelled: () -> Bool, onProgress: (ScanProgress) -> Void, onCards: ([Suggestion]) -> Void) -> SuggestionReport {
         withoutActuallyEscaping(isCancelled) { cancelled in
             let begun = config.elapsed()
             var progress = ScanProgress(phase: .fixedPlaces, fraction: 0)
@@ -123,10 +128,11 @@ public struct SuggestionScanner: Sendable {
             stats.elapsed = config.elapsed() - begun
 
             var seen = Set<FileID>()
-            var report = SuggestionReport(suggestions: capped(all), scannedAt: config.now, home: config.home, stats: stats,
+            let shown = capped(all)
+            var report = SuggestionReport(suggestions: shown, scannedAt: config.now, home: config.home, stats: stats,
                                           skips: skips, denied: walked.denied, isPartial: walked.isPartial || dups.partial,
                                           needsFullDiskAccess: walked.needsFullDiskAccess,
-                                          totalBytes: all.reduce(0) { $0 + $1.bytes })
+                                          totalBytes: shown.reduce(0) { $0 + $1.bytes })
             report.hashedFiles = dups.hashedFiles.filter { seen.insert($0).inserted }
 
             progress = ScanProgress(phase: .done, fraction: 1, entries: stats.entries, hashed: stats.hashedBytes)
@@ -160,11 +166,12 @@ public struct SuggestionUpdate: Sendable {
     }
 }
 
-/// One scan on its own utility-priority thread. `cancel()` stops it, and after `cancel()` nothing more is sent.
+/// One scan on its own utility-priority thread. `cancel()` stops it, and after `cancel()` returns nothing more is sent.
+/// `cancel()` waits for an `onUpdate` call that is running. `onUpdate` must not wait for the thread that calls `cancel()`.
 public final class SuggestionScan: @unchecked Sendable {
     private let scanner: SuggestionScanner
     private let onUpdate: @Sendable (SuggestionUpdate) -> Void
-    private let cancelLock = NSLock()
+    private let cancelLock = NSRecursiveLock()
     private var cancelledFlag = false
     private var latest = ScanProgress(phase: .fixedPlaces, fraction: 0)
 
@@ -199,7 +206,8 @@ public final class SuggestionScan: @unchecked Sendable {
     }
 
     private func send(_ update: SuggestionUpdate) {
-        guard !isCancelled else { return }
+        cancelLock.lock(); defer { cancelLock.unlock() }
+        guard !cancelledFlag else { return }
         onUpdate(update)
     }
 }

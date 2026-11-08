@@ -168,7 +168,7 @@ private struct ScanHome {
         #expect(r.skips.samples[.symlink]?.count == 5)
     }
 
-    @Test func eachKindIsCappedButTheTotalCountsEverything() throws {
+    @Test func eachKindIsCappedAndTheTotalCountsWhatIsShown() throws {
         let h = try ScanHome()
         defer { h.close() }
         for i in 0..<5 { try h.file("big\(i).bin", kb: 200 + i * 100, fill: UInt8(i + 1)) }
@@ -177,7 +177,7 @@ private struct ScanHome {
         #expect(h.rels(r, .largeUnused).count == 2)
         // The two largest stay on the card.
         #expect(h.rels(r, .largeUnused) == ["big3.bin", "big4.bin"])
-        #expect(r.totalBytes > r.suggestions.reduce(0) { $0 + $1.bytes })
+        #expect(r.totalBytes == r.suggestions.reduce(0) { $0 + $1.bytes })
     }
 
     @Test func nothingIsSentAfterACancel() throws {
@@ -226,6 +226,76 @@ private struct ScanHome {
         try await Task.sleep(for: .milliseconds(300))
         #expect(scan.isCancelled)
         #expect(count.value == 0)
+    }
+
+    @Test func anIgnoredCopyIsKeptAndTheOthersAreOffered() throws {
+        let h = try ScanHome()
+        defer { h.close() }
+        let a = try h.file("Downloads/a.bin", fill: 0x61, days: 30)
+        try h.file("Documents/b.bin", fill: 0x61, days: 30)
+        try h.file("Documents/c.bin", fill: 0x61, days: 30)
+        h.ageFolders(days: 30)
+        let ignores = SuggestionIgnores.Snapshot(paths: [FilePaths.itemKey(a)])
+        let r = h.scanner(ignores: ignores).collect()
+        let g = try #require(r.suggestions.first { $0.kind == .duplicates })
+        #expect(g.keep?.lastPathComponent == "a.bin")
+        #expect(g.removable.map { $0.url.lastPathComponent }.sorted() == ["b.bin", "c.bin"])
+        #expect(h.rels(r, .largeUnused).isEmpty || !h.rels(r, .largeUnused).contains("Downloads/a.bin"))
+    }
+
+    @Test func aGroupOfTwoWithOneIgnoredCopyStillShows() throws {
+        let h = try ScanHome()
+        defer { h.close() }
+        let a = try h.file("a.bin", fill: 0x62, days: 30)
+        try h.file("b.bin", fill: 0x62, days: 30)
+        h.ageFolders(days: 30)
+        let r = h.scanner(ignores: .init(paths: [FilePaths.itemKey(a)])).collect()
+        let g = try #require(r.suggestions.first { $0.kind == .duplicates })
+        #expect(g.keep?.lastPathComponent == "a.bin")
+        #expect(g.removable.map { $0.url.lastPathComponent } == ["b.bin"])
+    }
+
+    @Test func theTotalCountsOnlyTheSuggestionsInTheReport() throws {
+        let h = try ScanHome()
+        defer { h.close() }
+        for i in 0..<5 { try h.file("d\(i)/big.bin", fill: UInt8(i + 1)) }
+        h.ageFolders(days: 30)
+        let r = h.collect { $0.maxPerKind = 2 }
+        #expect(r.suggestions.count == 2)
+        #expect(r.totalBytes == r.suggestions.reduce(0) { $0 + $1.bytes })
+    }
+
+    @Test func aSymlinkedCacheRootIsNotMeasured() throws {
+        let h = try ScanHome()
+        defer { h.close() }
+        let outside = try h.t.folder("Outside")
+        try h.t.file("Outside/blob.bin", bytes: 300_000, fill: 0x70)
+        try FileManager.default.createSymbolicLink(atPath: h.url(".cache").path, withDestinationPath: outside.path)
+        h.ageFolders(days: 30)
+        let r = h.collect()
+        #expect(h.rels(r, .appCaches).isEmpty)
+        #expect(r.skips.count(.symlink) >= 1)
+    }
+
+    @Test func aCancelWaitsForAnUpdateThatIsRunning() throws {
+        let h = try ScanHome()
+        defer { h.close() }
+        try h.file("big.bin")
+        h.ageFolders(days: 30)
+        let started = DispatchSemaphore(value: 0)
+        let finished = LockedCounter()
+        let scan = SuggestionScan(h.scanner()) { _ in
+            started.signal()
+            Thread.sleep(forTimeInterval: 0.3)
+            finished.increment()
+        }
+        scan.start()
+        #expect(started.wait(timeout: .now() + 10) == .success)
+        scan.cancel()
+        let atReturn = finished.value
+        #expect(atReturn >= 1)
+        Thread.sleep(forTimeInterval: 0.6)
+        #expect(finished.value == atReturn)
     }
 
     @Test func measureTrashSizesTheTrashAlone() throws {

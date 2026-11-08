@@ -85,7 +85,8 @@ import Testing
     @Test func cappedAtFiveThousandOldestDropped() throws {
         try withDefaults { d in
             let ignores = SuggestionIgnores(defaults: d)
-            for i in 1...5_010 { ignores.ignore(path: "/p/\(i)") }
+            d.set((1...5_000).reversed().map { "/p/\($0)" }, forKey: SuggestionIgnores.pathsKey)
+            for i in 5_001...5_010 { ignores.ignore(path: "/p/\(i)") }
             #expect(ignores.paths.count == 5_000)
             #expect(ignores.paths.first == "/p/5010" && ignores.paths.last == "/p/11")
         }

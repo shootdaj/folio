@@ -272,6 +272,8 @@ public struct SuggestionReport: Sendable {
 /// Run right before Move to Trash: a path may now hold another file than the scan saw.
 public enum SuggestionVerify {
     /// The items whose device, inode, size and modified date are still the ones the scan saw.
+    /// For a folder this is the folder's own entry only. A change deeper in the tree does not show here,
+    /// so Move to Trash of a folder can still move a changed tree. The move can be undone.
     public static func current(_ items: [SuggestionItem], fs: any ScanFileSystem) -> [SuggestionItem] {
         items.filter { fs.stamp($0.url) == $0.stamp }
     }
