@@ -47,7 +47,13 @@ extension BrowserWindowController {
 
     /// The widest value the column shows (and its header with the sort and filter slots), at most 600.
     func fitWidth(of c: ColumnID) -> CGFloat {
-        let head = textWidth(columnTitle(c), font: Typeface.ui(12, weight: 650), kern: 0.24) + 14 + 6 + 15 + FolioHeaderView.chevronW
+        let head: CGFloat
+        if ThemeController.shared.isNative {
+            // Native heads are 11 pt semibold, as written, with no tracking.
+            head = textWidth(Typeface.caption(columnTitle(c)), font: Typeface.ui(11, weight: 600)) + 14 + 6 + 15 + FolioHeaderView.chevronW
+        } else {
+            head = textWidth(columnTitle(c), font: Typeface.ui(12, weight: 650), kern: 0.24) + 14 + 6 + 15 + FolioHeaderView.chevronW
+        }
         let font = c.isMono ? Typeface.mono(12) : Typeface.ui(13)
         var widest: CGFloat = 0
         var seen = Set<String>()
@@ -107,6 +113,7 @@ final class ColumnChooserPanel: NSObject, NSTableViewDataSource, NSTableViewDele
     private func build() {
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 470, height: 520), styleMask: [.titled], backing: .buffered, defer: false)
         panel.title = "Choose Details"
+        if ThemeController.shared.isNative { panel.backgroundColor = .windowBackgroundColor }
         let root = ChooserBackground(frame: panel.contentRect(forFrameRect: panel.frame))
         panel.contentView = root
         let title = label("CHOOSE DETAILS", font: Typeface.ui(13, weight: 700), color: ThemeColors.current.accent)
@@ -137,8 +144,10 @@ final class ColumnChooserPanel: NSObject, NSTableViewDataSource, NSTableViewDele
         }
         scroll.documentView = table
         let frame = WellView(frame: scroll.frame.insetBy(dx: -1, dy: -1))
-        up.frame = NSRect(x: 336, y: 72, width: 114, height: 34)
-        down.frame = NSRect(x: 336, y: 114, width: 114, height: 34)
+        let native = ThemeController.shared.isNative
+        let bh = native ? OSButton.height : 34
+        up.frame = NSRect(x: 336, y: 72, width: 114, height: bh)
+        down.frame = NSRect(x: 336, y: native ? 72 + bh + 8 : 114, width: 114, height: bh)
         up.onPress = { [weak self] in self?.move(up: true) }
         down.onPress = { [weak self] in self?.move(up: false) }
         let wl = label("Width of selected column (in pixels):", font: Typeface.ui(13), color: ThemeColors.current.text)
@@ -149,8 +158,9 @@ final class ColumnChooserPanel: NSObject, NSTableViewDataSource, NSTableViewDele
         width.setAccessibilityLabel("Width of selected column")
         let ok = OSButton("OK", style: .primary) { [weak self] in self?.finish(true) }
         let cancel = OSButton("Cancel") { [weak self] in self?.finish(false) }
-        ok.frame = NSRect(x: 254, y: 476, width: 96, height: 32)
-        cancel.frame = NSRect(x: 356, y: 476, width: 96, height: 32)
+        let okH = native ? OSButton.height : 32
+        ok.frame = NSRect(x: 254, y: native ? 520 - 20 - okH : 476, width: 96, height: okH)
+        cancel.frame = NSRect(x: 356, y: ok.frame.minY, width: 96, height: okH)
         ok.keyEquivalent = "\r"
         cancel.keyEquivalent = "\u{1b}"
         for v in [title, intro, head, frame, scroll, up, down, wl, width, ok, cancel] as [NSView] { root.addSubview(v) }
@@ -239,6 +249,8 @@ final class ColumnChooserPanel: NSObject, NSTableViewDataSource, NSTableViewDele
     private final class ChooserBackground: NSView {
         override var isFlipped: Bool { true }
         override func draw(_ dirtyRect: NSRect) {
+            // Native: the window's own background shows, no card.
+            if ThemeController.shared.isNative { return }
             let p = ThemeColors.current
             fillRect(bounds, p.s1)
         }
@@ -247,6 +259,7 @@ final class ColumnChooserPanel: NSObject, NSTableViewDataSource, NSTableViewDele
     private final class WellView: NSView {
         override var isFlipped: Bool { true }
         override func draw(_ dirtyRect: NSRect) {
+            if ThemeController.shared.isNative { return }
             let p = ThemeColors.current
             fillRounded(bounds, radius: 4, p.s2)
             strokeRounded(bounds, radius: 4, p.line2)

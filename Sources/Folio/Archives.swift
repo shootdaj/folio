@@ -122,7 +122,8 @@ final class ExtractSheetController: NSObject, NSTextFieldDelegate {
         field = TagField(string: destination.path)
         super.init()
         sheet.title = "Extract Compressed (Zipped) Folders"
-        sheet.backgroundColor = ThemeColors.current.s2.ns
+        let native = ThemeController.shared.isNative
+        sheet.backgroundColor = native ? NSColor.windowBackgroundColor : ThemeColors.current.s2.ns
         let content = PropertiesContentView()
         sheet.contentView = content
         let heading = LabelView("Select a Destination and Extract Files", font: Typeface.ui(16, weight: 750), color: { $0.text })
@@ -136,13 +137,14 @@ final class ExtractSheetController: NSObject, NSTextFieldDelegate {
         field.target = self
         field.action = #selector(extractPressed(_:))
         let browse = OSButton("Browse...", glyph: .newFolder) { [weak self] in self?.browse() }
-        browse.frame = NSRect(x: 440, y: 114, width: 112, height: 40)
+        let bh = native ? OSButton.height : 40
+        browse.frame = NSRect(x: 440, y: native ? 118 + (32 - bh) / 2 : 114, width: 112, height: bh)
         showCheck.isChecked = true
         showCheck.frame = NSRect(x: 28, y: 172, width: showCheck.fit(), height: 20)
         let extract = OSButton("Extract", glyph: .check, style: .primary) { [weak self] in self?.extractPressed(nil) }
         let cancel = OSButton("Cancel", glyph: .close) { [weak self] in self?.close() }
-        extract.frame = NSRect(x: 580 - 28 - 120, y: 300 - 24 - 40, width: 120, height: 40)
-        cancel.frame = NSRect(x: extract.frame.minX - 8 - 112, y: extract.frame.minY, width: 112, height: 40)
+        extract.frame = NSRect(x: 580 - 28 - 120, y: 300 - 24 - bh, width: 120, height: bh)
+        cancel.frame = NSRect(x: extract.frame.minX - 8 - 112, y: extract.frame.minY, width: 112, height: bh)
         for v in [heading, sub, label, field, browse, showCheck, extract, cancel] as [NSView] { content.addSubview(v) }
         sheet.onReturn = { [weak self] in self?.extractPressed(nil) }
         sheet.onCancel = { [weak self] in self?.close() }
