@@ -12,6 +12,17 @@ final class SearchField: NSTextField {
     }
 }
 
+/// Native: a system search field (magnifier, cancel button, rounded bezel) that also tells the box when it takes focus.
+final class NativeSearchField: NSSearchField {
+    var onFocus: (() -> Void)?
+
+    override func becomeFirstResponder() -> Bool {
+        let ok = super.becomeFirstResponder()
+        if ok { onFocus?() }
+        return ok
+    }
+}
+
 /// The search box, top right (`.search`): a magnifier, "Search <folder>", and a clear button once there
 /// is text. Typing runs the search live (the window debounces); Esc clears it and returns to the folder;
 /// Down, or focus on an empty box, lists recent searches.
@@ -34,26 +45,44 @@ final class SearchBoxView: NSView, NSTextFieldDelegate, ThemeAware {
     /// Down: the Recent searches list.
     var onDown: (() -> Void)?
     var dropdown: Dropdown?
-    let field = SearchField(string: "")
+    /// A `SearchField` in D4, a `NativeSearchField` in Native.
+    let field: NSTextField
+    private let isNative = ThemeController.shared.look == .native
     private let clear: ChromeButton
     private var hovered = false
 
     override init(frame: NSRect) {
         clear = ChromeButton(glyph: .close, label: "Clear search", target: nil, action: nil)
+        let native = ThemeController.shared.look == .native
+        field = native ? NativeSearchField(string: "") : SearchField(string: "")
         super.init(frame: frame)
-        field.isBordered = false
-        field.drawsBackground = false
-        field.focusRingType = .none
-        field.font = Typeface.ui(13)
-        field.textColor = ThemeColors.current.text.ns
-        field.lineBreakMode = .byTruncatingTail
-        field.cell?.isScrollable = true
-        field.cell?.wraps = false
+        if native {
+            field.font = NSFont.systemFont(ofSize: 13)
+            field.lineBreakMode = .byTruncatingTail
+            field.cell?.isScrollable = true
+            field.cell?.wraps = false
+            // The cancel button runs `clearPressed`, which clears the text itself.
+            if let cancel = (field.cell as? NSSearchFieldCell)?.cancelButtonCell {
+                cancel.target = self
+                cancel.action = #selector(clearPressed(_:))
+            }
+        } else {
+            field.isBordered = false
+            field.drawsBackground = false
+            field.focusRingType = .none
+            field.font = Typeface.ui(13)
+            field.textColor = ThemeColors.current.text.ns
+            field.lineBreakMode = .byTruncatingTail
+            field.cell?.isScrollable = true
+            field.cell?.wraps = false
+        }
         field.delegate = self
-        field.onFocus = { [weak self] in
+        let focused: () -> Void = { [weak self] in
             self?.needsDisplay = true
             self?.onFocus?()
         }
+        (field as? SearchField)?.onFocus = focused
+        (field as? NativeSearchField)?.onFocus = focused
         addSubview(field)
         clear.iconSize = 14
         clear.tone = { $0.muted }
@@ -107,6 +136,10 @@ final class SearchBoxView: NSView, NSTextFieldDelegate, ThemeAware {
     }
 
     private func placeholder() {
+        if isNative {
+            field.placeholderString = "Search " + folderName
+            return
+        }
         let p = ThemeColors.current
         field.placeholderAttributedString = NSAttributedString(string: "Search " + folderName,
                                                                attributes: [.font: Typeface.ui(13), .foregroundColor: p.muted.ns])
@@ -120,6 +153,11 @@ final class SearchBoxView: NSView, NSTextFieldDelegate, ThemeAware {
 
     override func layout() {
         super.layout()
+        if isNative {
+            field.frame = bounds.insetBy(dx: 0, dy: max(0, (bounds.height - 28) / 2))
+            clear.frame = .zero
+            return
+        }
         let h = ceil((field.font?.ascender ?? 12) - (field.font?.descender ?? -4)) + 4
         let clearW: CGFloat = clear.isHidden ? 0 : 30
         field.frame = NSRect(x: 36, y: (bounds.height - h) / 2, width: max(0, bounds.width - 36 - 8 - clearW), height: h)
@@ -142,6 +180,7 @@ final class SearchBoxView: NSView, NSTextFieldDelegate, ThemeAware {
     /// hover) at radius 12; focused, an accent border with the 3 pt accent-soft halo. The magnifier is muted,
     /// the accent once there is text.
     override func draw(_ dirtyRect: NSRect) {
+        if isNative { return }
         let p = ThemeColors.current
         let box = bounds.insetBy(dx: 0, dy: 3)
         if isEditing {
@@ -161,7 +200,7 @@ final class SearchBoxView: NSView, NSTextFieldDelegate, ThemeAware {
     }
 
     private func textChanged(notify: Bool) {
-        let empty = field.stringValue.isEmpty
+        let empty = field.stringValue.isEmpty || isNative
         if clear.isHidden != empty {
             clear.isHidden = empty
             needsLayout = true
@@ -415,6 +454,10 @@ final class SearchOptionsBar: NSView {
         let p = ThemeColors.current
         fillRect(bounds, p.headBg)
         fillRect(NSRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1), p.line)
+        if ThemeController.shared.look == .native {
+            drawNative("Search:", size: 12, x: 24, midY: 26)
+            return
+        }
         drawLine("SEARCH OPTIONS", font: labelFont, color: p.muted, x: 24, midY: 26, kern: Typeface.labelKern(12))
         // `.seg`: the track, 3 pt around the two buttons, line-2 at radius 12.
         let seg = all.frame.union(current.frame).insetBy(dx: -3, dy: -3)
@@ -482,9 +525,24 @@ final class SearchEmptyView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     override func draw(_ dirtyRect: NSRect) {
+        if ThemeController.shared.look == .native {
+            // The words stay in the accessibility value. The screen shows the system's short form.
+            let shown = text == "Working on it..." ? text : "No Results"
+            let font = NSFont.systemFont(ofSize: 15)
+            drawNative(shown, size: 15, x: (bounds.width - textWidth(shown, font: font)) / 2, midY: bounds.midY)
+            return
+        }
         let p = ThemeColors.current
         let font = Typeface.ui(14, weight: 500)
         let w = textWidth(text, font: font)
         drawLine(text, font: font, color: p.text2, x: (bounds.width - w) / 2, midY: bounds.midY)
     }
+}
+
+/// Native text in the system's secondary label colour.
+@MainActor
+private func drawNative(_ text: String, size: CGFloat, x: CGFloat, midY: CGFloat) {
+    let font = NSFont.systemFont(ofSize: size)
+    let string = NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: NSColor.secondaryLabelColor])
+    drawAttributed(string, x: x, midY: midY, width: ceil(string.size().width), font: font)
 }
