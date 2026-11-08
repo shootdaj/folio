@@ -347,6 +347,15 @@ final class DriveChartView: NSView {
         fillRounded(NSRect(x: x, y: 40, width: 10, height: 10), radius: 2, p.line2)
         drawLine("Free  " + ByteText.storage(volume.free), font: Typeface.mono(12), color: p.text, x: x + 18, midY: 45)
         let barW = bounds.width - x - 8
+        if ThemeController.shared.look == .native {
+            // One capsule: the track, then the used share in the accent (red from 90 percent). No glow.
+            let bar = NSRect(x: x, y: 66, width: barW, height: 8)
+            fillRounded(bar, radius: 4, NSColor.quaternarySystemFill)
+            let w = max(8, barW * CGFloat(volume.usedFraction))
+            fillRounded(NSRect(x: x, y: 66, width: min(barW, w), height: 8), radius: 4, tone)
+            drawLine(volume.totalText, font: Typeface.mono(11), color: NSColor.secondaryLabelColor, x: x, midY: 90)
+            return
+        }
         let segW = (barW - 23 * 2) / 24
         for i in 0..<24 {
             let seg = NSRect(x: x + CGFloat(i) * (segW + 2), y: 66, width: segW, height: 10)
