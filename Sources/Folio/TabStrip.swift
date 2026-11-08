@@ -5,7 +5,7 @@ import FolioCore
 struct TabItem: Equatable {
     let id: UUID
     let title: String
-    let isHome: Bool
+    let page: SpecialPlace?
     /// The tab shows search results (a magnifier instead of the folder).
     var isSearch = false
     /// The folder a file dropped on the tab goes into (nil for Home).
@@ -236,7 +236,7 @@ final class TabStripView: NSView, NSDraggingSource {
             let mid = r.midY
             let iconX = r.minX + 13
             let icon = NSRect(x: iconX, y: mid - 7.5, width: 15, height: 15)
-            if item.isHome {
+            if item.page == .home {
                 Glyph.home.draw(in: icon, color: p.accent.ns)
             } else if item.isSearch {
                 Glyph.search.draw(in: icon, color: p.accent.ns)

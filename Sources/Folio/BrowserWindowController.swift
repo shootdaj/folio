@@ -661,7 +661,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             if !keepingState { showHome() }
             return
         }
-        chassis.showsHome = false
+        chassis.page = .list
         let folder = history.current
         if !keepingState {
             // A filter and folded groups belong to the folder on screen.
@@ -763,7 +763,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         toolbar.address.volumes = volumes
         chassis.sidebar.needsLayout = true
         if !volumes.isEmpty { applyPendingTree() }
-        if !history.isHome, ListOptions.expandToCurrent { revealCurrentFolder(select: false) }
+        if !history.isSpecial, ListOptions.expandToCurrent { revealCurrentFolder(select: false) }
         updateWatches()
     }
 
@@ -848,7 +848,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
 
     /// Folders open in place in Details view; not in the other views, search results, groups, a zip or the Recycle Bin.
     var treeAvailable: Bool {
-        viewMode.usesTable && !isSearching && group == nil && !isInZip && !isTrashView && !history.isHome
+        viewMode.usesTable && !isSearching && group == nil && !isInZip && !isTrashView && !history.isSpecial
     }
 
     /// Filters, then groups (sorted inside) or a plain sort. Columns that need metadata (Dimensions,
@@ -1002,7 +1002,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         let name = displayName(folder)
         defer { updateSearchChrome() }
         // Folder Options > Display the full path in the title bar.
-        let title = ListOptions.folder.fullPathInTitleBar && !history.isHome ? folder.path : name
+        let title = ListOptions.folder.fullPathInTitleBar && !history.isSpecial ? folder.path : name
         window?.title = title
         toolbar.back.isEnabled = history.canGoBack
         toolbar.forward.isEnabled = history.canGoForward
@@ -1013,8 +1013,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             toolbar.address.searchTitle = nil
             if !toolbar.search.isEditing { toolbar.search.text = "" }
         }
-        chassis.sidebar.pane.isHome = history.isHome
-        chassis.sidebar.pane.currentPath = history.isHome ? "" : FilePaths.folderKey(folder)
+        chassis.sidebar.pane.currentPage = history.special
+        chassis.sidebar.pane.currentPath = history.isSpecial ? "" : FilePaths.folderKey(folder)
         updateTabStrip()
         updateStatus()
     }
@@ -1025,7 +1025,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
 
     func updateStatus() {
         let selection = SelectionSummary(selectedEntries)
-        let path = history.isHome ? "Home" : history.current.path
+        let path = history.isSpecial ? displayName(history.current) : history.current.path
         if let statusMessage {
             chassis.status.countText = statusMessage
         } else if let loadError {
@@ -1045,7 +1045,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         }
         // The HUD's readouts, in the status bar: count, selection, sort, free space, view.
         let listed = statusMessage == nil && loadError == nil && (searchError == nil || !isSearching)
-            && !history.isHome && (isSearching || !isLoading)
+            && !history.isSpecial && (isSearching || !isLoading)
         chassis.status.readout = !listed ? nil : StatusReadout.make(
             items: shownCount, total: filters.isEmpty ? nil : listing.count, selection: selection,
             sort: isRelevanceOrder ? nil : sortSpec, volume: volume, view: viewMode.title,
@@ -1086,7 +1086,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             searchFilesChanged(note.userInfo?["folders"] as? Set<String>)
             return
         }
-        guard !history.isHome else { return }
+        guard !history.isSpecial else { return }
         // A periodic refresh while a job runs only concerns windows on its destination (or a folder open in place).
         let here = FilePaths.folderKey(history.current)
         if let folders = note.userInfo?["folders"] as? Set<String>, !folders.contains(here), folders.isDisjoint(with: expandedFolders) { return }
@@ -1114,7 +1114,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         let folderOptions = ListOptions.folder
         if listedWith != (ListOptions.showHidden, folderOptions.hideProtectedOSFiles) {
             listedWith = (ListOptions.showHidden, folderOptions.hideProtectedOSFiles)
-            if isSearching { runSearch(keepingState: true) } else if !history.isHome { reloadContents() }
+            if isSearching { runSearch(keepingState: true) } else if !history.isSpecial { reloadContents() }
         }
         applyFolderOptions()
         applyNavigationPaneOptions()

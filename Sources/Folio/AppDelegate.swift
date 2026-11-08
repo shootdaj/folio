@@ -181,8 +181,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             .filter { c in windows.contains { $0 === c } }
         for c in ordered + windows.filter({ c in !ordered.contains { $0 === c } }) {
             if let i = c.tabs.tabs.firstIndex(where: { t in
-                t.history.search == nil && (NavigationHistory.isHome(folder) ? t.history.isHome
-                    : !t.history.isHome && FilePaths.folderKey(t.current) == key)
+                t.history.search == nil && (NavigationHistory.special(folder).map { t.history.special == $0 }
+                    ?? (!t.history.isSpecial && FilePaths.folderKey(t.current) == key))
             }) { return (c, i) }
         }
         return nil

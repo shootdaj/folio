@@ -8,7 +8,7 @@ extension BrowserWindowController: GridHost {
     // MARK: Views
 
     /// Cmd+scroll zooms wherever the pointer is over the list (not over the tree or the address bar).
-    var zoomsWithScroll: Bool { !history.isHome }
+    var zoomsWithScroll: Bool { !history.isSpecial }
 
     @objc func viewModeChanged(_ note: Notification) { applyViewMode() }
 
@@ -130,7 +130,7 @@ extension BrowserWindowController: GridHost {
         case #selector(collapseAllGroups(_:)), #selector(expandAllGroups(_:)):
             return layout.isGrouped
         case #selector(sizeAllColumnsToFit(_:)), #selector(chooseDetails(_:)):
-            return !history.isHome
+            return !history.isSpecial
         case #selector(toggleColumn(_:)):
             let raw = item.representedObject as? String
             item.state = raw.flatMap(ColumnID.init(rawValue:)).map(ColumnCenter.shared.set.isVisible) == true ? .on : .off
@@ -365,7 +365,7 @@ extension BrowserWindowController: GridHost {
         sessionChanged()
         // Native shows the item's details in the pane on the right; D4 in the sidebar's card.
         if !ThemeController.shared.isNative {
-            chassis.sidebar.pane.details = DetailsCard.make(history.isHome ? [] : selected)
+            chassis.sidebar.pane.details = DetailsCard.make(history.isSpecial ? [] : selected)
         }
         let before = chassis.sidePaneKind
         chassis.sidePaneKind = shownSidePane
@@ -378,7 +378,7 @@ extension BrowserWindowController: GridHost {
     /// selection (DetailsPaneRule), and Home has none.
     var shownSidePane: ListOptions.SidePane {
         let chosen = ListOptions.sidePane
-        guard chosen == .details else { return history.isHome ? .none : chosen }
+        guard chosen == .details else { return history.isSpecial ? .none : chosen }
         // Gallery previews the selection itself: Native's pane would show the same picture again.
         if ThemeController.shared.isNative, viewMode == .gallery { return .none }
         return DetailsPaneRule.shows(chosen: true, followsSelection: ThemeController.shared.isNative,
@@ -401,7 +401,7 @@ extension BrowserWindowController: GridHost {
         previewWork = nil
         lastPreviewUpdate = CACurrentMediaTime()
         let selected = selectedEntries
-        if chassis.sidePaneKind != .none, !history.isHome {
+        if chassis.sidePaneKind != .none, !history.isSpecial {
             var meta: ItemMetadata?
             if selected.count == 1, let one = selected.first {
                 meta = MetadataCache.shared.cached(one)

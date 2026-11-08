@@ -108,16 +108,16 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
         recrumb()
     }
 
-    private var isHome: Bool { NavigationHistory.isHome(folder) }
+    private var special: SpecialPlace? { NavigationHistory.special(folder) }
 
     /// The folder a crumb opens (Home's one crumb is Home).
     private func crumbURL(_ i: Int) -> URL {
-        crumbs[i].path == NavigationHistory.homePath ? NavigationHistory.home : URL(fileURLWithPath: crumbs[i].path, isDirectory: true)
+        SpecialPlace(path: crumbs[i].path)?.url ?? URL(fileURLWithPath: crumbs[i].path, isDirectory: true)
     }
 
     private func recrumb() {
-        crumbs = isHome ? [Crumb(title: "Home", path: NavigationHistory.homePath, isCurrent: true, isVolume: true)]
-            : Breadcrumbs.crumbs(for: folder, volumes: volumes)
+        crumbs = special.map { [Crumb(title: $0 == .home ? "Home" : "Suggestions", path: $0.path, isCurrent: true, isVolume: true)] }
+            ?? Breadcrumbs.crumbs(for: folder, volumes: volumes)
         // The Trash reads as Explorer's Recycle Bin in D4.
         if let last = crumbs.last, RecycleBin.isTrash(URL(fileURLWithPath: last.path), home: FileManager.default.homeDirectoryForCurrentUser) {
             crumbs[crumbs.count - 1] = Crumb(title: PlaceNames.recycleBin, path: last.path, isCurrent: last.isCurrent)
@@ -138,7 +138,7 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
     private var currentFont: NSFont { Typeface.ui(13, weight: 600) }
 
     /// The root crumb is the volume's glyph (Home keeps its name).
-    private func isRoot(_ crumb: Crumb) -> Bool { crumb.isVolume && !isHome }
+    private func isRoot(_ crumb: Crumb) -> Bool { crumb.isVolume && special == nil }
 
     private func crumbWidth(_ crumb: Crumb) -> CGFloat {
         isRoot(crumb) ? Self.rootWidth : textWidth(crumb.title, font: crumb.isCurrent ? currentFont : crumbFont) + 2 * Self.crumbPad
@@ -194,7 +194,7 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
             // Only a current crumb too wide on its own is cut short.
             let w = min(crumbWidth(crumbs[i]), max(48, end - Self.minHit - Self.arrowWidth - x))
             out.append(Slot(rect: NSRect(x: x, y: 1, width: w, height: h), part: .crumb(i)))
-            guard !isHome else { x += w; continue }
+            guard special == nil else { x += w; continue }
             out.append(Slot(rect: NSRect(x: x + w, y: 1, width: Self.arrowWidth, height: h), part: .arrow(i)))
             x += w + Self.arrowWidth
         }
@@ -377,7 +377,7 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
     // MARK: Dropping on crumbs
 
     private func crumbIndex(_ info: NSDraggingInfo) -> Int? {
-        guard !isEditing, !isHome, let (part, _) = part(at: convert(info.draggingLocation, from: nil)),
+        guard !isEditing, special == nil, let (part, _) = part(at: convert(info.draggingLocation, from: nil)),
               case .crumb(let i) = part else { return nil }
         return i
     }
@@ -481,7 +481,7 @@ final class AddressBarView: NSView, NSTextFieldDelegate {
         let p = ThemeColors.current
         field.font = Typeface.mono(13, weight: 500)
         field.textColor = p.text.ns
-        field.stringValue = isHome ? "" : folder.path
+        field.stringValue = special != nil ? "" : folder.path
         placeField()
         field.isHidden = false
         window.makeFirstResponder(field)

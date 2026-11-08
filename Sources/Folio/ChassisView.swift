@@ -67,12 +67,13 @@ final class ChassisView: NSView {
             needsLayout = true
         }
     }
-    /// Home instead of the file list.
-    var showsHome = false {
+    /// What the main area shows: the file list, Home, or Suggestions.
+    enum MainPage { case list, home, suggestions }
+    var page: MainPage = .list {
         didSet {
-            guard showsHome != oldValue else { return }
-            pane.isHidden = showsHome
-            home.isHidden = !showsHome
+            guard page != oldValue else { return }
+            pane.isHidden = page != .list
+            home.isHidden = page != .home
             needsLayout = true
         }
     }
@@ -139,11 +140,11 @@ final class ChassisView: NSView {
         handle.isHidden = !sidebarShown
         sidebar.frame = NSRect(x: 0, y: 0, width: side, height: max(0, h - statusHeight))
         handle.frame = NSRect(x: side - 3, y: 0, width: 6, height: max(0, h - statusHeight))
-        let showsSide = sidePaneKind != .none && !showsHome
+        let showsSide = sidePaneKind != .none && page == .list
         let sideW = showsSide ? CGFloat(SidePaneSize.shown(chosen: Double(sidePaneWidth), room: Double(w - side))) : 0
         sidePane.isHidden = !showsSide
         let mainW = max(0, w - side - sideW)
-        let optsH = showsSearchOptions && !showsHome ? searchOptions.preferredHeight(width: mainW) : 0
+        let optsH = showsSearchOptions && page == .list ? searchOptions.preferredHeight(width: mainW) : 0
         searchOptions.frame = NSRect(x: side, y: top, width: mainW, height: optsH)
         pane.frame = NSRect(x: side, y: top + optsH, width: mainW, height: max(0, bodyH - optsH))
         sidePane.frame = NSRect(x: side + mainW, y: top, width: sideW, height: bodyH)
@@ -171,12 +172,12 @@ final class ChassisView: NSView {
         sidebar.frame = NSRect(x: 0, y: top, width: side, height: bodyH)
         handle.frame = NSRect(x: side - 3, y: top, width: 6, height: bodyH)
         // The right-hand pane takes its width from the list, never more than half of what is left.
-        let showsSide = sidePaneKind != .none && !showsHome
+        let showsSide = sidePaneKind != .none && page == .list
         let sideW = showsSide ? CGFloat(SidePaneSize.shown(chosen: Double(sidePaneWidth), room: Double(w - side))) : 0
         sidePane.isHidden = !showsSide
         let mainW = max(0, w - side - sideW)
         // D4's `.opts` row heads the results, the list right under it.
-        let optsH = showsSearchOptions && !showsHome ? searchOptions.preferredHeight(width: mainW) : 0
+        let optsH = showsSearchOptions && page == .list ? searchOptions.preferredHeight(width: mainW) : 0
         searchOptions.frame = NSRect(x: side, y: top, width: mainW, height: optsH)
         pane.frame = NSRect(x: side, y: top + optsH, width: mainW, height: max(0, bodyH - optsH))
         sidePane.frame = NSRect(x: side + mainW, y: top, width: sideW, height: bodyH)

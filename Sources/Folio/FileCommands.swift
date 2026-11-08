@@ -426,7 +426,7 @@ extension BrowserWindowController: FileListDelegate {
         let editingText = window?.firstResponder is NSTextView
         let any = !selectedURLs.isEmpty
         // Home is not a folder: nothing is pasted, made or opened in it.
-        if history.isHome {
+        if history.isSpecial {
             switch item.action {
             case #selector(paste(_:)), #selector(pasteShortcut(_:)), #selector(newFolder(_:)), #selector(newTextDocument(_:)),
                  #selector(openInTerminal(_:)), #selector(showFolderProperties(_:)), #selector(copyAsPath(_:)),
@@ -517,7 +517,7 @@ extension BrowserWindowController: FileListDelegate {
             item.state = ListOptions.navPaneShowHidden ? .on : .off
             return true
         case #selector(expandToCurrentFolder(_:)):
-            return !history.isHome
+            return !history.isSpecial
         case #selector(ejectCurrentVolume(_:)):
             if let v = currentEjectable { item.title = (v.isNetwork ? "Disconnect \u{201C}" : "Eject \u{201C}") + v.name + "\u{201D}" }
             else { item.title = "Eject" }

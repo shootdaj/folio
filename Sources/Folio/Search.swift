@@ -47,7 +47,7 @@ extension BrowserWindowController {
 
     var searchLocation: SearchLocation {
         if history.search?.everywhere == true { return .thisPC }
-        if history.isHome { return .home }
+        if history.isSpecial { return .home }
         return .folder(history.current)
     }
 
@@ -144,7 +144,7 @@ extension BrowserWindowController {
 
     /// Switches the window to results: Details with a Folder column, the Search options row, the footer.
     func enterSearchMode() {
-        chassis.showsHome = false
+        chassis.page = .list
         let tab = tabs.active.id
         if groupsBeforeSearch[tab] == nil {
             groupsBeforeSearch.updateValue(group, forKey: tab)

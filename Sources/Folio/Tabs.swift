@@ -24,8 +24,8 @@ extension BrowserWindowController {
         let items = tabs.tabs.map { tab in
             var item = TabItem(id: tab.id, title: tab.history.search.map { s in
                                    "Search Results in " + (s.everywhere ? PlaceNames.thisComputer : displayName(tab.current))
-                               } ?? tabTitle(tab), isHome: tab.history.isHome,
-                               folder: tab.history.isHome ? nil : tab.current)
+                               } ?? tabTitle(tab), page: tab.history.special,
+                               folder: tab.history.isSpecial ? nil : tab.current)
             item.isSearch = tab.history.search != nil
             return item
         }
@@ -37,13 +37,13 @@ extension BrowserWindowController {
     /// A folder tab's title: its name, or with Folder Options > Display the full path in the title bar,
     /// its full path (the tabs are the title bar now).
     private func tabTitle(_ tab: BrowserTab) -> String {
-        ListOptions.folder.fullPathInTitleBar && !tab.history.isHome ? tab.current.path : displayName(tab.current)
+        ListOptions.folder.fullPathInTitleBar && !tab.history.isSpecial ? tab.current.path : displayName(tab.current)
     }
 
     /// The shown tab's selection and scroll place, kept for when it is shown again.
     func stashActiveTab() {
         // While the folder is still being read the list is empty: the tab keeps what it had.
-        guard !tabs.isEmpty, !history.isHome, !isLoading else { return }
+        guard !tabs.isEmpty, !history.isSpecial, !isLoading else { return }
         tabs.active.selection = selectedKeys
         let clip = chassis.pane.scrollView.contentView.bounds
         tabs.active.scrollRow = max(0, tableView.row(at: NSPoint(x: 1, y: clip.minY + header.frame.height + 1)))
@@ -297,7 +297,7 @@ extension BrowserWindowController {
 
     /// After every move to another folder (or Home): the tree follows, the tab's title, the session.
     func didNavigate() {
-        if !history.isHome, ListOptions.expandToCurrent { revealCurrentFolder(select: false) }
+        if !history.isSpecial, ListOptions.expandToCurrent { revealCurrentFolder(select: false) }
         updateTabStrip()
         sessionChanged()
         updateWatches()
@@ -350,7 +350,7 @@ extension BrowserWindowController {
     /// View > Navigation pane > Always expand to current folder is on).
     func revealCurrentFolder(select: Bool) {
         // Home and the Recycle Bin have their own rows; the tree is not opened for them.
-        guard !history.isHome, !RecycleBin.isTrash(history.current, home: FileManager.default.homeDirectoryForCurrentUser) else { return }
+        guard !history.isSpecial, !RecycleBin.isTrash(history.current, home: FileManager.default.homeDirectoryForCurrentUser) else { return }
         chassis.sidebar.pane.revealInBackground(FilePaths.folderKey(history.current), select: select)
     }
 
@@ -375,7 +375,7 @@ extension BrowserWindowController {
         var activeGone = false
         for i in tabs.tabs.indices {
             let place = tabs.tabs[i].history.current
-            guard !NavigationHistory.isHome(place), place.path.hasPrefix("/Volumes/") else { continue }
+            guard !NavigationHistory.isSpecial(place), place.path.hasPrefix("/Volumes/") else { continue }
             let root = "/Volumes/" + (place.path.dropFirst(9).split(separator: "/").first.map(String.init) ?? "")
             if !roots.contains(root) {
                 tabs.modify(at: i) { $0.history.push(NavigationHistory.home) }
@@ -398,7 +398,7 @@ extension BrowserWindowController {
         // Each pasted item's folder, resolved once per folder (a paste of thousands shares a few).
         let parents = Set(((note.userInfo?["select"] as? [String]) ?? []).map { ($0 as NSString).deletingLastPathComponent })
         for parent in parents { folders.insert(FilePaths.folderKey(URL(fileURLWithPath: parent))) }
-        if folders.isEmpty, !history.isHome { folders.insert(FilePaths.folderKey(history.current)) }
+        if folders.isEmpty, !history.isSpecial { folders.insert(FilePaths.folderKey(history.current)) }
         chassis.sidebar.pane.refresh(folders: folders)
     }
 
@@ -413,7 +413,7 @@ extension BrowserWindowController {
     }
 
     var currentEjectable: VolumeCapacity? {
-        guard !history.isHome else { return nil }
+        guard !history.isSpecial else { return nil }
         let key = FilePaths.folderKey(history.current)
         return volumes.filter { $0.canEject && (key == $0.path || key.hasPrefix($0.path + "/")) }.max { $0.path.count < $1.path.count }
     }
@@ -599,7 +599,7 @@ extension BrowserWindowController {
         renamer.cancel()
         dropdown.close()
         showEmptyList()
-        chassis.showsHome = true
+        chassis.page = .home
         chassis.home.home.content = HomeData.content(pins: pins, defaults: options.historyDefaults)
         chassis.home.needsLayout = true
         updateChrome()

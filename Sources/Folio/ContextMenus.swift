@@ -648,7 +648,7 @@ final class MenuIconRow: NSView {
 extension BrowserWindowController {
     @objc func pinsChanged(_ note: Notification) {
         chassis.sidebar.pane.setPlaces(pins.places)
-        if !history.isHome, ListOptions.expandToCurrent { revealCurrentFolder(select: false) }
+        if !history.isSpecial, ListOptions.expandToCurrent { revealCurrentFolder(select: false) }
         homeDataChanged(note)
     }
 

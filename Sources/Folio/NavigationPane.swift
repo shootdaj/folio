@@ -240,7 +240,7 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
 
     /// The folder the window shows (a resolved path), or Home's.
     var currentPath = "" { didSet { if currentPath != oldValue { outline?.redrawRows() } } }
-    var isHome = false { didSet { if isHome != oldValue { outline?.redrawRows() } } }
+    var currentPage: SpecialPlace? { didSet { if currentPage != oldValue { outline?.redrawRows() } } }
     var browseStatus = "Browse network" { didSet { if browseStatus != oldValue { reload(.network) } } }
 
     override init() {
@@ -497,8 +497,8 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
 
     /// Whether a row is the place the window shows (drawn lit, as D4's `.sitem.on`).
     func isCurrent(_ node: SideNode) -> Bool {
-        if case .home = node.kind { return isHome }
-        guard !isHome, let path = node.path else { return false }
+        if case .home = node.kind { return currentPage == .home }
+        guard currentPage == nil, let path = node.path else { return false }
         return resolvedKey(path) == currentPath
     }
 
