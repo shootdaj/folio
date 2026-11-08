@@ -35,7 +35,7 @@ import Testing
         let bookmark = try target.bookmarkData(options: .suitableForBookmarkFile)
         try URL.writeBookmarkData(bookmark, to: t.url("fx/notes alias"))
         #expect(fs.linkTarget(t.url("fx/notes alias"), alias: true) == .exists)
-        try FileManager.default.trashItem(at: target, resultingItemURL: nil)
+        try FileManager.default.removeItem(at: target)
         let result = fs.linkTarget(t.url("fx/notes alias"), alias: true)
         guard case .missing(let path) = result else {
             Issue.record("expected a missing target, got \(result)")
