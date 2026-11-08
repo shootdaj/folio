@@ -12,9 +12,6 @@ final class SearchField: NSTextField {
     }
 }
 
-/// The search box, top right (`.search`): a magnifier, "Search <folder>", and a clear button once there
-/// is text. Typing runs the search live (the window debounces); Esc clears it and returns to the folder;
-/// Down, or focus on an empty box, lists recent searches.
 /// Native: a system search field (magnifier, cancel button, rounded bezel) that also tells the box when it takes focus.
 final class NativeSearchField: NSSearchField {
     var onFocus: (() -> Void)?
@@ -26,6 +23,9 @@ final class NativeSearchField: NSSearchField {
     }
 }
 
+/// The search box, top right (`.search`): a magnifier, "Search <folder>", and a clear button once there
+/// is text. Typing runs the search live (the window debounces); Esc clears it and returns to the folder;
+/// Down, or focus on an empty box, lists recent searches.
 final class SearchBoxView: NSView, NSTextFieldDelegate, ThemeAware {
     var folderName = "" {
         didSet {
