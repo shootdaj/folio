@@ -245,6 +245,8 @@ final class JobPanelView: NSView {
     fileprivate let sideTags = (0..<2).map { _ in nativeLabel(11, secondary: true) }
     /// Native: what each side of the conflict draws behind its labels.
     fileprivate var sideBorders: [NSColor] = [.separatorColor, .separatorColor]
+    /// Native: the last footer button titles, to lay out again when one changes.
+    fileprivate var nativeButtonTitles = ""
 
     init(job: any ProgressJob) {
         self.job = job
@@ -806,6 +808,9 @@ extension JobPanelView {
 
     fileprivate func refreshNative(_ s: JobSnapshot) {
         let conflict = showsConflict, problem = showsProblem, resolved = showsResolution
+        // A new button title can change its width, so the row needs a new layout.
+        let titles = cancelButton.title + "|" + pauseButton.title
+        if titles != nativeButtonTitles { nativeButtonTitles = titles; needsLayout = true }
         // The LEDs are D4's. A lit one would show its dot at the corner.
         headLight.isHidden = true
         cardLight.isHidden = true
