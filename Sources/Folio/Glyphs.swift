@@ -2,7 +2,7 @@ import AppKit
 import FolioCore
 
 /// D4's stroke icons (24-unit viewBox, 1.75 stroke, round caps; Lucide shapes, from the `P` table).
-enum Glyph: Hashable {
+enum Glyph: Hashable, CaseIterable {
     case back, forward, up, chevron, chevronDown, sort, refresh, search, close
     case sun, moon, star, pc, drive, download, desktop, docs, pics, movies
     // Milestone 3: the copy window's icons, and the command bar's (Lucide, like the rest of the set).
@@ -123,6 +123,8 @@ enum Glyph: Hashable {
     /// Strokes the glyph into `rect` (square), in either a flipped or unflipped view.
     @MainActor
     func draw(in rect: NSRect, color: NSColor, lineWidth: CGFloat = 1.75, rotation: CGFloat = 0) {
+        if ThemeController.shared.look == .native,
+           drawSymbol(in: rect, color: color, lineWidth: lineWidth, rotation: rotation) { return }
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         ctx.saveGState()
         ctx.applyViewBox(rect, units: 24, rotation: rotation)
@@ -133,6 +135,137 @@ enum Glyph: Hashable {
         ctx.setLineJoin(.round)
         ctx.strokePath()
         ctx.restoreGState()
+    }
+}
+
+/// Native's icons are SF Symbols. Each Glyph maps to one, and a missing symbol falls back to the stroke path.
+extension Glyph {
+    var symbolName: String? {
+        switch self {
+        case .back: "chevron.left"
+        case .forward: "chevron.right"
+        case .up: "chevron.up"
+        case .chevron: "chevron.right"
+        case .chevronDown: "chevron.down"
+        case .sort: "chevron.up"
+        case .sortUp: "chevron.up"
+        case .refresh: "arrow.clockwise"
+        case .search: "magnifyingglass"
+        case .close: "xmark"
+        case .sun: "sun.max"
+        case .moon: "moon"
+        case .star: "star"
+        case .pc: "desktopcomputer"
+        case .drive: "internaldrive"
+        case .download: "arrow.down.circle"
+        case .desktop: "menubar.dock.rectangle"
+        case .docs: "doc"
+        case .pics: "photo"
+        case .movies: "film"
+        case .copy: "doc.on.doc"
+        case .pause: "pause.fill"
+        case .play: "play.fill"
+        case .check: "checkmark"
+        case .arrow: "arrow.right"
+        case .replace: "arrow.left.arrow.right"
+        case .skip: "forward.end.fill"
+        case .both: "square.on.square"
+        case .compare: "arrow.left.and.right.square"
+        case .minus: "minus"
+        case .cut: "scissors"
+        case .paste: "doc.on.clipboard"
+        case .rename: "pencil"
+        case .trash: "trash"
+        case .newFolder: "folder.badge.plus"
+        case .share: "square.and.arrow.up"
+        case .more: "ellipsis"
+        case .sortLines: "arrow.up.arrow.down"
+        case .view: "list.bullet"
+        case .plus: "plus"
+        case .home: "house"
+        case .eject: "eject.fill"
+        case .globe: "globe"
+        case .server: "server.rack"
+        case .link: "link"
+        case .cloud: "icloud"
+        case .clock: "clock"
+        case .mapPin: "mappin"
+        case .tabs: "rectangle.on.rectangle"
+        case .calendar: "calendar"
+        case .kind: "square.grid.2x2"
+        case .size: "chart.bar"
+        case .alert: "exclamationmark.triangle"
+        case .undo: "arrow.uturn.backward"
+        case .stop: "stop.fill"
+        case .stack: "square.stack"
+        case .code: "chevron.left.forwardslash.chevron.right"
+        }
+    }
+
+    /// How much of the box the symbol fills. Filled symbols look larger than the strokes they replace.
+    fileprivate var symbolScale: CGFloat {
+        switch self {
+        case .pause, .play, .skip, .stop, .eject: 0.8
+        case .more: 0.9
+        default: 1.0
+        }
+    }
+
+    /// The weight for a stroke width: below 1.5 regular, to 1.9 medium, to 2.3 semibold, above bold.
+    /// Small sizes use semibold so thin strokes stay legible.
+    static func symbolWeight(lineWidth: CGFloat, size: CGFloat) -> NSFont.Weight {
+        if size < 11 { return .semibold }
+        if lineWidth < 1.5 { return .regular }
+        if lineWidth < 2.0 { return .medium }
+        if lineWidth <= 2.3 { return .semibold }
+        return .bold
+    }
+
+    /// Draws the Native symbol. Returns false when this glyph has none or the OS lacks it.
+    @MainActor
+    fileprivate func drawSymbol(in rect: NSRect, color: NSColor, lineWidth: CGFloat, rotation: CGFloat) -> Bool {
+        guard let name = symbolName else { return false }
+        let weight = Glyph.symbolWeight(lineWidth: lineWidth, size: rect.height)
+        return Glyph.drawSymbol(named: name, in: rect, color: color, pointSize: rect.height * 0.8, weight: weight,
+                                scale: symbolScale, rotation: rotation)
+    }
+
+    @MainActor private static var symbolCache: [String: NSImage] = [:]
+
+    /// Draws any SF Symbol, tinted and fitted into `rect`. Returns false if the symbol does not exist.
+    @MainActor
+    @discardableResult
+    static func drawSymbol(named name: String, in rect: NSRect, color: NSColor, pointSize: CGFloat,
+                           weight: NSFont.Weight = .regular, scale: CGFloat = 1, rotation: CGFloat = 0) -> Bool {
+        let key = "\(name)|\(pointSize)|\(weight.rawValue)"
+        let image: NSImage
+        if let hit = symbolCache[key] {
+            image = hit
+        } else {
+            let config = NSImage.SymbolConfiguration(pointSize: pointSize, weight: weight, scale: .medium)
+            guard let made = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(config)
+            else { return false }
+            symbolCache[key] = made
+            image = made
+        }
+        guard let ctx = NSGraphicsContext.current?.cgContext, image.size.width > 0, image.size.height > 0 else { return false }
+        let fit = min(rect.width / image.size.width, rect.height / image.size.height) * scale
+        let size = NSSize(width: image.size.width * fit, height: image.size.height * fit)
+        let target = NSRect(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2, width: size.width, height: size.height)
+        ctx.saveGState()
+        if rotation != 0 {
+            ctx.translateBy(x: rect.midX, y: rect.midY)
+            ctx.rotate(by: rotation)
+            ctx.translateBy(x: -rect.midX, y: -rect.midY)
+        }
+        // The symbol is a template: draw it, then colour what it covered.
+        ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+        image.draw(in: target, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+        color.setFill()
+        target.insetBy(dx: -1, dy: -1).fill(using: .sourceIn)
+        ctx.endTransparencyLayer()
+        ctx.restoreGState()
+        return true
     }
 }
 
@@ -222,7 +355,9 @@ enum ItemIcon {
 
     /// Folder or file for an item, in its hue.
     static func draw(name: String, isFolder: Bool, in rect: NSRect, palette p: ThemeColors, glow: Bool = false) {
-        if isFolder {
+        if ThemeController.shared.look == .native {
+            FinderIcon.draw(name: name, isDir: isFolder, isLink: false, in: rect)
+        } else if isFolder {
             drawFolder(in: rect, hue: p.accent, palette: p, glow: glow)
         } else {
             drawFile(named: name, in: rect, palette: p, glow: glow)
@@ -231,6 +366,14 @@ enum ItemIcon {
 
     /// Explorer's shortcut arrow on an alias or symbolic link: a small boxed arrow at the icon's corner.
     static func drawLinkBadge(in rect: NSRect, palette p: ThemeColors) {
+        if ThemeController.shared.look == .native {
+            // Finder's alias arrow: a small arrow on a white disc.
+            NSColor.white.setFill()
+            NSBezierPath(ovalIn: rect).fill()
+            Glyph.drawSymbol(named: "arrow.turn.up.right", in: rect.insetBy(dx: rect.width * 0.18, dy: rect.height * 0.18),
+                             color: .black, pointSize: rect.height, weight: .bold)
+            return
+        }
         fillRounded(rect, radius: max(1.5, rect.width / 6), p.s1)
         strokeRounded(rect, radius: max(1.5, rect.width / 6), p.outline, width: max(0.75, rect.width / 12))
         Glyph.arrow.draw(in: rect.insetBy(dx: rect.width * 0.12, dy: rect.height * 0.12), color: p.accent.ns,

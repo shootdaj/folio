@@ -157,6 +157,9 @@ final class ThemeController {
         }
     }
 
+    /// True when View > Theme is Native.
+    var isNative: Bool { look == .native }
+
     /// Live preview while the hue slider moves: every window recolours, nothing is saved yet.
     func preview(hue: Int) {
         previewHue = Accent.normalized(Double(hue))
