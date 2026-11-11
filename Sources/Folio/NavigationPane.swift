@@ -863,7 +863,7 @@ final class SidebarOutlineView: NSOutlineView {
     weak var pane: NavigationPane?
     private(set) var hoveredRow = -1
     var dropRow: Int? { didSet { if dropRow != oldValue { redrawRows() } } }
-    var insertY: CGFloat? { didSet { if insertY != oldValue { overlay.y = insertY; overlay.needsDisplay = true } } }
+    var insertY: CGFloat? { didSet { if insertY != oldValue { placeOverlay() } } }
     private let overlay = InsertionOverlay()
     private var navigateTimer: Timer?
 
@@ -890,6 +890,7 @@ final class SidebarOutlineView: NSOutlineView {
         setDraggingSourceOperationMask([.copy, .move, .link, .generic], forLocal: false)
         draggingDestinationFeedbackStyle = .none
         setAccessibilityLabel("Quick access, This PC and Network")
+        overlay.isHidden = true
         addSubview(overlay)
     }
 
@@ -906,7 +907,7 @@ final class SidebarOutlineView: NSOutlineView {
 
     override func layout() {
         super.layout()
-        overlay.frame = bounds
+        placeOverlay()
     }
 
     func redrawRows() {
@@ -1116,12 +1117,26 @@ final class SidebarOutlineView: NSOutlineView {
     }
 
     /// The accent line where a dropped folder would be pinned.
+    /// The insertion line's view is a thin strip at the line, hidden with no line. Sized to the whole
+    /// outline (over 100,000 pt tall with a big folder open in the tree), each redisplay cleared a
+    /// backing store of that size on the main thread.
+    private func placeOverlay() {
+        guard let y = insertY else {
+            overlay.isHidden = true
+            return
+        }
+        overlay.frame = NSRect(x: 0, y: y - InsertionOverlay.half, width: bounds.width, height: 2 * InsertionOverlay.half)
+        overlay.isHidden = false
+        overlay.needsDisplay = true
+    }
+
     private final class InsertionOverlay: NSView {
-        var y: CGFloat?
+        /// Half the strip's height: the line and its dot, centred.
+        static let half: CGFloat = 4
         override var isFlipped: Bool { true }
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func draw(_ dirtyRect: NSRect) {
-            guard let y else { return }
+            let y = Self.half
             let p = Palette.current
             let line = NSRect(x: 24, y: y - 1, width: bounds.width - 48, height: 2)
             fillRect(line, p.accent)
