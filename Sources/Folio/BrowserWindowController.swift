@@ -660,6 +660,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
                             key: ArrangeKey, folder: URL, started: Date, keepingState: Bool) {
         guard id == requestID else { return }
         isLoading = false
+        isResorting = false // a re-sort this load overtook never finishes, so its flag ends here
         self.volume = volume
         let select = pendingSelect ?? []
         let scroll = scrollToPending

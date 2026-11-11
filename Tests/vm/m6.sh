@@ -713,6 +713,17 @@ fi
 # --- quit and clean up ------------------------------------------------------------------------------------
 if quit_folio; then pass 21 quit "Folio quit"; else fail 21 quit "Folio was still running 10 s after quit"; fi
 clean_defaults
+
+# --- 22: Folio's own run (--uitest): a reload that overtakes a re-sort, and the list is idle again -----------
+# The re-sort's result is dropped, and before the fix nothing cleared its flag, so the window never counted
+# as idle again. The run opens its own window off-screen on a fixture under /private/tmp/folio-tests.
+uout=$("$APP/Contents/MacOS/Folio" --uitest new --shot "$SHOTS/m6-22-uitest.png" 2>&1)
+urc=$?
+if [ "$urc" -eq 0 ] && echo "$uout" | grep -q "a reload overtook a re-sort: idle again" && echo "$uout" | grep -q "result: ok"; then
+    pass 22 resort-overtaken "$(echo "$uout" | grep "overtook" | sed 's/^uitest: //'); PNGs $SHOTS/m6-22-uitest-*.png"
+else
+    fail 22 resort-overtaken "exit $urc: $(echo "$uout" | grep -E "overtook|result" | tr '\n' ' ')"
+fi
 mv "$ROOT" "$HOME/.Trash/" 2>/dev/null
 
 if [ "$fails" -eq 0 ]; then

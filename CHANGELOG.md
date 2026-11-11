@@ -39,6 +39,9 @@ pushed; the release workflow publishes the section below with that number as the
   app for folders and refuses it with error -50 for every app, Finder too. Folio now says that macOS
   protects the setting and that only Finder can change it, in place of a bare "error -50". Drives still
   open in Folio, and the box now shows on while they do, so a second click hands them back to Finder.
+- **A reload during a re-sort no longer leaves the window marked as busy.** The reload dropped the
+  re-sort's result, as it should, but the re-sort's flag stayed set, so the window never counted as
+  settled again until it loaded another folder.
 
 ## [1.0.0] - 2026-11-07
 
