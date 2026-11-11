@@ -736,6 +736,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     /// Filters, then groups (sorted inside) or a plain sort. Columns that need metadata (Dimensions,
     /// Tags...) read it for every item first, through the shared cache.
     nonisolated static func arrange(_ rows: [FileEntry], _ key: ArrangeKey) -> ListLayout {
+        var layout = arrangeItems(rows, key)
+        // The items' keys too, so the main thread does not resolve a path per item.
+        layout.keys = FilePaths.itemKeys(layout.items.map(\.url))
+        return layout
+    }
+
+    private nonisolated static func arrangeItems(_ rows: [FileEntry], _ key: ArrangeKey) -> ListLayout {
         let context = BucketContext()
         let wantsMeta = key.filters.columns.contains { $0.needsMetadata } || key.sort.terms.contains { $0.key.needsMetadata }
             || key.group?.key.needsMetadata == true
@@ -793,7 +800,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     func show(_ arranged: ListLayout, selecting selected: Set<String>) {
         layout = arranged
         entries = arranged.items
-        entryKeys = entries.map { FilePaths.itemKey($0.url) }
+        entryKeys = arranged.keys ?? FilePaths.itemKeys(entries.map(\.url))
         dimmed = FileClipboard.dimmedPaths
         let rows = IndexSet(entries.indices.filter { selected.contains(entryKeys[$0]) })
         selection = ListSelection(count: entries.count)
