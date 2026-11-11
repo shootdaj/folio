@@ -69,6 +69,27 @@ import Testing
         #expect(count.n == stopped, "nothing after stop")
     }
 
+    @Test func aChangeDeepBelowIsNotThisFoldersAndAStopDropsWhatIsPending() async throws {
+        let t = try TestTree()
+        defer { t.close() }
+        let work = try t.folder("work")
+        let deep = try t.folder("work/deep/er")
+        // The folders' own creation is not part of this: FSEvents can hand it over a moment late.
+        try await Task.sleep(for: .milliseconds(1000))
+        let count = Count()
+        let watcher = FolderWatcher(latency: 0.3, queue: DispatchQueue(label: "test.watch4")) { count.add($0) }
+        watcher.watch([work.path])
+        try await Task.sleep(for: .milliseconds(300))
+        for i in 0..<20 { try Data([UInt8(i)]).write(to: deep.appendingPathComponent("f\(i).txt")) }
+        try await Task.sleep(for: .milliseconds(800))
+        #expect(count.n == 0, "files written in a subfolder are that subfolder's business")
+        try Data([1]).write(to: work.appendingPathComponent("now.txt"))
+        try await Task.sleep(for: .milliseconds(100))
+        watcher.stop()
+        try await Task.sleep(for: .milliseconds(600))
+        #expect(count.n == 0, "a change noted just before stopping is not delivered after it")
+    }
+
     @Test func theTreeWatcherReportsFoldersChangedAnywhereUnderItsRoots() async throws {
         let t = try TestTree()
         defer { t.close() }

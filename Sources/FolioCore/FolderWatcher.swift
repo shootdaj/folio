@@ -52,7 +52,7 @@ final class ChangeCoalescer: @unchecked Sendable {
 }
 
 /// Auto-refresh for the folders tabs show: a kqueue source on each folder (items added, removed or
-/// renamed) and an FSEvents stream with file events (a file in it written), coalesced. Reports the
+/// renamed) and an FSEvents stream of folder events (a file in it written), coalesced. Reports the
 /// folders (resolved, as `FilePaths.folderKey`) that changed.
 public final class FolderWatcher: @unchecked Sendable {
     private let coalescer: ChangeCoalescer
@@ -85,6 +85,8 @@ public final class FolderWatcher: @unchecked Sendable {
     }
 
     public func stop() {
+        // A change noted just before stopping is not delivered after it.
+        coalescer.reset()
         lock.lock()
         let old = sources
         sources = [:]
@@ -121,7 +123,9 @@ public final class FolderWatcher: @unchecked Sendable {
             let paths = unsafeBitCast(rawPaths, to: NSArray.self) as? [String] ?? []
             me.fileEvents(Array(paths.prefix(count)))
         }
-        let flags = UInt32(kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagNoDefer | kFSEventStreamCreateFlagUseCFTypes)
+        // Folder-level events: FSEvents names the folder a file changed in (a write into a file names its
+        // folder too), not each file, so a tab on a big tree is not sent every write anywhere below it.
+        let flags = UInt32(kFSEventStreamCreateFlagNoDefer | kFSEventStreamCreateFlagUseCFTypes)
         guard let s = FSEventStreamCreate(nil, callback, &context, paths as CFArray, FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
                                           0.05, flags) else { return }
         FSEventStreamSetDispatchQueue(s, source)
@@ -131,18 +135,18 @@ public final class FolderWatcher: @unchecked Sendable {
         lock.unlock()
     }
 
-    /// A file event: the folder it is in, when that is one of ours (subfolders are not listed here).
+    /// Folders something changed in: the ones that are ours (their subfolders are not listed here; the
+    /// folder's own creation or date is the kqueue source's business).
     private func fileEvents(_ paths: [String]) {
         lock.lock()
         let keys = watched
         lock.unlock()
         var hit: Set<String> = []
         for p in paths {
-            let parent = (p as NSString).deletingLastPathComponent
-            // The folder's own events (its creation, its date) are the kqueue source's business.
-            if keys.contains(parent) && !keys.contains(p) { hit.insert(parent) }
+            let folder = p.count > 1 && p.hasSuffix("/") ? String(p.dropLast()) : p
+            if keys.contains(folder) { hit.insert(folder) }
         }
-        coalescer.note(hit)
+        if !hit.isEmpty { coalescer.note(hit) }
     }
 }
 
