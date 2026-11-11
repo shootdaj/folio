@@ -572,11 +572,11 @@ final class ColumnPreviewView: NSView {
         return NSRect(x: 14, y: 14, width: max(0, w), height: max(0, bounds.height - 28))
     }
 
+    /// Everything in the card but the thumbnail: the label, the gaps, the name and kind, the fields.
+    private var textHeight: CGFloat { Self.headH + 14 + 16 + 22 + 24 + 8 + CGFloat(fields.count) * 38 + 10 }
+
     /// The thumbnail's square: up to 240 pt, smaller when the column is short, so every line fits.
-    private var imageSide: CGFloat {
-        let text = Self.headH + 14 + 16 + 22 + 24 + 8 + CGFloat(fields.count) * 38 + 12
-        return max(48, min(card.width - 2 * Self.pad, 240, card.height - text))
-    }
+    private var imageSide: CGFloat { max(48, min(card.width - 2 * Self.pad, 240, card.height - textHeight)) }
 
     override func draw(_ dirtyRect: NSRect) {
         let p = Palette.current
@@ -585,8 +585,7 @@ final class ColumnPreviewView: NSView {
         let c = card
         let side = imageSide
         let keyFont = Typeface.mono(12, weight: 600), valueFont = Typeface.mono(12)
-        let contentH = Self.headH + side + 16 + 22 + 18 + 14 + CGFloat(fields.count) * 38 + 8
-        let r = NSRect(x: c.minX, y: c.minY, width: c.width, height: min(c.height, contentH))
+        let r = NSRect(x: c.minX, y: c.minY, width: c.width, height: min(c.height, textHeight + side))
         // The spotlight card: s1, a hairline, radius 12, a mono uppercase label.
         fillRounded(r, radius: 12, p.s1)
         strokeRounded(r, radius: 12, p.line)
