@@ -41,6 +41,8 @@ done
 [ "$waited" -ge "$limit" ] && echo "vm-tests.sh: the VM was still busy after ${VM_WAIT_MINUTES:-20} min; taking it over"
 
 mkdir -p "$OUT/logs"
+echo "== cleaning the VM disk"
+"$FOLIO_VM_HOME/vm-ssh.sh" "bash -s" < tools/ci/vm-clean.sh
 echo "== staging"
 tools/ci/stage-vm.sh "$app" "$ff" || { echo "vm-tests.sh: staging failed"; exit 1; }
 vm "if [ -d ~/folio/shots ]; then mv ~/folio/shots ~/.Trash/folio-shots-\$(date +%Y%m%d-%H%M%S); fi; mkdir -p ~/folio/shots"
