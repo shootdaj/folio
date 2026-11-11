@@ -181,6 +181,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     var requestID = 0
     /// The folder read in flight (`load`), cancelled when a newer one starts.
     private var loadTask: Task<Void, Never>?
+    /// Streaming search results are arranged at a pace (arrangeSearchSoon).
+    var searchArrangeWork: DispatchWorkItem?
+    var lastSearchArrange: CFTimeInterval = 0
+    var lastSearchTitle = ""
     private var isFittingColumns = false
     /// The one dropdown this window shows at a time (typeahead, history, crumb folders, Back list).
     let dropdown = Dropdown()
@@ -1393,6 +1397,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     }
 
     func windowWillClose(_ notification: Notification) {
+        // A search in a closed window stops: the walk, Spotlight, its ticker and a pending arrange.
+        searchEngine?.cancel()
+        searchTicker?.invalidate()
+        searchArrangeWork?.cancel()
         dropdown.close()
         renamer.end()
         // Cmd+Shift+T can bring back the tabs of a closed window too.

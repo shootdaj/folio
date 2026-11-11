@@ -238,9 +238,14 @@ extension BrowserWindowController {
         searchEngine = engine
         engine.start()
         searchTicker?.invalidate()
-        searchTicker = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.tickSearchProgress() }
+        searchTicker = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] timer in
+            // A closed window's ticker stops with it.
+            guard let self else { timer.invalidate(); return }
+            MainActor.assumeIsolated { self.tickSearchProgress() }
         }
+        searchArrangeWork?.cancel()
+        searchArrangeWork = nil
+        lastSearchTitle = ""
         updateSearchChrome()
         updateStatus()
     }
@@ -271,14 +276,36 @@ extension BrowserWindowController {
             PerfTrace.mark("search-done", "hits=\(u.total) ms=\(String(format: "%.1f", u.elapsed * 1000)) "
                 + "first_ms=\(String(format: "%.1f", (u.firstHitAfter ?? u.elapsed) * 1000)) walked=\(u.walked ? 1 : 0)")
         }
-        if !searchReplacePending, !u.hits.isEmpty || u.done {
+        if !searchReplacePending, !u.hits.isEmpty || u.done { arrangeSearchSoon(final: u.done) }
+        updateSearchChrome()
+        updateStatus()
+    }
+
+    /// Batches arrive up to 12 times a second and each arrange ranks and sorts every hit so far: the
+    /// list follows at most 4 times a second while results stream in, and at once when the search ends.
+    private func arrangeSearchSoon(final: Bool) {
+        let wait = 0.25 - (CACurrentMediaTime() - lastSearchArrange)
+        if final || wait <= 0 {
+            searchArrangeWork?.cancel()
+            searchArrangeWork = nil
+            lastSearchArrange = CACurrentMediaTime()
             listing = SearchMerger.ranked(searchHits).map(\.entry)
             // The listing changed: arrange it all again (not only the folded groups).
             arrangedWith = nil
             rearrange()
+            return
         }
-        updateSearchChrome()
-        updateStatus()
+        guard searchArrangeWork == nil else { return }
+        let run = searchRun
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, run == self.searchRun, self.isSearching else { return }
+                self.searchArrangeWork = nil
+                self.arrangeSearchSoon(final: false)
+            }
+        }
+        searchArrangeWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + wait, execute: work)
     }
 
     private func tickSearchProgress() {
@@ -310,7 +337,11 @@ extension BrowserWindowController {
         bar.kind.value = SearchBoxText.value(of: .kind, in: s.text)
         bar.size.value = SearchBoxText.value(of: .size, in: s.text)
         updateSearchEmpty()
-        updateTabStrip()
+        // The tab's title (and the watchers the strip refreshes) change with the search, not each batch.
+        if title != lastSearchTitle {
+            lastSearchTitle = title
+            updateTabStrip()
+        }
     }
 
     /// "No items match your search." once a search ends with nothing shown; "Working on it..." before.

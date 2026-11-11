@@ -35,6 +35,17 @@ private func walk(_ t: TestTree, _ text: String, recursive: Bool = true, hidden:
         #expect(try walk(t, "level2") == ["level2"])
     }
 
+    @Test func aPlainWordFindsTagsAndNamesTheBulkListingGives() throws {
+        let t = try searchTree(); defer { t.close() }
+        try FileTags.setNames(["Projectx"], of: t.url("work/level2/level3/report-2024.txt"))
+        try t.file("work/level2/IMG_0001.JPG", bytes: 5)
+        #expect(try walk(t, "projectx") == ["report-2024.txt"], "tags hold the word")
+        #expect(FileTags.hasTags(t.url("work/level2/level3/report-2024.txt")))
+        #expect(!FileTags.hasTags(t.url("work/Bert.txt")))
+        #expect(try walk(t, "img") == ["IMG_0001.JPG"])
+        #expect(try walk(t, "kind:folder") == ["level2", "level3"])
+    }
+
     @Test func currentFolderOnlyLooksOneLevel() throws {
         let t = try searchTree(); defer { t.close() }
         #expect(try walk(t, "bert", recursive: false) == ["Bert.txt"])
