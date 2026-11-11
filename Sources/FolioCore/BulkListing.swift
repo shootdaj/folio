@@ -15,6 +15,8 @@ enum BulkListing {
         var size: Int64?
         /// Finder flags (FinderInfo bytes 8 and 9): the alias, bundle, invisible and custom icon bits.
         var finderFlags: UInt16
+        /// The classic file type code (FinderInfo bytes 0 to 3), which can type a file with no extension.
+        var typeCode: UInt32 = 0
         var mode: UInt32
         /// BSD flags (`UF_HIDDEN`, `UF_IMMUTABLE`, `UF_COMPRESSED`).
         var flags: UInt32
@@ -114,6 +116,7 @@ enum BulkListing {
         }
         if has(ATTR_CMN_FNDRINFO) {
             raw.finderFlags = UInt16(p.load(fromByteOffset: 8, as: UInt8.self)) << 8 | UInt16(p.load(fromByteOffset: 9, as: UInt8.self))
+            raw.typeCode = p.loadUnaligned(as: UInt32.self)
             p += 32
         }
         if has(ATTR_CMN_ACCESSMASK) {
@@ -176,10 +179,12 @@ enum BulkListing {
             } else if raw.type != VREG.rawValue {
                 kindKey = "bulk:special:\(raw.type)"
             } else if ext.isEmpty {
-                // No extension: macOS types some by name (README is plain text) and some by the
-                // executable bit, so the content type is asked, as the URL way did for every file.
-                let type = (try? url.resourceValues(forKeys: [.contentTypeKey]))?.contentType?.identifier
-                kindKey = type ?? "bulk:data"
+                // No extension: macOS types some by name (README is plain text, Makefile make source),
+                // some by the executable bit and the classic type code, so the content type is asked, as
+                // the URL way did for every file; the answer is kept for that name, bits and code.
+                kindKey = NameTypes.contentType(name: raw.name, executable: raw.mode & 0o111, typeCode: raw.typeCode) {
+                    (try? url.resourceValues(forKeys: [.contentTypeKey]))?.contentType?.identifier
+                } ?? "bulk:data"
             } else {
                 kindKey = "bulk:ext:" + ext.lowercased()
             }
@@ -199,6 +204,28 @@ enum BulkListing {
         }
         return out
     }
+}
+
+/// The content type of a file with no extension, kept per name, executable bits and classic type
+/// code (all that decides it), so listing the same folder again asks the disk for none of them. Any thread.
+enum NameTypes {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var known: [String: String?] = [:]
+    static let limit = 100_000
+
+    static func contentType(name: String, executable: UInt32, typeCode: UInt32, ask: () -> String?) -> String? {
+        let key = name + "\u{0}\(executable)\u{0}\(typeCode)"
+        if let hit = lock.withLock({ known[key] }) { return hit }
+        let answer = ask()
+        lock.withLock {
+            if known.count >= limit { known.removeAll() }
+            known[key] = answer
+        }
+        return answer
+    }
+
+    /// How many answers are kept (the tests check the cache is used).
+    static var count: Int { lock.withLock { known.count } }
 }
 
 /// Whether a folder's extension makes it a package (an app, a bundle, a library), as Launch Services

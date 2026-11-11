@@ -130,6 +130,29 @@ import Testing
         try compare(t.url("fx"), hidden: true)
     }
 
+    @Test func filesWithNoExtensionAreTypedOncePerNameAsTheURLWayTypesThem() throws {
+        let t = try makeFixture()
+        defer { close(t) }
+        // A classic Mac text file: type code TEXT, no extension.
+        try t.file("fx/OldMacText")
+        var info = [UInt8](repeating: 0, count: 32)
+        info[0...3] = [0x54, 0x45, 0x58, 0x54]
+        #expect(setxattr(t.url("fx/OldMacText").path, "com.apple.FinderInfo", info, 32, 0, XATTR_NOFOLLOW) == 0)
+        try compare(t.url("fx"), hidden: true)
+        var kinds: [String: String] = [:]
+        _ = BulkListing.entries(t.url("fx"), includeHidden: true, hideProtected: false, kinds: &kinds)
+        let kept = NameTypes.count
+        _ = BulkListing.entries(t.url("fx"), includeHidden: true, hideProtected: false, kinds: &kinds)
+        #expect(NameTypes.count == kept, "listing again asks the disk for no name it has seen")
+        // The executable bit decides too: README made executable reads as the URL way reads it.
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: t.url("fx/README").path)
+        try compare(t.url("fx"), hidden: true)
+        let readme = BulkListing.entries(t.url("fx"), includeHidden: true, hideProtected: false, kinds: &kinds)?.first { $0.name == "README" }
+        var urlKinds: [String: String] = [:]
+        let byURL = try FolderListing.listByURL(t.url("fx"), includeHidden: true, hideProtected: false, kinds: &urlKinds).first { $0.name == "README" }
+        #expect(readme?.kind == byURL?.kind && readme?.kind.isEmpty == false)
+    }
+
     @Test func aFolderNeedingSeveralKernelCallsReadsEveryItem() throws {
         // 3,000 entries with long names fill the 256 KB buffer more than once.
         let t = try TestTree()
