@@ -609,6 +609,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         requestID += 1
         let id = requestID
         isLoading = true
+        // A sort still under way for the list before is dropped with it (its result never lands).
+        isResorting = false
         if !keepingState {
             loadError = nil
             statusMessage = nil

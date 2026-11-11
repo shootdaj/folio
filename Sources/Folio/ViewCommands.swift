@@ -16,6 +16,7 @@ extension BrowserWindowController: GridHost {
         let started = Date()
         let mode = viewMode
         let focused = window?.firstResponder === tableView || window?.firstResponder === grid || window?.firstResponder is ColumnTableView
+        let columnsChanged = (chassis.pane.mode == .columns) != (mode == .columns)
         chassis.pane.mode = mode
         grid.compact = ListOptions.compact
         grid.mode = mode
@@ -34,7 +35,7 @@ extension BrowserWindowController: GridHost {
             columnBrowser.setColumns([], preview: false)
         }
         // Into or out of Columns: arranged again without (or with) Group by and filters.
-        if !isSearching, !history.isHome, arrangedWith != nil, arrangeKey != arrangedWith { rearrange() }
+        if columnsChanged, !isSearching, !history.isHome, arrangedWith != nil, arrangeKey != arrangedWith { rearrange() }
         syncColumns()
         if focused || window?.firstResponder === window { window?.makeFirstResponder(listView) }
         // Never a column's table: columns come and go.
