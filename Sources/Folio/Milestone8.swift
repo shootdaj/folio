@@ -16,6 +16,16 @@ final class ItemDecorCache {
         icons = [:]
     }
 
+    /// Forgets what was read for the items in `folder` and below (a load or refresh of that folder);
+    /// other windows' rows keep theirs, up to a bound.
+    func clear(under folder: URL) {
+        if tags.count + flags.count + icons.count > 20_000 { clear(); return }
+        let prefix = folder.path == "/" ? "/" : folder.path + "/"
+        tags = tags.filter { !$0.key.hasPrefix(prefix) }
+        flags = flags.filter { !$0.key.hasPrefix(prefix) }
+        icons = icons.filter { !$0.key.hasPrefix(prefix) }
+    }
+
     func forget(_ url: URL) {
         tags[url.path] = nil
         flags[url.path] = nil
@@ -124,7 +134,7 @@ extension BrowserWindowController {
     private func watchedFoldersChanged(_ keys: Set<String>) {
         guard !history.isHome, !isInZip, !isSearching else { return }
         guard keys.contains(FilePaths.folderKey(history.current)) else { return }
-        ItemDecorCache.shared.clear()
+        ItemDecorCache.shared.clear(under: history.current)
         perfLog.notice("auto-refresh: \(self.history.current.path, privacy: .public) changed on disk")
         reloadContents()
     }

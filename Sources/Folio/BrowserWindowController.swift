@@ -601,8 +601,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             updateChrome()
         }
         let started = Date()
-        // Tags, flags and custom icons are read again for what the list shows next.
-        ItemDecorCache.shared.clear()
+        // Tags, flags and custom icons are read again for what the list shows next (other windows keep theirs).
+        ItemDecorCache.shared.clear(under: folder)
         // A newer load replaces this one: the old one stops at its next step instead of finishing unseen.
         loadTask?.cancel()
         loadTask = Task.detached(priority: .userInitiated) { [weak self] in
@@ -951,8 +951,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         // A periodic refresh while a job runs only concerns windows on its destination.
         let here = FilePaths.folderKey(history.current)
         if let folders = note.userInfo?["folders"] as? Set<String>, !folders.contains(here) { return }
-        let mine = ((note.userInfo?["select"] as? [String]) ?? [])
-            .map { FilePaths.itemKey(URL(fileURLWithPath: $0)) }
+        let mine = FilePaths.itemKeys(((note.userInfo?["select"] as? [String]) ?? []).map { URL(fileURLWithPath: $0) })
             .filter { FilePaths.parentKey(ofItemKey: $0) == here }
         reloadContents(select: mine.isEmpty ? nil : Set(mine))
     }
