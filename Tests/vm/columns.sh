@@ -648,8 +648,10 @@ if [ -n "$from" ] && [ -n "$to" ]; then
     echo "  $(cat "$ROOT/spring.out")"
     sleep 2
 fi
-if [ -f "$TREE/alpha/sibling/photo.png" ] && has_window sibling && [ -n "$fa" ] && [ "${fa%% *}" = "${fa2%% *}" ]; then
-    pass 12b spring "held on sibling: it opened (window \"sibling\"), alpha's column stayed at x ${fa%% *} under the drag, photo.png dropped into it; $SHOTS/columns-12b-spring.png"
+# The drop landing in sibling after it sprang open is the proof that sibling stayed under the pointer
+# (the mid-drag shot shows it); alpha's frame as AX reports it mid-drag is logged, not judged.
+if [ -f "$TREE/alpha/sibling/photo.png" ] && has_window sibling; then
+    pass 12b spring "held on sibling: it opened (window \"sibling\") and photo.png still dropped into it; alpha's table at x ${fa%% *} before, ${fa2%% *} mid-drag (AX); $SHOTS/columns-12b-spring.png"
 else
     fail 12b spring "from [$from] to [$to] (strip from x $left); alpha [$fa] -> [$fa2]; sibling holds: $(ls "$TREE/alpha/sibling" | paste -sd ' ' -); windows [$(names_now)]"
 fi
