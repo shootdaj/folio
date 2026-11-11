@@ -29,6 +29,10 @@ enum BulkListing {
     static let kIsInvisible: UInt16 = 0x4000 // the tests set it
     static let kHasBundle: UInt16 = 0x2000
 
+    /// The first call's buffer (a folder of a few thousand items), then the one for the rest.
+    static let smallBuffer = 256 * 1024
+    static let bigBuffer = 4 * 1024 * 1024
+
     /// The sealed system volume (/, /usr, /System) is read the URL way: its firmlinks (/Applications,
     /// /Users, /usr/local) read here as the system's stubs, not the data volume's folders.
     static func readsTheURLWay(mountedOn: String) -> Bool { mountedOn == "/" }
@@ -51,8 +55,9 @@ enum BulkListing {
         request.fileattr = attrgroup_t(ATTR_FILE_DATALENGTH)
         // Extended common attributes ride in forkattr: the extended flags say "no extended attributes".
         request.forkattr = attrgroup_t(ATTR_CMNEXT_EXT_FLAGS)
-        let size = 256 * 1024
-        let buffer = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)
+        // A folder that fills the first buffer gets a bigger one: fewer calls for a huge folder.
+        var size = smallBuffer
+        var buffer = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)
         defer { buffer.deallocate() }
         var out: [Raw] = []
         while true {
@@ -64,6 +69,11 @@ enum BulkListing {
                 let length = Int(entry.loadUnaligned(as: UInt32.self))
                 out.append(parse(entry + 4))
                 entry += length
+            }
+            if size == smallBuffer {
+                buffer.deallocate()
+                size = bigBuffer
+                buffer = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)
             }
         }
         return out
