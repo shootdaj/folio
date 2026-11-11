@@ -142,9 +142,25 @@ extension BrowserWindowController {
     private func watchedFoldersChanged(_ keys: Set<String>) {
         guard !history.isHome, !isInZip, !isSearching else { return }
         guard keys.contains(FilePaths.folderKey(history.current)) else { return }
-        ItemDecorCache.shared.clear(under: history.current)
-        perfLog.notice("auto-refresh: \(self.history.current.path, privacy: .public) changed on disk")
-        reloadContents()
+        refreshSoon()
+    }
+
+    /// Lists the folder again, paced by what a listing costs (RefreshPacing): a big folder that keeps
+    /// changing is not listed back to back, and a refresh never starts over one still listing.
+    private func refreshSoon() {
+        refreshWork?.cancel()
+        refreshWork = nil
+        let wait = RefreshPacing.wait(now: CACurrentMediaTime(), lastEnded: lastLoadEnded, lastTook: lastLoadTook, loading: isLoading)
+        guard wait > 0 else {
+            guard !history.isHome, !isInZip, !isSearching else { return }
+            ItemDecorCache.shared.clear(under: history.current)
+            perfLog.notice("auto-refresh: \(self.history.current.path, privacy: .public) changed on disk")
+            reloadContents()
+            return
+        }
+        let work = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.refreshSoon() } }
+        refreshWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + wait, execute: work)
     }
 
     /// Folders under the tree's roots changed: nodes already read whose subfolders differ are read again.

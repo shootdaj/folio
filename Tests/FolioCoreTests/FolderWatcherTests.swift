@@ -103,3 +103,23 @@ import Testing
         watcher.stop()
     }
 }
+
+/// Auto-refresh pacing: a big folder that keeps changing is not listed back to back.
+@Suite struct RefreshPacingTests {
+    @Test func aSmallFolderRefreshesAtOnceABigOneWaitsTwiceItsListing() {
+        // A 10 ms listing that ended 50 ms ago: now.
+        #expect(RefreshPacing.wait(now: 100.05, lastEnded: 100, lastTook: 0.01, loading: false) <= 0)
+        // A 200 ms listing that just ended: 0.4 s from its end.
+        let wait = RefreshPacing.wait(now: 100.1, lastEnded: 100, lastTook: 0.2, loading: false)
+        #expect(abs(wait - 0.3) < 1e-9)
+        // A 30 s listing waits at most 5 s.
+        #expect(abs(RefreshPacing.wait(now: 100, lastEnded: 100, lastTook: 30, loading: false) - 5) < 1e-9)
+        // Long after the last listing: now.
+        #expect(RefreshPacing.wait(now: 200, lastEnded: 100, lastTook: 2, loading: false) <= 0)
+    }
+
+    @Test func whileAListingRunsTheRefreshWaitsForIt() {
+        #expect(RefreshPacing.wait(now: 100, lastEnded: 0, lastTook: 0, loading: true) > 0)
+        #expect(RefreshPacing.wait(now: 100, lastEnded: 99, lastTook: 3, loading: true) <= 0.5)
+    }
+}

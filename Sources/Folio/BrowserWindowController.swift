@@ -181,6 +181,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     var requestID = 0
     /// The folder read in flight (`load`), cancelled when a newer one starts.
     private var loadTask: Task<Void, Never>?
+    /// When the last listing ended and how long it took (auto-refresh paces itself on them), and a
+    /// refresh waiting its turn.
+    var lastLoadEnded: CFTimeInterval = 0
+    var lastLoadTook: CFTimeInterval = 0
+    var refreshWork: DispatchWorkItem?
     /// Streaming search results are arranged at a pace (arrangeSearchSoon).
     var searchArrangeWork: DispatchWorkItem?
     var lastSearchArrange: CFTimeInterval = 0
@@ -598,6 +603,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         let id = requestID
         isLoading = true
         if !keepingState {
+            // A refresh waiting for the folder on screen has no folder to refresh.
+            refreshWork?.cancel()
+            refreshWork = nil
             loadError = nil
             statusMessage = nil
             pendingSelect = restoring.map(\.select)
@@ -719,6 +727,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         if arrangeKey != key { rearrange() }
         window?.displayIfNeeded()
         let now = Date()
+        lastLoadEnded = CACurrentMediaTime()
+        lastLoadTook = now.timeIntervalSince(started)
         perfLog.notice("""
             rows visible: \(self.entries.count, privacy: .public) items in \(folder.path, privacy: .public); \
             list+sort \(Int(now.timeIntervalSince(started) * 1000), privacy: .public) ms; \
@@ -1409,6 +1419,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         searchEngine?.cancel()
         searchTicker?.invalidate()
         searchArrangeWork?.cancel()
+        refreshWork?.cancel()
         dropdown.close()
         renamer.end()
         // Cmd+Shift+T can bring back the tabs of a closed window too.

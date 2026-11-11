@@ -207,3 +207,17 @@ public final class TreeWatcher: @unchecked Sendable {
         }
     }
 }
+
+/// How long an auto-refresh waits: the next listing starts no sooner than twice the last one's time
+/// after it ended (at most 5 s), so a big folder that keeps changing spends at most a third of the
+/// time being listed again, and a small one refreshes at once. While a listing runs, the refresh waits
+/// for it instead of starting over.
+public enum RefreshPacing {
+    public static let maxWait: Double = 5
+
+    /// Seconds to wait before refreshing (0 or less: now). Times are seconds on one clock.
+    public static func wait(now: Double, lastEnded: Double, lastTook: Double, loading: Bool) -> Double {
+        if loading { return max(0.05, min(lastTook, 0.5)) }
+        return lastEnded + min(2 * max(0, lastTook), maxWait) - now
+    }
+}
