@@ -1359,18 +1359,19 @@ final class SideCellView: NSTableCellView {
 }
 
 /// Following a press without trusting that its button-up event arrives: the next drag or up event, or
-/// nil once the mouse button is no longer down, or when nothing has happened for `idle` seconds (a
-/// release that never reached the app must not leave the window stuck in the press).
+/// nil once the button is no longer down (Mission Control or a Space switch took the release), or when
+/// nothing has happened for `idle` seconds (nil: no idle limit, for a marquee or a resize held still).
+/// `button` is 0 for the left button, 1 for the right.
 @MainActor
 enum MouseTracking {
-    static func next(_ window: NSWindow, _ mask: NSEvent.EventTypeMask, idle: TimeInterval = 3) -> NSEvent? {
-        let giveUp = Date(timeIntervalSinceNow: idle)
-        while Date() < giveUp {
+    static func next(_ window: NSWindow, _ mask: NSEvent.EventTypeMask, idle: TimeInterval? = 3, button: Int = 0) -> NSEvent? {
+        let start = Date()
+        while true {
             if let e = window.nextEvent(matching: mask, until: Date(timeIntervalSinceNow: 0.1), inMode: .eventTracking, dequeue: true) {
                 return e
             }
-            if NSEvent.pressedMouseButtons & 1 == 0 { return nil }
+            if PressTracking.shouldStop(pressedButtons: NSEvent.pressedMouseButtons, button: button,
+                                        idle: Date().timeIntervalSince(start), limit: idle) { return nil }
         }
-        return nil
     }
 }

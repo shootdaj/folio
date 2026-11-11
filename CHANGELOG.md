@@ -12,6 +12,10 @@ pushed; the release workflow publishes the section below with that number as the
 - **Mission Control works again after a drag over the navigation pane or the file list.** The drag ended
   with an error inside macOS's drag code ("unrecognized selector draggingEnded:"), so macOS still saw a
   drag, and Mission Control did not open, by key or by mouse, until Folio quit.
+- **A press no longer sticks when its release never reaches Folio.** Dragging files, a marquee selection,
+  resizing the navigation pane or the search box, and the date filter's calendar now stop once the mouse
+  button is up, even when Mission Control or a Space switch took the release. Before, the window stayed
+  in the press, and the next click went to ending it.
 
 ## [1.0.0] - 2026-11-07
 
