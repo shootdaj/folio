@@ -30,8 +30,8 @@
 #                   them timed on its own (list, arrange, keys, tree, search walk), printed under the table
 # ~/folio/perf.conf may set RUNS=n, ONLY="launch open sort ..." (moment groups) for a quicker pass, and
 # LABEL=name to keep this run's table apart from another build's in the same session.
-# Fixtures are made once under /private/tmp/folio-tests/perf-fixtures (about 460,000 small sparse files, 300
-# JPEGs and a 2 GB file) and kept for the next run. The vm-test helper brings back only ~/folio/shots/*.png,
+# Fixtures are made once under /private/tmp/folio-tests/perf-fixtures (about 460,000 small sparse files) and
+# kept for the next run; the copy's 2 GB file is made when there is room and removed after the copy. The vm-test helper brings back only ~/folio/shots/*.png,
 # so the results table also goes there as perf-results.txt.png (plain text). Ends with "result: ok".
 set -u
 
@@ -68,7 +68,8 @@ fail() { echo "perf: FAILED - $1"; fails=$((fails + 1)); }
 cat > "$RUN/folio-perftool.swift" <<'SWIFT'
 // folio-perftool: the speed harness's helper (Tests/vm/perf.sh). Compiled and run INSIDE the test VM only
 // (docs/plan/RULES.md, rule 0); every path it writes is under /private/tmp/folio-tests/.
-//   folio-perftool fixtures <root>                 the flat folders, the 200k tree, images and the 2 GB file
+//   folio-perftool fixtures <root>                 the flat folders and the 200k tree
+//   folio-perftool big <dir>                        the 2 GB file for the copy
 //   folio-perftool images <dir> <count> <seed>      fresh JPEGs (new files, so no thumbnail cache knows them)
 //   folio-perftool scroll <x> <y> <events> <px> <hz> wheel events in pixels (negative px scrolls down)
 //   folio-perftool churn <dir> <seconds> <perSecond> create, write and remove files in <dir>
@@ -165,14 +166,16 @@ case "fixtures" where args.count == 2:
         }
     }
     print("fixtures: tree200k \(made) files")
-    // The 2 GB file for the copy: real blocks (not sparse), one random megabyte over and over.
-    mkdirs(root + "/big")
-    let fd = open(root + "/big/big.bin", O_WRONLY | O_CREAT | O_TRUNC, 0o644)
+case "big" where args.count == 2:
+    // The 2 GB file for the copy: real blocks (not sparse), one random megabyte over and over. Made for
+    // the copy moment and removed after it (the VM's disk is shared).
+    mkdirs(args[1])
+    let fd = open(args[1] + "/big.bin", O_WRONLY | O_CREAT | O_TRUNC, 0o644)
     var block = [UInt8](repeating: 0, count: 1 << 20)
     for i in block.indices { block[i] = UInt8.random(in: 0...255) }
     for _ in 0..<2048 { _ = block.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) } }
     close(fd)
-    print("fixtures: big.bin 2 GB")
+    print("big: big.bin 2 GB")
 case "images" where args.count == 4:
     let dir = args[1], count = Int(args[2]) ?? 0, seed = Int(args[3]) ?? 0
     mkdirs(dir)
@@ -553,8 +556,12 @@ fi
 
 # --- copy 2 GB to another volume -----------------------------------------------------------------------------
 free_gb=$(df -g /private/tmp | tail -1 | awk '{print $4}')
-if wants copy && [ "$free_gb" -lt 3 ]; then
-    fail "copy: only $free_gb GB free on the VM's disk, 3 needed for the 2 GB copy; skipped"
+if wants copy && [ ! -f "$FIX/big/big.bin" ] && [ "$free_gb" -ge 6 ]; then
+    "$TOOL" big "$FIX/big" >/dev/null
+    free_gb=$(df -g /private/tmp | tail -1 | awk '{print $4}')
+fi
+if wants copy && { [ "$free_gb" -lt 3 ] || [ ! -f "$FIX/big/big.bin" ]; }; then
+    fail "copy: $free_gb GB free on the VM's disk (6 needed to make the 2 GB file, 3 more to copy it); skipped"
 elif wants copy; then
     hdiutil create -size 3g -type SPARSE -fs APFS -volname FolioPerf "$RUN/perf" >/dev/null 2>&1
     vol=$(hdiutil attach -nobrowse "$RUN/perf.sparseimage" 2>/dev/null | awk -F'\t' '/FolioPerf/ {print $NF}' | tail -1)
@@ -583,6 +590,8 @@ elif wants copy; then
         rm -f "$RUN/perf.sparseimage"
     fi
 fi
+# The 2 GB file does not stay on the shared disk.
+rm -f "$FIX/big/big.bin"
 
 # --- memory after 50 folders -------------------------------------------------------------------------------------
 if wants memory; then
