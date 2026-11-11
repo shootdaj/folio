@@ -45,6 +45,7 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
     private var controls: [(NSButton, FolderOptions.Setting)] = []
     /// General's two boxes that change macOS itself at once (not on OK): they show what the Mac reports.
     private var folderHandlerBox: OSCheck?
+    private var revealBox: OSCheck?
     private var loginItemBox: OSCheck?
 
     private init() {
@@ -99,6 +100,7 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
         body.subviews.forEach { $0.removeFromSuperview() }
         controls = []
         folderHandlerBox = nil
+        revealBox = nil
         loginItemBox = nil
         let w = content.bounds.width, h = content.bounds.height
         header.frame = NSRect(x: 0, y: 0, width: w, height: 44)
@@ -195,17 +197,22 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
         group("Privacy", at: &right, column: 1, rows: [(check("Show recently used files", .showRecentFiles), 0),
                                                        (check("Show frequently used folders", .showFrequentFolders), 0),
                                                        (clearRow, 0)])
-        // Milestone 9. The first and last change macOS at once and show what it reports; the rest wait for OK.
+        // Milestone 9. The first two and the last change macOS at once and show what it reports; the rest wait for OK.
         let handler = OSCheck("Open folders in Folio instead of Finder")
         handler.toolTip = "Asks macOS to open folders and drives in Folio, then says what macOS kept"
         handler.onToggle = { [weak self] on in self?.setFolderHandler(on) }
         folderHandlerBox = handler
+        let reveal = OSCheck("Open \u{201C}Show in Finder\u{201D} from other apps in Folio")
+        reveal.toolTip = "\u{201C}Show in Finder\u{201D} and \u{201C}Reveal in Finder\u{201D} in other apps show the item in Folio (the NSFileViewer setting)"
+        reveal.onToggle = { [weak self] on in self?.setReveals(on) }
+        revealBox = reveal
         let login = OSCheck("Launch Folio at login")
         login.toolTip = "Adds Folio to your login items (System Settings > General > Login Items)"
         login.onToggle = { [weak self] on in self?.setLoginItem(on) }
         loginItemBox = login
         group("Folio and macOS", at: &right, column: 1, rows: [
             (handler, 0),
+            (reveal, 0),
             (check("Open external folder links in a new tab", .externalFoldersInNewTab,
                    note: "Folders from ff and other apps open as a tab in the front window"), 0),
             (check("Reopen windows and tabs on relaunch", .reopenWindows), 0),
@@ -217,6 +224,28 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
     private func setFolderHandler(_ on: Bool) {
         guard let app = NSApp.delegate as? AppDelegate else { return }
         app.setFolderHandler(on: on, sheetOn: window) { [weak self] in self?.refresh() }
+    }
+
+    /// NSFileViewer changes at once, as the other two boxes here do. An alert shows only when macOS did not
+    /// keep it, or when another app had it before.
+    private func setReveals(_ on: Bool) {
+        let report = SystemSettings.setRevealsInFolio(on)
+        let text: (String, String)?
+        if let problem = report.problem {
+            text = ("\u{201C}Show in Finder\u{201D} was not moved to \(on ? "Folio" : "Finder")", problem)
+        } else if let replaced = report.replaced {
+            text = ("\u{201C}Show in Finder\u{201D} in other apps now opens Folio",
+                    "Before, it opened \(DefaultFolderHandler.appName(replaced)). Turn this off to send it to Finder.")
+        } else {
+            text = nil
+        }
+        guard let (title, info) = text, let window else { refresh(); return }
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = info
+        alert.alertStyle = report.problem == nil ? .informational : .warning
+        alert.addButton(withTitle: "OK")
+        alert.beginSheetModal(for: window) { _ in MainActor.assumeIsolated { [weak self] in self?.refresh() } }
     }
 
     private func setLoginItem(_ on: Bool) {
@@ -277,6 +306,7 @@ final class FolderOptionsWindowController: NSWindowController, NSWindowDelegate 
             if let r = control as? OSRadio { r.isSelected = draft.isOn(setting) }
         }
         folderHandlerBox?.isChecked = SystemSettings.foldersOpenInFolio
+        revealBox?.isChecked = SystemSettings.revealsInFolio
         loginItemBox?.isChecked = SystemSettings.launchesAtLogin
         apply.isEnabled = draft != ListOptions.folder
     }
@@ -379,14 +409,18 @@ final class OptionsListView: NSView {
     }
 }
 
-/// A radio in D4's language: a 14 pt ring (outline), the accent ring and dot when chosen, a Geist label. An NSButton of the
-/// radio type, so accessibility sees a radio button.
+/// A radio in D4's language: a 14 pt ring (outline), the accent ring and dot when chosen, a Geist label.
+///
+/// Not of AppKit's radio type: AppKit makes one group of every radio with the same superview and action,
+/// and turning one on turns the others off. Advanced settings has two groups in one view (hidden items,
+/// typing), so the typing radio turned "Show hidden files" off again. The window keeps each group's
+/// choice itself (the draft). Accessibility still sees a radio button, with its value.
 final class OSRadio: NSButton {
     var onPick: (() -> Void)?
 
     init(_ title: String) {
         super.init(frame: NSRect(x: 0, y: 0, width: 200, height: 20))
-        setButtonType(.radio)
+        setButtonType(.onOff)
         self.title = title
         setAccessibilityLabel(title)
         isBordered = false
@@ -403,6 +437,10 @@ final class OSRadio: NSButton {
         set { state = newValue ? .on : .off; needsDisplay = true }
     }
 
+    override func accessibilityRole() -> NSAccessibility.Role? { .radioButton }
+    override func accessibilityValue() -> Any? { NSNumber(value: isSelected ? 1 : 0) }
+
+    /// A click on a chosen radio leaves it on, as a radio does (the on-off type would turn it off).
     @objc private func picked(_ sender: Any?) {
         isSelected = true
         onPick?()

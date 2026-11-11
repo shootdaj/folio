@@ -7,6 +7,42 @@ pushed; the release workflow publishes the section below with that number as the
 
 ## [Unreleased]
 
+### Added
+
+- **Folio > Settings... (Cmd+,)** opens Folder Options, as Cmd+, opens an app's settings on a Mac, also
+  with no window open. View > Options... (Cmd+Option+,) stays.
+- **Open "Show in Finder" from other apps in Folio.** A new box in View > Options... > General > Folio
+  and macOS, off on a new install. On, it sets the `NSFileViewer` default to Folio, so "Show in Finder" and
+  "Reveal in Finder" in apps that ask macOS through NSWorkspace show the item selected in Folio. Apps that
+  call Finder by name still go to Finder. Off sends reveals to Finder again, and `make uninstall` removes
+  the key. See docs/INSTALL.md section 5.
+
+### Fixed
+
+- **Mission Control works again after a drag over the navigation pane or the file list.** The drag ended
+  with an error inside macOS's drag code ("unrecognized selector draggingEnded:"), so macOS still saw a
+  drag, and Mission Control did not open, by key or by mouse, until Folio quit.
+- **A press no longer sticks when its release never reaches Folio.** Dragging files, a marquee selection,
+  resizing the navigation pane or the search box, and the date filter's calendar now stop once the mouse
+  button is up, even when Mission Control or a Space switch took the release. Before, the window stayed
+  in the press, and the next click went to ending it.
+- **A Quick access click no longer scrolls the navigation pane.** The tree still opens down to the
+  folder, but the pane scrolls to it only when no row for that folder (a pin, a tree row) is in view.
+  Before, a click on a pin scrolled the pane to the same folder under This PC, and the pin left the view.
+  A typed path, New folder from a node's menu and Ctrl+Shift+E still scroll to the folder's tree row.
+- **"Show hidden files, folders and drives" can be chosen in Folder Options.** AppKit made one radio
+  group of every radio in a view, so View > Advanced settings had one group, not two: "Select the typed
+  item in the view" turned the hidden-files radio off again at once. General's "Click items as follows"
+  had the same fault for its two pairs. Each group now keeps its own choice. View > Show > Hidden Items
+  (Cmd+Shift+.) was not affected.
+- **Open folders in Folio says why macOS 26 keeps folders on Finder.** macOS 26 protects the default
+  app for folders and refuses it with error -50 for every app, Finder too. Folio now says that macOS
+  protects the setting and that only Finder can change it, in place of a bare "error -50". Drives still
+  open in Folio, and the box now shows on while they do, so a second click hands them back to Finder.
+- **A reload during a re-sort no longer leaves the window marked as busy.** The reload dropped the
+  re-sort's result, as it should, but the re-sort's flag stayed set, so the window never counted as
+  settled again until it loaded another folder.
+
 ## [1.0.0] - 2026-11-07
 
 The first release: all nine milestones of docs/plan/MILESTONES.md and the D4 Obsidian spotlight look,

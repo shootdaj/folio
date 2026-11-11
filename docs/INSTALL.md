@@ -98,11 +98,30 @@ folders (`public.folder`) and drives (`public.volume`), reads the answer back, a
 Measured in the test VM (macOS 15.7): macOS accepted both, and `open <folder>` from Terminal then opened
 the folder in Folio, as a new tab.
 
-The known limit: **"Reveal in Finder" and "Show in Finder" in other apps stay on Finder.** They call
-Finder by name, not the default app for folders. Folders opened through Launch Services follow the
-setting: `open <folder>` in Terminal (measured), and other apps that open a folder rather than reveal it.
-Double-clicking a folder inside Finder stays in Finder. For a reveal in Folio, use `ff --reveal <path>`.
-Turning the box off hands folders back to Finder.
+The known limit: **"Reveal in Finder" and "Show in Finder" in other apps do not follow this box.** They
+go to Finder unless the next box is on. Folders opened through Launch Services follow the setting:
+`open <folder>` in Terminal (measured), and other apps that open a folder rather than reveal it.
+Double-clicking a folder inside Finder stays in Finder. In Terminal, `ff --reveal <path>` shows an item
+selected in Folio. Turning the box off hands folders back to Finder.
+
+### Open "Show in Finder" from other apps in Folio
+
+View > Options... > General > Folio and macOS > **Open "Show in Finder" from other apps in Folio**. Off
+on a new install. On, Folio writes the `NSFileViewer` user default in the global domain, the same as:
+
+```sh
+defaults write -g NSFileViewer -string com.anshul.folio
+```
+
+AppKit reads it when an app reveals items through `NSWorkspace` (`activateFileViewerSelecting`), which is
+what most apps' "Show in Finder" and "Reveal in Finder" call. The item then shows selected in its folder
+in Folio. Off removes the key when it names Folio, so reveals go to Finder again; a key that names
+another app (ForkLift, say) is left alone, and turning the box on says which app it replaced.
+
+It does not apply to apps that send Finder an Apple event or a script by name (`tell application
+"Finder" to reveal ...`): those always go to Finder. An app that is already open may keep the old
+setting until it is reopened. A revealed folder opens in Folio as that folder, not selected in its
+parent: macOS sends a reveal and an open of a folder as the same event.
 
 ## 6. The rest of Folder Options > General > Folio and macOS
 
@@ -139,13 +158,14 @@ hoc, so it does not get the release's grant.
 
 ## Uninstall
 
-1. In Folio, turn off **Open folders in Folio instead of Finder** (folders go back to Finder) and
-   **Launch Folio at login**.
+1. In Folio, turn off **Open folders in Folio instead of Finder** (folders go back to Finder),
+   **Open "Show in Finder" from other apps in Folio** and **Launch Folio at login**.
 2. Quit Folio (Cmd+Q), then:
    ```sh
    make uninstall
    ```
-   It moves /Applications/Folio.app and ff (/usr/local/bin or ~/bin) to the Trash.
+   It moves /Applications/Folio.app and ff (/usr/local/bin or ~/bin) to the Trash. If `NSFileViewer`
+   still names Folio, it removes that key, so "Show in Finder" in other apps goes to Finder again.
 3. In BetterTouchTool, turn off or delete the Folio preset.
 4. Optional: move `~/Library/Application Support/Folio` and `~/Library/Preferences/com.anshul.folio.plist`
    to the Trash to forget the session, saved searches and settings.

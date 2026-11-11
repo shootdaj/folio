@@ -179,7 +179,7 @@ final class FolioTableView: NSTableView {
     /// Follows the pressed button: true when it moved more than 4 pt and a drag began.
     private func trackDrag(from start: NSPoint, button: Button) -> Bool {
         let types: NSEvent.EventTypeMask = button == .left ? [.leftMouseUp, .leftMouseDragged] : [.rightMouseUp, .rightMouseDragged]
-        while let next = window?.nextEvent(matching: types) {
+        while let window, let next = MouseTracking.next(window, types, idle: nil, button: button == .left ? 0 : 1) {
             if next.type == .leftMouseUp || next.type == .rightMouseUp { return false }
             let p = convert(next.locationInWindow, from: nil)
             if hypot(p.x - start.x, p.y - start.y) > 4 {
@@ -220,8 +220,9 @@ final class FolioTableView: NSTableView {
         listDelegate?.listDragExited(self)
     }
 
+    // No super call: NSTableView and NSOutlineView do not implement draggingEnded, and the call throws inside the
+    // drag completion. The drag then never ends for the system, and Mission Control stops working.
     override func draggingEnded(_ sender: NSDraggingInfo) {
-        super.draggingEnded(sender)
         listDelegate?.listDragExited(self)
     }
 
@@ -241,7 +242,7 @@ final class FolioTableView: NSTableView {
         let base = adding ? IndexSet(selectedRowIndexes.compactMap(itemAtRow)) : IndexSet()
         if !adding { listDelegate?.list(self, banded: IndexSet(), focus: nil) }
         if band.superview == nil { addSubview(band) }
-        while let next = window?.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
+        while let window, let next = MouseTracking.next(window, [.leftMouseDragged, .leftMouseUp], idle: nil) {
             if next.type == .leftMouseUp { break }
             autoscroll(with: next)
             let p = convert(next.locationInWindow, from: nil)
