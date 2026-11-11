@@ -7,6 +7,26 @@ pushed; the release workflow publishes the section below with that number as the
 
 ## [Unreleased]
 
+### Changed
+
+- **Big folders open, sort and search many times faster, and the window no longer freezes on them.**
+  Measured in the test VM with `Tests/vm/perf.sh` (fixed fixtures, median of 3 runs, 1.0.0 -> now):
+  - Opening a folder of 10,000 files: 0.70 -> 0.11 s; 50,000 files: 3.7 -> 0.47 s (the window froze
+    for 1.6 s of it); 200,000 files: 42 -> 5.5 s, where the window froze for 29 s while every item's
+    path was resolved on the main thread (now its longest stall is 24 ms).
+  - Sorting 50,000 files: 2.4-2.7 -> 0.15-0.21 s; 200,000 files: 13.6-27 -> 0.64-0.89 s.
+  - Searching a 200,000-file tree: 11.9 -> 1.5 s; typing to filter a 50,000-file folder: 2.4 -> 0.76 s.
+  - Select all in a 200,000-file folder: the longest stall 510 -> 224 ms.
+  - A folder where files keep coming and going: 10,000 files, each refresh 685 -> 129 ms and 12.3 ->
+    3.9 s of CPU in 10 s; 50,000 files, 39 -> 5.1 s of CPU, and 8 refreshes shown where 1.0.0 showed none.
+  - How: folders are read with `getattrlistbulk`; the sort works out each item's keys once and uses every
+    core; item paths are resolved off the main thread, once per folder; a file with no extension is typed
+    once per name; search and tag dots skip files the file system says have no extended attributes; the
+    search walk takes a folder per core; auto-refresh paces itself by what a listing costs; Select all
+    counts in place; the tree reads folders with `readdir` off the main thread; file operations reload
+    only the windows they touched; the session is written off the main thread. Much of it is Taylor
+    King's work (PR #23), re-landed with tests that only touch temp folders.
+
 ## [1.0.0] - 2026-11-07
 
 The first release: all nine milestones of docs/plan/MILESTONES.md and the D4 Obsidian spotlight look,
