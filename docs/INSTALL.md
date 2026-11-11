@@ -18,15 +18,15 @@ Releases zip ──► /Applications ──► make install-cli ──► BTT pr
    marked pre-release. What changed in each version: [CHANGELOG.md](../CHANGELOG.md).
 2. Quit Folio if an older copy is running (Cmd+Q) and move that copy to the Trash. Unzip the download and
    move `Folio.app` to /Applications.
-3. Folio is signed ad hoc, not with an Apple developer account, so macOS blocks a downloaded copy until
-   you clear its download flag once:
+3. Folio is not signed with an Apple developer account, so macOS blocks a downloaded copy until you clear
+   its download flag once:
    ```sh
    xattr -dr com.apple.quarantine /Applications/Folio.app
    ```
    (Or try to open it, then System Settings > Privacy & Security > **Open Anyway**.)
 4. Open it once from /Applications. That registers it with Launch Services, so `ff`, `open -b
    com.anshul.folio` and folio: links find it. Its Dock icon is the folder with the green light (a light
-   version on a light Mac).
+   version on a light Mac). The first time, give it Full Disk Access ([section 7](#7-full-disk-access)).
 
 `/Applications/Folio.app/Contents/MacOS/Folio --version` prints the version and the commit it was built
 from, for example `Folio 1.0.0 (f12cd6f)`.
@@ -98,11 +98,30 @@ folders (`public.folder`) and drives (`public.volume`), reads the answer back, a
 Measured in the test VM (macOS 15.7): macOS accepted both, and `open <folder>` from Terminal then opened
 the folder in Folio, as a new tab.
 
-The known limit: **"Reveal in Finder" and "Show in Finder" in other apps stay on Finder.** They call
-Finder by name, not the default app for folders. Folders opened through Launch Services follow the
-setting: `open <folder>` in Terminal (measured), and other apps that open a folder rather than reveal it.
-Double-clicking a folder inside Finder stays in Finder. For a reveal in Folio, use `ff --reveal <path>`.
-Turning the box off hands folders back to Finder.
+The known limit: **"Reveal in Finder" and "Show in Finder" in other apps do not follow this box.** They
+go to Finder unless the next box is on. Folders opened through Launch Services follow the setting:
+`open <folder>` in Terminal (measured), and other apps that open a folder rather than reveal it.
+Double-clicking a folder inside Finder stays in Finder. In Terminal, `ff --reveal <path>` shows an item
+selected in Folio. Turning the box off hands folders back to Finder.
+
+### Open "Show in Finder" from other apps in Folio
+
+View > Options... > General > Folio and macOS > **Open "Show in Finder" from other apps in Folio**. Off
+on a new install. On, Folio writes the `NSFileViewer` user default in the global domain, the same as:
+
+```sh
+defaults write -g NSFileViewer -string com.anshul.folio
+```
+
+AppKit reads it when an app reveals items through `NSWorkspace` (`activateFileViewerSelecting`), which is
+what most apps' "Show in Finder" and "Reveal in Finder" call. The item then shows selected in its folder
+in Folio. Off removes the key when it names Folio, so reveals go to Finder again; a key that names
+another app (ForkLift, say) is left alone, and turning the box on says which app it replaced.
+
+It does not apply to apps that send Finder an Apple event or a script by name (`tell application
+"Finder" to reveal ...`): those always go to Finder. An app that is already open may keep the old
+setting until it is reopened. A revealed folder opens in Folio as that folder, not selected in its
+parent: macOS sends a reveal and an open of a folder as the same event.
 
 ## 6. The rest of Folder Options > General > Folio and macOS
 
@@ -117,15 +136,36 @@ The session lives in `~/Library/Application Support/Folio/session.json`, written
 change and on quit. A damaged file is moved aside (`session.corrupt-<time>.json`) and Folio starts on Home.
 Settings live in `~/Library/Preferences/com.anshul.folio.plist`.
 
+## 7. Full Disk Access
+
+macOS guards Desktop, Documents, Downloads, iCloud Drive, other apps' data (~/Library/Mail, Safari,
+Messages), and external and network drives. Without Full Disk Access it asks once for each place ("Folio
+would like to access files in your Downloads folder"), or blocks it outright; Folio's status bar then reads
+"macOS blocked this folder. Folio > Full Disk Access… fixes it for all folders."
+
+Grant it once:
+
+1. Folio > **Full Disk Access…** opens System Settings > Privacy & Security > Full Disk Access.
+2. Turn on **Folio**. Not in the list yet: **+**, pick /Applications/Folio.app. macOS asks for your password.
+3. Quit Folio (Cmd+Q) and open it again.
+
+The grant survives updates. Releases after 1.0.0 are all signed with the same certificate (Folio Release
+Signing, kept on the Mac that builds them), and macOS ties the grant to that certificate and the app's
+identifier, `com.anshul.folio`, not to one build. Installing a newer release over the old one keeps it.
+Up to 1.0.0, releases were signed ad hoc: each build was a new app to macOS, so every update lost the grant
+and asked for each folder again. A copy you build yourself (`make app`, `make install`) is still signed ad
+hoc, so it does not get the release's grant.
+
 ## Uninstall
 
-1. In Folio, turn off **Open folders in Folio instead of Finder** (folders go back to Finder) and
-   **Launch Folio at login**.
+1. In Folio, turn off **Open folders in Folio instead of Finder** (folders go back to Finder),
+   **Open "Show in Finder" from other apps in Folio** and **Launch Folio at login**.
 2. Quit Folio (Cmd+Q), then:
    ```sh
    make uninstall
    ```
-   It moves /Applications/Folio.app and ff (/usr/local/bin or ~/bin) to the Trash.
+   It moves /Applications/Folio.app and ff (/usr/local/bin or ~/bin) to the Trash. If `NSFileViewer`
+   still names Folio, it removes that key, so "Show in Finder" in other apps goes to Finder again.
 3. In BetterTouchTool, turn off or delete the Folio preset.
 4. Optional: move `~/Library/Application Support/Folio` and `~/Library/Preferences/com.anshul.folio.plist`
    to the Trash to forget the session, saved searches and settings.

@@ -69,6 +69,27 @@ import Testing
         #expect(count.n == stopped, "nothing after stop")
     }
 
+    @Test func aChangeDeepBelowIsNotThisFoldersAndAStopDropsWhatIsPending() async throws {
+        let t = try TestTree()
+        defer { t.close() }
+        let work = try t.folder("work")
+        let deep = try t.folder("work/deep/er")
+        // The folders' own creation is not part of this: FSEvents can hand it over a moment late.
+        try await Task.sleep(for: .milliseconds(1000))
+        let count = Count()
+        let watcher = FolderWatcher(latency: 0.3, queue: DispatchQueue(label: "test.watch4")) { count.add($0) }
+        watcher.watch([work.path])
+        try await Task.sleep(for: .milliseconds(300))
+        for i in 0..<20 { try Data([UInt8(i)]).write(to: deep.appendingPathComponent("f\(i).txt")) }
+        try await Task.sleep(for: .milliseconds(800))
+        #expect(count.n == 0, "files written in a subfolder are that subfolder's business")
+        try Data([1]).write(to: work.appendingPathComponent("now.txt"))
+        try await Task.sleep(for: .milliseconds(100))
+        watcher.stop()
+        try await Task.sleep(for: .milliseconds(600))
+        #expect(count.n == 0, "a change noted just before stopping is not delivered after it")
+    }
+
     @Test func theTreeWatcherReportsFoldersChangedAnywhereUnderItsRoots() async throws {
         let t = try TestTree()
         defer { t.close() }
@@ -80,5 +101,25 @@ import Testing
         try FileManager.default.createDirectory(at: deep.appendingPathComponent("three"), withIntermediateDirectories: true)
         #expect(await waitUntil(4) { count.all.contains(FilePaths.folderKey(deep)) })
         watcher.stop()
+    }
+}
+
+/// Auto-refresh pacing: a big folder that keeps changing is not listed back to back.
+@Suite struct RefreshPacingTests {
+    @Test func aSmallFolderRefreshesAtOnceABigOneWaitsTwiceItsListing() {
+        // A 10 ms listing that ended 50 ms ago: now.
+        #expect(RefreshPacing.wait(now: 100.05, lastEnded: 100, lastTook: 0.01, loading: false) <= 0)
+        // A 200 ms listing that just ended: 0.4 s from its end.
+        let wait = RefreshPacing.wait(now: 100.1, lastEnded: 100, lastTook: 0.2, loading: false)
+        #expect(abs(wait - 0.3) < 1e-9)
+        // A 30 s listing waits at most 5 s.
+        #expect(abs(RefreshPacing.wait(now: 100, lastEnded: 100, lastTook: 30, loading: false) - 5) < 1e-9)
+        // Long after the last listing: now.
+        #expect(RefreshPacing.wait(now: 200, lastEnded: 100, lastTook: 2, loading: false) <= 0)
+    }
+
+    @Test func whileAListingRunsTheRefreshWaitsForIt() {
+        #expect(RefreshPacing.wait(now: 100, lastEnded: 0, lastTook: 0, loading: true) > 0)
+        #expect(RefreshPacing.wait(now: 100, lastEnded: 99, lastTook: 3, loading: true) <= 0.5)
     }
 }

@@ -145,6 +145,17 @@ extension BrowserWindowController: NSDraggingSource, DropHost {
                 item.setDraggingFrame(frame, contents: gridDragImage(i, size: frame.size))
                 return item
             }
+        } else if let table = list as? ColumnTableView {
+            // The current folder's column: each row's icon and name.
+            source = table
+            items = rows.compactMap { i -> NSDraggingItem? in
+                guard entries.indices.contains(i), i < table.numberOfRows else { return nil }
+                let item = NSDraggingItem(pasteboardWriter: FileDragProvider(url: staged[i] ?? entries[i].url))
+                var frame = table.frameOfCell(atColumn: 0, row: i)
+                frame.size.width = min(frame.width, 320)
+                item.setDraggingFrame(frame, contents: dragImage(in: table, row: i, column: 0, size: frame.size))
+                return item
+            }
         } else {
             source = tableView
             let nameColumn = tableView.tableColumns.firstIndex { $0.identifier.rawValue == SortKey.name.rawValue } ?? 0
@@ -178,9 +189,9 @@ extension BrowserWindowController: NSDraggingSource, DropHost {
     }
 
     /// The row's name cell (icon and name) as the drag image.
-    private func dragImage(row: Int, column: Int, size: NSSize) -> NSImage {
+    private func dragImage(in table: NSTableView? = nil, row: Int, column: Int, size: NSSize) -> NSImage {
         let image = NSImage(size: size)
-        guard let cell = tableView.view(atColumn: column, row: row, makeIfNecessary: false),
+        guard let cell = (table ?? tableView).view(atColumn: column, row: row, makeIfNecessary: false),
               let rep = cell.bitmapImageRepForCachingDisplay(in: NSRect(origin: .zero, size: size)) else { return image }
         cell.cacheDisplay(in: NSRect(origin: .zero, size: size), to: rep)
         image.addRepresentation(rep)

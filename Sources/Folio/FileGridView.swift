@@ -13,10 +13,19 @@ final class ThumbnailCache {
     init() { cache.countLimit = 2000 }
 
     /// Explorer thumbnails images, videos and PDFs; everything else keeps its type icon.
+    /// The answer is kept per extension: every cell asks while it is configured.
     static func wants(_ entry: FileEntry) -> Bool {
-        guard !entry.isFolder, let type = UTType(filenameExtension: entry.url.pathExtension) else { return false }
-        return type.conforms(to: .image) || type.conforms(to: .audiovisualContent) || type.conforms(to: .pdf)
+        guard !entry.isFolder else { return false }
+        let ext = (entry.name as NSString).pathExtension.lowercased()
+        if let known = wantsByExtension[ext] { return known }
+        let answer = UTType(filenameExtension: ext).map {
+            $0.conforms(to: .image) || $0.conforms(to: .audiovisualContent) || $0.conforms(to: .pdf)
+        } ?? false
+        wantsByExtension[ext] = answer
+        return answer
     }
+
+    private static var wantsByExtension: [String: Bool] = [:]
 
     private func key(_ entry: FileEntry, _ size: CGFloat) -> String {
         "\(entry.url.path)|\(entry.modified?.timeIntervalSince1970 ?? 0)|\(Int(size))"
@@ -33,6 +42,7 @@ final class ThumbnailCache {
             return nil
         }
         pending[k] = [done]
+        if PerfTrace.isOn, pending.count == 1, madeSinceIdle == 0 { busySince = PerfTrace.now }
         let request = QLThumbnailGenerator.Request(fileAt: entry.url, size: CGSize(width: size, height: size),
                                                    scale: NSScreen.main?.backingScaleFactor ?? 2, representationTypes: .thumbnail)
         QLThumbnailGenerator.shared.generateBestRepresentation(for: request, completion: Self.handler(for: k))
@@ -55,7 +65,18 @@ final class ThumbnailCache {
         if let ns { cache.setObject(ns, forKey: key as NSString) }
         let waiting = pending.removeValue(forKey: key) ?? []
         for w in waiting { w(ns) }
+        if PerfTrace.isOn {
+            madeSinceIdle += 1
+            if pending.isEmpty {
+                PerfTrace.mark("thumbs-idle", "made=\(madeSinceIdle) ms=\(PerfTrace.ms(since: busySince))")
+                madeSinceIdle = 0
+            }
+        }
     }
+
+    /// The speed harness (PerfTrace): thumbnails made since the queue was last empty, and since when.
+    private var madeSinceIdle = 0
+    private var busySince = 0.0
 }
 
 private struct SendableImage: @unchecked Sendable { let cg: CGImage? }
@@ -378,15 +399,15 @@ final class FileGridView: NSCollectionView {
         case .content:
             return NSSize(width: room.width, height: compact ? 54 : 62)
         case .gallery: return NSSize(width: 150, height: 160)
-        case .details: return NSSize(width: 200, height: 24)
+        case .details, .columns: return NSSize(width: 200, height: 24)
         }
     }
 
-    /// In Details the grid is hidden and holds nothing.
+    /// In Details and Columns the grid is hidden and holds nothing.
     func sectionCount() -> Int {
         // Counts depend on the view and the layout only, never on geometry, or the collection view's cached
         // counts and its layout's disagree and it lays out forever.
-        guard !mode.usesTable else { return 0 }
+        guard mode.usesGrid else { return 0 }
         return layoutModel.isGrouped ? layoutModel.groups.count : 1
     }
 
@@ -564,7 +585,7 @@ final class FileGridView: NSCollectionView {
 
     private func trackDrag(from start: NSPoint, right: Bool) -> Bool {
         let types: NSEvent.EventTypeMask = right ? [.rightMouseUp, .rightMouseDragged] : [.leftMouseUp, .leftMouseDragged]
-        while let next = window?.nextEvent(matching: types) {
+        while let window, let next = MouseTracking.next(window, types, idle: nil, button: right ? 1 : 0) {
             if next.type == .leftMouseUp || next.type == .rightMouseUp { return false }
             let p = convert(next.locationInWindow, from: nil)
             if hypot(p.x - start.x, p.y - start.y) > 4 {
@@ -609,7 +630,7 @@ final class FileGridView: NSCollectionView {
         let base = adding ? IndexSet((0..<(host?.gridLayout.items.count ?? 0)).filter { listDelegate?.listIsSelected($0) == true }) : IndexSet()
         if !adding { listDelegate?.list(self, banded: IndexSet(), focus: nil) }
         if band.superview == nil { addSubview(band) }
-        while let next = window?.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
+        while let window, let next = MouseTracking.next(window, [.leftMouseDragged, .leftMouseUp], idle: nil) {
             if next.type == .leftMouseUp { break }
             autoscroll(with: next)
             let p = convert(next.locationInWindow, from: nil)

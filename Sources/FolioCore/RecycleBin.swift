@@ -37,7 +37,8 @@ public enum RecycleBin {
         entries.map { e in
             let from = original(e.url.path).map { ($0 as NSString).deletingLastPathComponent } ?? unknownLocation
             return FileEntry(url: e.url, name: e.name, isFolder: e.isFolder, modified: deleted(e.url), size: e.size,
-                             kind: from, isCloudOnly: e.isCloudOnly)
+                             kind: from, isCloudOnly: e.isCloudOnly, finderFlags: e.finderFlags, bsdFlags: e.bsdFlags,
+                             hasExtendedAttributes: e.hasExtendedAttributes)
         }
     }
 

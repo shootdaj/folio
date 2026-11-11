@@ -71,6 +71,8 @@ item show only one key, or the key would take keys away from text fields).
 | Explorer | Folio does | macOS sees | Anshul presses | Where |
 |---|---|---|---|---|
 | Ctrl+Shift+1 to 8 | Extra large, large, medium, small icons, List, Details, Tiles, Content | Ctrl+Shift+1 to 8 | Control+Shift+1 to 8 | View |
+| | Columns (Finder's column view; Explorer has none, so it takes the next number) | Ctrl+Shift+9 | Control+Shift+9 | View > Columns |
+| | In Columns: into the selected folder's column, back to the column before | Right, Left | Right, Left | Columns |
 | Ctrl+wheel | Bigger or smaller icons, through the layouts | Cmd+scroll, pinch | Option+scroll, pinch | list |
 | Ctrl+Numpad + | Size all columns to fit | Cmd+=, Cmd+Numpad + | Fn+= | View > Size All Columns to Fit |
 | Alt+P | Preview pane | Option+P | Cmd+P | View > Show > Preview Pane |
@@ -78,6 +80,7 @@ item show only one key, or the key would take keys away from text fields).
 | | Hidden items | Cmd+Shift+. | Fn+Shift+. | View > Show > Hidden Items |
 | Alt, F10 | Access keys on the command bar | Option tapped alone | Cmd tapped alone | window |
 | | Folder Options | Cmd+Option+, | Cmd+Option+, | View > Options... |
+| | Folder Options, as the Mac's app settings | Cmd+, | Fn+, | Folio > Settings... |
 
 ## The navigation pane
 

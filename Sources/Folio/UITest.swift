@@ -119,6 +119,13 @@ enum UITestRunner {
                + "first row \(c.entries.first?.name ?? "none")")
         shot(window, config, "2-name-sorted", c, &problems)
 
+        // A reload that overtakes a re-sort drops the re-sort's result; the list must still come back to idle.
+        c.rearrange()
+        c.reloadContents()
+        let idleAgain = await wait(timeout: 5, { c.isIdle })
+        report("a reload overtook a re-sort: " + (idleAgain ? "idle again" : "STUCK, not idle after 5 s"))
+        if !idleAgain { problems.append("re-sort overtaken by a reload") }
+
         let row = 3
         how = "synthesized mouse down and up on row \(row)"
         c.uitestClickRow(row)

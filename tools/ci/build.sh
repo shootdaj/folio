@@ -1,13 +1,28 @@
 #!/bin/bash
-# The CI build, also run by hand: the script checks, the unit tests, build/Folio.app, its ad-hoc signature
-# and the version stamped into it, then build/Folio-<version>.zip and build/ff for the VM tests.
+# build.sh [--release]: the CI build, also run by hand: the script checks, the unit tests, build/Folio.app,
+# its signature and the version stamped into it, then build/Folio-<version>.zip and build/ff for the VM tests.
 # Runs nothing it builds (docs/plan/RULES.md, rule 0): the version is read from Info.plist with defaults,
 # never from Folio --version.
+# Without --release (pull requests, main, by hand) the app is signed ad hoc, and must be. With --release
+# (the tag workflow, on the Mac Ultra only) it is signed with Folio Release Signing, the identity whose
+# certificate stays the same from release to release, so a Full Disk Access grant survives updates
+# (tools/ci/release-signing.sh). A pull request build never gets there.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 step() { echo; echo "== $*"; }
 die() { echo "build.sh: $*" >&2; exit 1; }
+
+release=false
+case "${1:-}" in
+    --release) release=true ;;
+    "") ;;
+    *) die "usage: build.sh [--release]" ;;
+esac
+if $release; then
+    case "${GITHUB_EVENT_NAME:-}" in pull_request*) die "a pull request build is never signed for release" ;; esac
+    tools/ci/release-signing.sh check
+fi
 
 step "toolchain"
 swift --version
@@ -21,11 +36,18 @@ make test
 step "app bundle (make app)"
 make app
 
+if $release; then
+    step "release signature (Folio Release Signing)"
+    tools/ci/release-signing.sh sign build/Folio.app
+fi
+
 step "signature (codesign -dv)"
-signature=$(codesign -dv build/Folio.app 2>&1)
-echo "$signature"
-grep -qx 'Signature=adhoc' <<<"$signature" || die "build/Folio.app is not signed ad hoc"
-codesign --verify --deep --strict build/Folio.app || die "codesign --verify failed"
+codesign -dv build/Folio.app 2>&1
+if $release; then
+    tools/ci/release-signing.sh verify build/Folio.app release
+else
+    tools/ci/release-signing.sh verify build/Folio.app adhoc
+fi
 
 step "version (Info.plist)"
 info="$PWD/build/Folio.app/Contents/Info"

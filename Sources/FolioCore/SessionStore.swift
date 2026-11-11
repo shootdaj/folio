@@ -139,7 +139,7 @@ public struct Session: Codable, Equatable, Sendable {
 /// windows and their tabs in ~/Library/Application Support/Folio/session.json, written (atomically) half
 /// a second after each change and on quit, read at the next launch. A file that does not read is moved
 /// aside as session.corrupt-<time>.json and the app starts fresh.
-public struct SessionStore {
+public struct SessionStore: Sendable {
     /// Changes within this long are written once.
     public static let coalesce: TimeInterval = 0.5
 
@@ -158,6 +158,22 @@ public struct SessionStore {
 
     public init(url: URL = SessionStore.defaultURL()) {
         self.url = url
+    }
+
+    /// Writes happen one at a time, in order, off the main thread (`saveInBackground`).
+    private static let writer = DispatchQueue(label: "folio.session.write", qos: .utility)
+
+    /// Encodes and writes the session off the main thread; a failure goes to `failed`.
+    public func saveInBackground(_ session: Session, failed: @escaping @Sendable (Error) -> Void) {
+        let store = self
+        Self.writer.async {
+            do { try store.save(session) } catch { failed(error) }
+        }
+    }
+
+    /// Writes the session now, after any background write still in flight (quitting).
+    public func saveNow(_ session: Session) throws {
+        try Self.writer.sync { try save(session) }
     }
 
     public func save(_ session: Session) throws {

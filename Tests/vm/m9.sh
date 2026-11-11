@@ -4,8 +4,10 @@
 # opened tree folder and the orange accent (hue 55, picked in the title bar's accent popover) all come back
 # after quit and relaunch; a garbage session file is
 # moved aside and the app starts on Home; Open folders in Folio instead of Finder reports what macOS kept,
-# then `open <folder>` from the shell shows which app macOS used; the Dock icon; Keep running when the last
-# window closes; Launch at login; `Folio --version`; ff's mistakes.
+# then `open <folder>` from the shell shows which app macOS used; Open "Show in Finder" from other apps in
+# Folio (NSFileViewer) on and off, with another process's reveal going to Folio, then to Finder; the Dock
+# icon; Keep running when the last window closes, and Cmd+, with no window; Launch at login;
+# `Folio --version`; ff's mistakes.
 #
 # Runs INSIDE the tart VM folio-test as admin (docs/plan/VM.md), never on a host Mac (docs/plan/RULES.md,
 # rule 0). Needs ~/folio/Folio.app and ~/folio/ff (copied in from .build/release/ff). Makes
@@ -23,8 +25,13 @@
 #   m9-8a-options-general.png View > Options > General: Folio and macOS, before the click
 #   m9-8-default-handler.png  Options > General > Open folders in Folio instead of Finder: what macOS kept
 #   m9-9-open-folder.png      `open <work>` from the shell: the app macOS chose
+#   m9-9b-reveal-box.png      Options > General: Open "Show in Finder" from other apps in Folio, ticked
+#   m9-9c-reveal-in-folio.png another process's NSWorkspace reveal of revealed/shown.txt: Folio, the file selected
+#   m9-9d-textedit-path.png   TextEdit's title path menu, its parent folder picked: which app showed it
+#   m9-9e-reveal-in-finder.png the box off again: the same reveal goes to Finder
 #   m9-10-dock.png            the Dock, Folio's icon in it
 #   m9-10b-dock-icon.png      Folio's Dock tile close up (light on a light Mac, dark on a dark one)
+#   m9-11b-settings-no-window.png  every window closed, Cmd+,: Folder Options
 # Prints one line per step and exits non-zero if any step fails.
 set -u
 
@@ -37,6 +44,9 @@ WORK="$ROOT/work"
 OTHER="$ROOT/other"
 MOUSE="$HOME/folio/folio-mouse6"
 LSH="$HOME/folio/folio-lshandler"
+REVEAL="$HOME/folio/folio-reveal"
+REVEALED="$ROOT/revealed"
+REVEAL_BOX="Open “Show in Finder” from other apps in Folio"
 SESSION="$HOME/Library/Application Support/Folio/session.json"
 LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 SW="Search Results in work"
@@ -162,6 +172,37 @@ if ! cmp -s "$ROOT/folio-lshandler.swift" "$HOME/folio/folio-lshandler.swift" ||
     swiftc -O "$HOME/folio/folio-lshandler.swift" -o "$LSH" 2>&1 | grep -v deprecated | tail -5
 fi
 if [ ! -x "$LSH" ]; then echo "m9: could not build folio-lshandler"; exit 2; fi
+
+# folio-reveal: another app's "Show in Finder" (NSWorkspace, which follows NSFileViewer), from its own
+# process; and a Command-click, for a window title's path menu.
+cat > "$ROOT/folio-reveal.swift" <<'SWIFT'
+// folio-reveal <path> | cmdclick <x> <y>   (VM only, docs/plan/VM.md)
+import AppKit
+let a = CommandLine.arguments
+if a.count == 2 {
+    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: a[1])])
+    RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.5))
+    print("asked NSWorkspace to reveal \(a[1]) (NSFileViewer: \(UserDefaults.standard.string(forKey: "NSFileViewer") ?? "none"))")
+} else if a.count == 4, a[1] == "cmdclick", let x = Double(a[2]), let y = Double(a[3]) {
+    let source = CGEventSource(stateID: .hidSystemState)
+    let p = CGPoint(x: x, y: y)
+    for (type, flags) in [(CGEventType.mouseMoved, CGEventFlags()), (.leftMouseDown, .maskCommand), (.leftMouseUp, .maskCommand)] {
+        let e = CGEvent(mouseEventSource: source, mouseType: type, mouseCursorPosition: p, mouseButton: .left)
+        e?.flags = flags
+        e?.post(tap: .cghidEventTap)
+        usleep(120_000)
+    }
+    print("command-click at \(Int(x)),\(Int(y))")
+} else {
+    print("usage: folio-reveal <path> | cmdclick <x> <y>")
+    exit(2)
+}
+SWIFT
+if ! cmp -s "$ROOT/folio-reveal.swift" "$HOME/folio/folio-reveal.swift" || [ ! -x "$REVEAL" ]; then
+    cp "$ROOT/folio-reveal.swift" "$HOME/folio/folio-reveal.swift"
+    swiftc -O "$HOME/folio/folio-reveal.swift" -o "$REVEAL" 2>&1 | tail -5
+fi
+if [ ! -x "$REVEAL" ]; then echo "m9: could not build folio-reveal"; exit 2; fi
 
 # --- helpers ------------------------------------------------------------------------------------------
 frontmost() { osascript -e 'tell application "System Events" to get name of first process whose frontmost is true' 2>&1; }
@@ -546,7 +587,9 @@ ffrun() {
 
 # --- setup ------------------------------------------------------------------------------------------------
 echo "  $("$MOUSE" release)"
-mkdir -p "$SHOTS" "$WORK/docs/deep" "$OTHER/zz-folder"
+mkdir -p "$SHOTS" "$WORK/docs/deep" "$OTHER/zz-folder" "$REVEALED"
+printf 'shown\n' > "$REVEALED/shown.txt"
+printf 'a note\n' > "$REVEALED/note.txt"
 printf 'alpha\n' > "$WORK/alpha.txt"
 printf 'notes about bert\n' > "$WORK/bert-notes.txt"
 printf '# Bertie\n' > "$WORK/Bertie.md"
@@ -564,6 +607,8 @@ quit_folio
 clean_defaults
 clear_session
 clear_banners
+# A new install's state: other apps' reveals go to Finder.
+[ "$(defaults read -g NSFileViewer 2>/dev/null)" = "com.anshul.folio" ] && defaults delete -g NSFileViewer
 # Folio follows the Mac's light or dark setting (it has no theme of its own): the shots are in dark.
 osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true' >/dev/null 2>&1
 "$LSREGISTER" -f "$APP"
@@ -810,6 +855,101 @@ if echo "$finder_after" | grep -q "work"; then
 fi
 front
 
+# --- 9b to 9e: Open "Show in Finder" from other apps in Folio (NSFileViewer) ------------------------------------
+# AppKit sends an app's NSWorkspace reveal to the app NSFileViewer names (Finder when there is none). The box
+# writes it at once, as the folders box does; off removes it.
+viewer() { defaults read -g NSFileViewer 2>/dev/null || echo none; }
+finder_windows() { osascript -e 'tell application "System Events" to get name of every window of process "Finder"' 2>/dev/null; }
+reveal_box() {
+    keys 'keystroke "," using {command down, option down}'
+    wait_window "Folder Options" 6 || return 1
+    sleep 0.6
+    box_was=$(ax_find AXCheckBox "$REVEAL_BOX" "Folder Options" value)
+    viewer_was=$(viewer)
+    click_at "$(ax_find AXCheckBox "$REVEAL_BOX" "Folder Options")"
+    sleep 0.8
+    box_now=$(ax_find AXCheckBox "$REVEAL_BOX" "Folder Options" value)
+    viewer_now=$(viewer)
+    box_shot=$(shot "$1")
+    click_at "$(ax_find AXButton OK "Folder Options")"
+    sleep 0.8
+}
+front
+if reveal_box m9-9b-reveal-box && [ "$box_was" = "0" ] && [ "$viewer_was" = "none" ] && [ "$box_now" = "1" ] \
+   && [ "$viewer_now" = "com.anshul.folio" ]; then
+    pass 9b reveal-box "off on a new install (box [$box_was], NSFileViewer [$viewer_was]); one click: box [$box_now], NSFileViewer [$viewer_now]; $box_shot"
+else
+    fail 9b reveal-box "before: box [${box_was:-}] NSFileViewer [${viewer_was:-}]; after the click: box [${box_now:-}] NSFileViewer [${viewer_now:-}] (windows: $(names_now))"
+fi
+
+said=$("$REVEAL" "$REVEALED/shown.txt")
+sleep 2
+fm=$(frontmost)
+sel=""
+wait_window revealed 4 && sleep 0.6 && sel=$(selected_rows revealed)
+fw=$(finder_windows)
+f=$(shot m9-9c-reveal-in-folio)
+if [ "$fm" = "Folio" ] && [ "$sel" = "shown.txt" ] && ! echo "$fw" | grep -q revealed; then
+    pass 9c reveal-in-folio "$said; Folio came forward on revealed with [$sel] selected (tabs [$(tabs revealed)]); Finder windows [$fw]; $f"
+else
+    fail 9c reveal-in-folio "$said; frontmost [$fm], selected [$sel], Folio windows [$(names_now)], Finder windows [$fw]; ${f:-none}"
+fi
+
+# Real apps, recorded (not passed or failed): `open -R`, and TextEdit's title path menu (Command-click
+# the title, pick the folder above the document).
+"$REVEAL" "$OTHER/tiny.txt" >/dev/null 2>&1 && sleep 1.5
+front
+open -R "$REVEALED/note.txt"
+sleep 2
+openr="frontmost [$(frontmost)], Folio's revealed tab selects [$(selected_rows revealed)], Finder windows [$(finder_windows)]"
+open -a TextEdit "$REVEALED/shown.txt"
+te=""
+i=0
+while [ "$i" -lt 40 ]; do
+    te=$(osascript -e 'tell application "System Events" to tell process "TextEdit" to get {position, size} of window "shown.txt"' 2>/dev/null | tr -d ' ')
+    [ -n "$te" ] && break
+    sleep 0.25; i=$((i + 1))
+done
+textedit="no TextEdit window"
+if [ -n "$te" ]; then
+    IFS=, read -r tx ty tw th <<< "$te"
+    "$REVEAL" "$OTHER/tiny.txt" >/dev/null 2>&1 && sleep 1.5   # Folio's selection moves away from shown.txt first
+    osascript -e 'tell application "System Events" to set frontmost of process "TextEdit" to true' >/dev/null 2>&1
+    sleep 0.5
+    echo "  $("$REVEAL" cmdclick $((tx + tw / 2)) $((ty + 14)))"
+    sleep 1
+    osascript -e 'tell application "System Events" to key code 125' -e 'delay 0.2' \
+              -e 'tell application "System Events" to key code 125' -e 'delay 0.2' \
+              -e 'tell application "System Events" to key code 36' >/dev/null 2>&1
+    sleep 2.5
+    textedit="frontmost [$(frontmost)], Folio's revealed tab selects [$(selected_rows revealed)], Finder windows [$(finder_windows)]"
+    shot m9-9d-textedit-path >/dev/null
+    osascript -e 'quit app "TextEdit"' >/dev/null 2>&1
+fi
+echo "info 9d real-apps: with NSFileViewer [$(viewer)]: open -R revealed/note.txt -> $openr; TextEdit's title path menu, revealed picked -> $textedit"
+front
+
+if reveal_box m9-9e-reveal-box-off && [ "$box_now" = "0" ] && [ "$viewer_now" = "none" ]; then
+    fw_before=$(finder_windows)
+    said=$("$REVEAL" "$REVEALED/shown.txt")
+    sleep 2.5
+    fm=$(frontmost)
+    fw=$(finder_windows)
+    f=$(shot m9-9e-reveal-in-finder)
+    if [ "$fm" = "Finder" ] && echo "$fw" | grep -q revealed; then
+        pass 9e reveal-off "box off: NSFileViewer [$viewer_now]; $said; Finder came forward (windows [$fw], before [$fw_before]); $f"
+    else
+        fail 9e reveal-off "box off: NSFileViewer [$viewer_now]; frontmost [$fm], Finder windows [$fw]; ${f:-none}"
+    fi
+    if echo "$fw" | grep -q revealed; then
+        osascript -e 'tell application "System Events" to tell process "Finder" to set frontmost to true' -e 'delay 0.4' \
+                  -e 'tell application "System Events" to keystroke "w" using command down' >/dev/null 2>&1
+    fi
+else
+    fail 9e reveal-off "box [${box_now:-}], NSFileViewer [${viewer_now:-}] after the second click"
+fi
+front
+
 # --- 10: the Dock ---------------------------------------------------------------------------------------------
 dock=$(osascript -e 'tell application "System Events" to tell process "Dock" to get name of every UI element of list 1' 2>/dev/null)
 geom=$(osascript -e 'tell application "System Events" to tell process "Dock" to get {position, size} of list 1' 2>/dev/null | tr -d ' ')
@@ -842,11 +982,30 @@ done
 sleep 2
 left=$(window_count)
 alive=$(pgrep -x Folio >/dev/null && echo running || echo gone)
+# 11b: Cmd+, (Folio > Settings...) with no window open: Folder Options all the same; Esc closes it.
+settings="not tried (windows left [$left], Folio $alive)"
+if [ "$alive" = "running" ] && [ "$left" -eq 0 ]; then
+    front
+    keys 'keystroke "," using command down'
+    if wait_window "Folder Options" 5; then
+        sleep 0.6
+        settings="opened Folder Options [$(names_now)], $(shot m9-11b-settings-no-window)"
+        keys 'key code 53'
+        sleep 1
+    else
+        settings="no Folder Options window [$(names_now)]"
+    fi
+fi
 open -b com.anshul.folio
 if [ "$alive" = "running" ] && [ "$left" -eq 0 ] && wait_window Home 8; then
     pass 11 keep-running "every window closed: Folio still $alive with $left windows; open -b brought a Home window back"
 else
     fail 11 keep-running "windows left [$left], Folio $alive, after reopen [$(names_now)]"
+fi
+if echo "$settings" | grep -q "^opened"; then
+    pass 11b settings-no-window "Cmd+, with no window: $settings"
+else
+    fail 11b settings-no-window "Cmd+, with no window: $settings"
 fi
 
 # --- 12: Launch at login, from the Folio menu, and back off ----------------------------------------------------------
@@ -893,6 +1052,7 @@ fi
 # --- quit and clean up ------------------------------------------------------------------------------------
 if quit_folio; then pass 15 quit "Folio quit"; else fail 15 quit "Folio was still running 10 s after quit"; fi
 clean_defaults
+[ "$(defaults read -g NSFileViewer 2>/dev/null)" = "com.anshul.folio" ] && defaults delete -g NSFileViewer
 clear_session
 mv "$ROOT" "$HOME/.Trash/" 2>/dev/null
 # The proof PNGs go into the repo at 1440 wide (the Dock strip is narrower and stays as it is).

@@ -64,6 +64,8 @@ public struct ListLayout: Sendable {
     public let rowOfItem: [Int]
     /// The first item of each group and how many of its items are shown (0 when collapsed).
     public let groupRanges: [Range<Int>]
+    /// Each item's `FilePaths.itemKey`, when the layout was made off the main thread with them.
+    public var keys: [String]?
 
     public var isGrouped: Bool { !groups.isEmpty }
 

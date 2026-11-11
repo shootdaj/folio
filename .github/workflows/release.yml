@@ -1,5 +1,8 @@
 # A pushed tag vX.Y.Z becomes a GitHub release: built on the Mac Ultra's runner, Folio-X.Y.Z.zip attached,
 # the notes taken from CHANGELOG.md's "## [X.Y.Z]" section, marked pre-release below 1.0.0.
+# The app is signed with Folio Release Signing, the Ultra's own identity, so a Full Disk Access grant
+# survives updates; the keychain is unlocked only while codesign runs and is locked again at the end, even
+# when the job fails or is cancelled (tools/ci/release-signing.sh). PR builds (ci.yml) stay ad hoc.
 name: Release
 
 on:
@@ -18,9 +21,9 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Build and check (tests, bundle, signature, version)
+      - name: Build, sign for release and check (tests, bundle, signature, version)
         id: build
-        run: tools/ci/build.sh
+        run: tools/ci/build.sh --release
 
       - name: Publish the release
         env:
@@ -37,3 +40,7 @@ jobs:
           case "$VERSION" in 0.*|*-*) prerelease=(--prerelease) ;; esac
           gh release create "$TAG" "$ZIP" --verify-tag --title "Folio $VERSION" \
             --notes-file build/release-notes.md "${prerelease[@]}"
+
+      - name: Lock the signing keychain
+        if: always()
+        run: tools/ci/release-signing.sh lock

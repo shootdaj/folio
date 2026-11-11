@@ -7,6 +7,7 @@ final class BrowserWindow: NSWindow {
     var allowsOffscreen = false
 
     override func sendEvent(_ event: NSEvent) {
+        if event.type == .keyDown, PerfTrace.isOn { PerfTrace.mark("key", "code=\(event.keyCode)") }
         if let controller = windowController as? BrowserWindowController {
             // Access keys: an Option tap shows the command bar's letters; the next key uses or hides them.
             if event.type == .flagsChanged { controller.handleFlagsChanged(event) }
@@ -178,6 +179,20 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     }
     /// Bumped on every load or re-sort; results for an older value are dropped.
     var requestID = 0
+    /// The folder read in flight (`load`), cancelled when a newer one starts.
+    private var loadTask: Task<Void, Never>?
+    /// When the last listing ended and how long it took (auto-refresh paces itself on them), and a
+    /// refresh waiting its turn.
+    var lastLoadEnded: CFTimeInterval = 0
+    var lastLoadTook: CFTimeInterval = 0
+    var refreshWork: DispatchWorkItem?
+    /// Streaming search results are arranged at a pace (arrangeSearchSoon).
+    var searchArrangeWork: DispatchWorkItem?
+    var lastSearchArrange: CFTimeInterval = 0
+    var lastSearchTitle = ""
+    /// The Preview pane, Gallery and Quick Look follow the selection at this pace (updatePreviewsSoon).
+    var previewWork: DispatchWorkItem?
+    var lastPreviewUpdate: CFTimeInterval = 0
     private var isFittingColumns = false
     /// The one dropdown this window shows at a time (typeahead, history, crumb folders, Back list).
     let dropdown = Dropdown()
@@ -224,10 +239,21 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     var listedWith: (hidden: Bool, protected: Bool) = (false, true)
 
     let tableView = FolioTableView()
-    /// Every view but Details.
+    /// Every view but Details and Columns.
     let grid = FileGridView()
-    /// The list the keyboard and menus act on: the table in Details, the grid otherwise.
-    var listView: NSView { viewMode.usesTable ? tableView : grid }
+    /// The Columns view's listings, first column and widths (ColumnsMode.swift), and its clicks.
+    let columnStore = ColumnStore()
+    let columnRouter = ColumnRouter()
+    /// Bumped each time `entries` is replaced (the current folder's column reloads only then).
+    private(set) var entriesVersion = 0
+    /// The folder `entries` lists (nil for search results, Home, or while nothing is listed yet).
+    var listedFolder: URL?
+    /// The list the keyboard and menus act on: the table in Details, the current folder's column in
+    /// Columns, the grid otherwise.
+    var listView: NSView {
+        if viewMode == .columns { return activeColumnTable ?? tableView }
+        return viewMode.usesTable ? tableView : grid
+    }
     var viewMode: ViewMode { isSearching ? (searchView ?? .details) : ViewCenter.shared.mode }
     /// The Recycle Bin's Date and Type columns read Date deleted and Original location.
     func columnTitle(_ key: SortKey) -> String {
@@ -342,6 +368,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         wireHome()
         wireSearch()
         address.dropHost = self
+        columnRouter.controller = self
         address.onMiddleClick = { [weak self] url in self?.openInNewTab(url, activate: false) }
         address.onServer = { [weak self] target in self?.connect(to: target) ?? false }
         address.onCommand = { [weak self] command in self?.runAddressCommand(command) ?? false }
@@ -429,6 +456,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
 
     /// The list empties (Home has no rows).
     func showEmptyList() {
+        listedFolder = nil
         listing = []
         layout = ListLayout(items: [])
         entries = []
@@ -445,7 +473,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     /// Go > Home (Cmd+Shift+H) and Quick access's Home: the Home view.
     @objc func goHome(_ sender: Any?) { navigate(to: NavigationHistory.home) }
     @objc func goHomeFolder(_ sender: Any?) { navigate(to: FileManager.default.homeDirectoryForCurrentUser) }
-    @objc func refresh(_ sender: Any?) { load() }
+    @objc func refresh(_ sender: Any?) {
+        // F5 in Columns reads every column again, not only the current folder.
+        if viewMode == .columns { columnStore.clear() }
+        load()
+    }
 
     /// Cmd+L, and Option+D (Anshul's Cmd+D): the crumbs become an editable path.
     @objc func focusAddressBar(_ sender: Any?) { toolbar.address.beginEditing() }
@@ -567,6 +599,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             return
         }
         chassis.showsHome = false
+        // Columns: a folder whose column is on screen (read and sorted already) is shown at once.
+        if !keepingState, let column = columnListingReady(history.current) {
+            showColumnFolder(column, selecting: restoring?.select ?? columnLandingSelection())
+            return
+        }
         let folder = history.current
         if !keepingState {
             // A filter and folded groups belong to the folder on screen.
@@ -587,10 +624,20 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         requestID += 1
         let id = requestID
         isLoading = true
+        // A sort still under way for the list before is dropped with it (its result never lands).
+        isResorting = false
         if !keepingState {
+            // A refresh waiting for the folder on screen has no folder to refresh.
+            refreshWork?.cancel()
+            refreshWork = nil
             loadError = nil
             statusMessage = nil
             pendingSelect = restoring.map(\.select)
+            // Columns: Back, Up or Left onto a folder the columns came down through selects the way back.
+            if pendingSelect == nil, viewMode == .columns {
+                let back = columnLandingSelection()
+                if !back.isEmpty { pendingSelect = back }
+            }
             restoreRow = restoring?.row
             pendingRenamePath = nil
             renamer.cancel()
@@ -598,28 +645,101 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             updateChrome()
         }
         let started = Date()
-        // Tags, flags and custom icons are read again for what the list shows next.
-        ItemDecorCache.shared.clear()
-        Task.detached(priority: .userInitiated) { [weak self] in
+        // Tags, flags and custom icons are read again for what the list shows next (other windows keep theirs).
+        ItemDecorCache.shared.clear(under: folder)
+        // A newer load replaces this one: the old one stops at its next step instead of finishing unseen.
+        loadTask?.cancel()
+        loadTask = Task.detached(priority: .userInitiated) { [weak self] in
             let result = Result { () -> ([FileEntry], ListLayout) in
-                let rows: [FileEntry]
-                if zip {
-                    let all = try ZipFolder.list(folder)
-                    rows = hidden ? all : all.filter { !$0.isHidden }
-                } else if trash {
-                    // The Recycle Bin: Date deleted and Original location in the Date and Type columns.
-                    let origins = TrashOrigins(defaults: .standard)
-                    rows = RecycleBin.rows(try FolderListing.list(folder), original: { origins.original(of: $0) },
-                                           deleted: { (try? $0.resourceValues(forKeys: [.addedToDirectoryDateKey]))?.addedToDirectoryDate })
-                } else {
-                    rows = try FolderListing.list(folder, includeHidden: hidden, cloud: cloud, hideProtected: protected)
-                }
+                let rows = try Self.listFolder(folder, hidden: hidden, protected: protected, zip: zip, trash: trash, cloud: cloud)
+                try Task.checkCancellation()
                 return (rows, Self.arrange(rows, key))
             }
+            if Task.isCancelled { return }
             let volume = VolumeCapacity.read(folder)
             await self?.finishLoad(result, volume: volume, id: id, key: key, folder: folder, started: started,
                                    keepingState: keepingState)
         }
+    }
+
+    /// One folder's items, the way every view lists them (and each column in Columns): a zip (or a folder
+    /// inside one) from its central directory, the Recycle Bin with its deletion dates, anything else
+    /// through FolderListing. Off the main thread.
+    nonisolated static func listFolder(_ folder: URL, hidden: Bool, protected: Bool) throws -> [FileEntry] {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return try listFolder(folder, hidden: hidden, protected: protected, zip: ZipPath.split(folder) != nil,
+                              trash: RecycleBin.isTrash(folder, home: home), cloud: CloudFolders.isCloud(folder, home: home))
+    }
+
+    nonisolated static func listFolder(_ folder: URL, hidden: Bool, protected: Bool, zip: Bool, trash: Bool, cloud: Bool) throws -> [FileEntry] {
+        if zip {
+            let all = try ZipFolder.list(folder)
+            return hidden ? all : all.filter { !$0.isHidden }
+        }
+        if trash {
+            // The Recycle Bin: Date deleted and Original location in the Date and Type columns.
+            let origins = TrashOrigins(defaults: .standard)
+            return RecycleBin.rows(try FolderListing.list(folder), original: { origins.original(of: $0) },
+                                   deleted: { (try? $0.resourceValues(forKeys: [.addedToDirectoryDateKey]))?.addedToDirectoryDate })
+        }
+        return try FolderListing.list(folder, includeHidden: hidden, cloud: cloud, hideProtected: protected)
+    }
+
+    /// Columns: `column` (a folder whose column is on screen, read and sorted) becomes the current folder at
+    /// once, as load() would show it after reading, so a click or an arrow acts on exactly what it shows.
+    func showColumnFolder(_ column: ColumnListing, selecting selected: Set<String>) {
+        let started = Date()
+        let folder = column.url
+        chassis.showsHome = false
+        filters.clearAll()
+        collapsedGroups = []
+        listedWith = (column.hidden, column.protected)
+        isInZip = ZipPath.split(folder) != nil
+        isTrashView = RecycleBin.isTrash(folder, home: FileManager.default.homeDirectoryForCurrentUser)
+        // Drops any read or sort still under way for the folder before, and a refresh waiting for it.
+        requestID += 1
+        loadTask?.cancel()
+        refreshWork?.cancel()
+        refreshWork = nil
+        isLoading = false
+        isResorting = false
+        loadError = column.error
+        statusMessage = nil
+        pendingSelect = nil
+        scrollToPending = false
+        restoreRow = nil
+        pendingRenamePath = nil
+        renamer.cancel()
+        dropdown.close()
+        ItemDecorCache.shared.clear(under: folder)
+        updateChrome()
+        listing = column.rows
+        arrangedWith = arrangeKey
+        listedFolder = folder
+        columnStore.adoptedID = column.id
+        show(ListLayout(items: column.rows), selecting: selected, keys: column.keys)
+        if let first = selection.rows.first { scrollToItem(first) } else { activeColumnTable?.scrollRowToVisible(0) }
+        addressHistory.record(folder.path)
+        didNavigate()
+        Task.detached(priority: .utility) { [weak self] in
+            let volume = VolumeCapacity.read(folder)
+            await self?.columnVolumeArrived(volume, folder: folder)
+        }
+        // A column read a while ago (a selected folder's, which is not watched) is read again quietly now
+        // that its folder is the current one; what changed lands with the selection as it is then.
+        if column.stale || Date().timeIntervalSince(column.read) > 3 {
+            requestColumn(column.path, ensure: nil, trailing: false)
+        }
+        perfLog.notice("""
+            columns: \(column.rows.count, privacy: .public) items in \(folder.path, privacy: .public) shown from its column in \
+            \(Int(Date().timeIntervalSince(started) * 1000), privacy: .public) ms
+            """)
+    }
+
+    private func columnVolumeArrived(_ volume: VolumeCapacity?, folder: URL) {
+        guard listedFolder == folder else { return }
+        self.volume = volume
+        updateStatus()
     }
 
     /// Lists the folder again. `select` replaces the selection (paths); nil keeps it.
@@ -660,11 +780,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
                             key: ArrangeKey, folder: URL, started: Date, keepingState: Bool) {
         guard id == requestID else { return }
         isLoading = false
+        isResorting = false // a re-sort this load overtook never finishes, so its flag ends here
         self.volume = volume
         let select = pendingSelect ?? []
         let scroll = scrollToPending
         pendingSelect = nil
         scrollToPending = false
+        listedFolder = folder
         switch result {
         case .success(let (rows, arranged)):
             listing = rows
@@ -672,9 +794,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             show(arranged, selecting: select)
             if !keepingState { addressHistory.record(folder.path) }
         case .failure(let error):
-            loadError = isTrashView && (error as NSError).code == NSFileReadNoPermissionError
-                ? "Folio needs Full Disk Access to show the Recycle Bin (System Settings, Privacy & Security)"
-                : error.localizedDescription
+            // A folder macOS's privacy protection refuses points at Folio > Full Disk Access…, in the status bar.
+            loadError = DiskAccess.loadErrorText(error, isRecycleBin: isTrashView)
             listing = []
             arrangedWith = key
             show(ListLayout(items: []), selecting: [])
@@ -688,6 +809,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             } else {
                 tableView.scrollRowToVisible(0)
                 grid.scroll(.zero)
+                activeColumnTable?.scrollRowToVisible(0)
             }
             restoreRow = nil
             didNavigate()
@@ -705,11 +827,17 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         if arrangeKey != key { rearrange() }
         window?.displayIfNeeded()
         let now = Date()
+        lastLoadEnded = CACurrentMediaTime()
+        lastLoadTook = now.timeIntervalSince(started)
         perfLog.notice("""
             rows visible: \(self.entries.count, privacy: .public) items in \(folder.path, privacy: .public); \
             list+sort \(Int(now.timeIntervalSince(started) * 1000), privacy: .public) ms; \
             \(Int(now.timeIntervalSince(processStartDate) * 1000), privacy: .public) ms since launch
             """)
+        if PerfTrace.isOn {
+            PerfTrace.mark("rows", "items=\(entries.count) ms=\(PerfTrace.ms(since: started.timeIntervalSince1970)) "
+                + "launch_ms=\(PerfTrace.ms(since: processStartDate.timeIntervalSince1970)) mb=\(PerfTrace.footprintMB) path=\(folder.path)")
+        }
     }
 
     // MARK: Arranging: filters, sort and groups, off the main thread
@@ -725,12 +853,21 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     }
 
     var arrangeKey: ArrangeKey {
-        ArrangeKey(filters: filters, sort: sortSpec, group: group, collapsed: collapsedGroups, relevance: isRelevanceOrder)
+        // Columns: filters and Group by do not apply (the menus grey them); the tab keeps its Group by.
+        if viewMode == .columns { return columnArrangeKey }
+        return ArrangeKey(filters: filters, sort: sortSpec, group: group, collapsed: collapsedGroups, relevance: isRelevanceOrder)
     }
 
     /// Filters, then groups (sorted inside) or a plain sort. Columns that need metadata (Dimensions,
     /// Tags...) read it for every item first, through the shared cache.
     nonisolated static func arrange(_ rows: [FileEntry], _ key: ArrangeKey) -> ListLayout {
+        var layout = arrangeItems(rows, key)
+        // The items' keys too, so the main thread does not resolve a path per item.
+        layout.keys = FilePaths.itemKeys(layout.items.map(\.url))
+        return layout
+    }
+
+    private nonisolated static func arrangeItems(_ rows: [FileEntry], _ key: ArrangeKey) -> ListLayout {
         let context = BucketContext()
         let wantsMeta = key.filters.columns.contains { $0.needsMetadata } || key.sort.terms.contains { $0.key.needsMetadata }
             || key.group?.key.needsMetadata == true
@@ -761,35 +898,44 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         let id = requestID
         isResorting = true
         updateStatus()
+        let started = PerfTrace.now
         Task.detached(priority: .userInitiated) { [weak self] in
             let arranged = Self.arrange(rows, key)
-            await self?.finishRearrange(arranged, key: key, id: id, selecting: selected)
+            await self?.finishRearrange(arranged, key: key, id: id, selecting: selected, started: started)
         }
     }
 
-    private func finishRearrange(_ arranged: ListLayout, key: ArrangeKey, id: Int, selecting selected: Set<String>) {
+    private func finishRearrange(_ arranged: ListLayout, key: ArrangeKey, id: Int, selecting selected: Set<String>, started: Double) {
         guard id == requestID else { return }
         isResorting = false
         arrangedWith = key
         show(arranged, selecting: selected)
         if let first = selection.rows.first { scrollToItem(first) }
         if arrangeKey != key { rearrange() }
+        if PerfTrace.isOn {
+            window?.displayIfNeeded()
+            PerfTrace.mark("arranged", "items=\(entries.count) ms=\(PerfTrace.ms(since: started)) searching=\(isSearching ? 1 : 0) "
+                + "done=\(searchFinished ? 1 : 0) sort=\(key.sort.key.rawValue)")
+        }
     }
 
     /// The selected items' keys, in list order.
     var selectedKeys: [String] { selection.rows.compactMap { entryKeys.indices.contains($0) ? entryKeys[$0] : nil } }
 
-    func show(_ arranged: ListLayout, selecting selected: Set<String>) {
+    /// `keys`: the items' FilePaths.itemKey values when already known (a column's listing).
+    func show(_ arranged: ListLayout, selecting selected: Set<String>, keys: [String]? = nil) {
         layout = arranged
         entries = arranged.items
-        entryKeys = entries.map { FilePaths.itemKey($0.url) }
+        entryKeys = keys ?? arranged.keys ?? FilePaths.itemKeys(entries.map(\.url))
+        entriesVersion += 1
         dimmed = FileClipboard.dimmedPaths
         let rows = IndexSet(entries.indices.filter { selected.contains(entryKeys[$0]) })
         selection = ListSelection(count: entries.count)
         selection.adopt(rows, focus: rows.first)
         applyingSelection = true
         tableView.reloadData()
-        grid.reloadData()
+        // The grid is hidden in Details and Columns: it reloads when an icon view shows it (applyViewMode).
+        if viewMode.usesGrid { grid.reloadData() }
         tableView.selectRowIndexes(tableRows(of: rows), byExtendingSelection: false)
         applyingSelection = false
         header.filtered = Set(filters.columns)
@@ -804,15 +950,18 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     /// The table row of an item (rows include group headers when grouped).
     func tableRow(ofItem i: Int) -> Int { layout.rowOfItem.indices.contains(i) ? layout.rowOfItem[i] : i }
 
-    func tableRows(of items: IndexSet) -> IndexSet { IndexSet(items.map(tableRow(ofItem:))) }
+    /// Ungrouped, an item's row is its index: the set as it is (Cmd+A in a big folder maps nothing).
+    func tableRows(of items: IndexSet) -> IndexSet { layout.isGrouped ? IndexSet(items.map(tableRow(ofItem:))) : items }
 
     func scrollToItem(_ i: Int) {
         guard entries.indices.contains(i) else { return }
+        if viewMode == .columns { activeColumnTable?.scrollRowToVisible(i); return }
         if viewMode.usesTable { tableView.scrollRowToVisible(tableRow(ofItem: i)) } else { grid.scrollToItem(i) }
     }
 
     /// Where item `i` is on screen, in the list view's coordinates.
     func frameOfItem(_ i: Int) -> NSRect? {
+        if viewMode == .columns { return entries.indices.contains(i) ? activeColumnTable?.rect(ofRow: i) : nil }
         if viewMode.usesTable { return entries.indices.contains(i) ? tableView.rect(ofRow: tableRow(ofItem: i)) : nil }
         return grid.frame(ofItem: i)
     }
@@ -831,6 +980,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
 
     func updateFocusRow() {
         let focus = selection.focus
+        columnBrowser.activeColumn?.focusRow = focus
         tableView.enumerateAvailableRowViews { view, row in (view as? FolioRowView)?.isFocusRow = layout.item(atRow: row) == focus && focus != nil }
         grid.forEachVisibleCell { cell, i in cell.isFocusItem = i == focus }
     }
@@ -862,7 +1012,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     }
 
     func updateStatus() {
-        let selection = SelectionSummary(selectedEntries)
+        let selection = SelectionSummary(entries, rows: self.selection.rows)
         let path = history.isHome ? "Home" : history.current.path
         if let statusMessage {
             chassis.status.countText = statusMessage
@@ -919,6 +1069,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
 
     @objc private func filesChanged(_ note: Notification) {
         refreshTree(note)
+        columnFoldersChanged(note.userInfo?["folders"] as? Set<String>)
         if isSearching {
             searchFilesChanged(note.userInfo?["folders"] as? Set<String>)
             return
@@ -927,8 +1078,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         // A periodic refresh while a job runs only concerns windows on its destination.
         let here = FilePaths.folderKey(history.current)
         if let folders = note.userInfo?["folders"] as? Set<String>, !folders.contains(here) { return }
-        let mine = ((note.userInfo?["select"] as? [String]) ?? [])
-            .map { FilePaths.itemKey(URL(fileURLWithPath: $0)) }
+        let mine = FilePaths.itemKeys(((note.userInfo?["select"] as? [String]) ?? []).map { URL(fileURLWithPath: $0) })
             .filter { FilePaths.parentKey(ofItemKey: $0) == here }
         reloadContents(select: mine.isEmpty ? nil : Set(mine))
     }
@@ -963,10 +1113,12 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<layout.rows.count))
         }
         grid.compact = ListOptions.compact
+        columnBrowser.columns.forEach { $0.applyRowHeight(rowH); $0.table.singleClickOpens = ListOptions.folder.singleClickOpens }
         chassis.sidePaneKind = ListOptions.sidePane
+        columnBrowser.columns.forEach { $0.reloadVisible() }
         if !entries.isEmpty {
             tableView.reloadData(forRowIndexes: IndexSet(integersIn: 0..<layout.rows.count), columnIndexes: IndexSet(tableView.tableColumns.indices))
-            grid.reloadData()
+            if viewMode.usesGrid { grid.reloadData() }
         }
         updateStatus()
         selectionDidChange()
@@ -1044,6 +1196,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     func handleKeyDown(_ event: NSEvent) -> Bool {
         let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
         let tableFocused = window?.firstResponder === tableView || window?.firstResponder === grid
+            || (viewMode == .columns && window?.firstResponder is ColumnTableView)
         let gridFocused = window?.firstResponder === grid
         let editingText = window?.firstResponder is NSTextView
         // An open crumb, « or Back list takes the arrows, Return and Esc (the address field drives its own).
@@ -1059,6 +1212,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         if handleTabKey(event, modifiers: modifiers, editingText: editingText) { return true }
         if handleViewKey(event, modifiers: modifiers, editingText: editingText) { return true }
         if gridFocused, handleGridArrow(event, modifiers: modifiers) { return true }
+        // Columns: plain Right goes into the selected folder's column, plain Left to the column before
+        // (plain Left and Right do nothing in the other views).
+        if viewMode == .columns, tableFocused, modifiers.isEmpty, event.keyCode == 124 || event.keyCode == 123 {
+            if renamer.isActive { return false }
+            if event.keyCode == 124 { columnsRight() } else { columnsLeft() }
+            return true
+        }
         switch (event.keyCode, modifiers) {
         case (126, .option): goUp(nil)                          // Option+Up (Cmd+Up after Karabiner)
         case (123, .option) where !editingText: goBack(nil)     // Option+Left
@@ -1127,6 +1287,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     }
 
     private var pageRows: Int {
+        if viewMode == .columns, let table = activeColumnTable, let clip = table.enclosingScrollView?.contentView.bounds {
+            return max(1, Int(clip.height / table.rowHeight) - 1)
+        }
         if !viewMode.usesTable {
             let size = grid.itemSize
             let clip = chassis.pane.gridScroll.contentView.bounds
@@ -1253,16 +1416,19 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
+        // A change the window made itself (applySelection, show) is already in the model.
+        guard !applyingSelection else { return }
         // Type to select and the table's own Select All change the rows behind the model's back.
-        let items = IndexSet(tableView.selectedRowIndexes.compactMap { layout.item(atRow: $0) })
-        if !applyingSelection, items != selection.rows {
+        let items = layout.isGrouped ? IndexSet(tableView.selectedRowIndexes.compactMap { layout.item(atRow: $0) })
+            : tableView.selectedRowIndexes
+        if items != selection.rows {
             let focus = layout.item(atRow: tableView.selectedRow)
             selection.adopt(items, focus: focus)
             updateFocusRow()
             grid.forEachVisibleCell { cell, i in cell.isSelected = items.contains(i) }
             selectionDidChange()
+            updateStatus()
         }
-        updateStatus()
     }
 
     /// Dragging a divider gives or takes the space from Name; the width is kept for every folder.
@@ -1370,6 +1536,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     }
 
     func windowWillClose(_ notification: Notification) {
+        // A search in a closed window stops: the walk, Spotlight, its ticker and a pending arrange.
+        searchEngine?.cancel()
+        searchTicker?.invalidate()
+        searchArrangeWork?.cancel()
+        refreshWork?.cancel()
         dropdown.close()
         renamer.end()
         // Cmd+Shift+T can bring back the tabs of a closed window too.

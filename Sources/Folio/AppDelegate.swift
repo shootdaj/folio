@@ -58,6 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        PerfTrace.start()
         if let uitest {
             let controller = BrowserWindowController(
                 folder: uitest.folder,
@@ -76,6 +77,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         NotificationCenter.default.addObserver(self, selector: #selector(viewChanged(_:)), name: ViewCenter.didChange, object: nil)
         DockIcon.start()
         NSApp.activate()
+    }
+
+    /// Folio > Settings... (Cmd+,, the Mac's key for an app's settings): Folder Options, also with no
+    /// window open.
+    @objc func showSettings(_ sender: Any?) {
+        FolderOptionsWindowController.show(near: NSApp.mainWindow ?? NSApp.keyWindow)
     }
 
     @objc private func viewChanged(_ note: Notification) { scheduleSessionSave() }
@@ -99,7 +106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        saveSession()
+        saveSession(now: true)
         terminating = true
         // File promises from Folio's last drag would hold up quitting (AppKit resolves them all).
         DragState.releasePasteboard()
@@ -306,15 +313,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         sessionTimer = timer
     }
 
-    func saveSession() {
+    /// `now` writes before returning (quitting); otherwise the JSON is encoded and written off the main thread.
+    func saveSession(now: Bool = false) {
         guard uitest == nil, !terminating else { return }
         sessionTimer?.invalidate()
         sessionTimer = nil
         let ordered = NSApp.orderedWindows.compactMap { $0.windowController as? BrowserWindowController }
         let all = ordered.filter { c in windows.contains { $0 === c } } + windows.filter { c in !ordered.contains { $0 === c } }
         let session = Session(windows: all.compactMap { $0.windowSession() }, viewMode: ViewCenter.shared.mode.rawValue)
+        guard now else {
+            SessionStore().saveInBackground(session) { error in
+                perfLog.error("session not saved: \(error.localizedDescription, privacy: .public)")
+            }
+            return
+        }
         do {
-            try SessionStore().save(session)
+            try SessionStore().saveNow(session)
         } catch {
             perfLog.error("session not saved: \(error.localizedDescription, privacy: .public)")
         }
@@ -396,5 +410,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         var options = ListOptions.folder
         options.keepRunning.toggle()
         ListOptions.apply(options)
+    }
+
+    /// Folio > Full Disk Access…: System Settings > Privacy & Security > Full Disk Access, where the user turns
+    /// Folio on once. Release builds keep the same signature, so the grant survives updates.
+    @objc func openFullDiskAccess(_ sender: Any?) {
+        NSWorkspace.shared.open(DiskAccess.settingsURL)
     }
 }

@@ -181,7 +181,8 @@ public final class SearchEngine: @unchecked Sendable {
             options.zippedFolders = request.zippedFolders
             let walk = SearchWalk(roots: roots, matcher: matcher, options: options)
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                walk.run(isCancelled: { self?.isCancelled ?? true }) { hits, progress in
+                let engine = self
+                walk.run(isCancelled: { engine?.isCancelled ?? true }) { hits, progress in
                     self?.ingest(hits, progress: progress)
                 }
                 self?.queue.async { self?.walkDone = true; self?.flush() }

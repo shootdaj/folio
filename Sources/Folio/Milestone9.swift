@@ -21,8 +21,9 @@ enum BuildInfo {
     private static func info(_ key: String) -> String? { Bundle.main.object(forInfoDictionaryKey: key) as? String }
 }
 
-/// What Folio asks of macOS itself: the default app for folders and drives (Launch Services), and the
-/// login item (SMAppService). Both read back the Mac's real state; nothing is kept in Folio's defaults.
+/// What Folio asks of macOS itself: the default app for folders and drives (Launch Services), the app
+/// for other apps' "Show in Finder" (NSFileViewer) and the login item (SMAppService). Each reads back the
+/// Mac's real state; nothing is kept in Folio's defaults.
 @MainActor
 enum SystemSettings {
     /// Launch Services, as FolioCore's DefaultFolderHandler sees it.
@@ -42,6 +43,27 @@ enum SystemSettings {
 
     static func setFoldersOpenInFolio(_ on: Bool) -> FolderHandlerReport {
         DefaultFolderHandler.apply(on: on, bundleID: bundleID, registry: LaunchServices())
+    }
+
+    /// The global domain (`defaults write -g`), as FolioCore's FileViewerSetting sees it.
+    struct GlobalPreferences: GlobalDefaults {
+        func string(for key: String) -> String? {
+            CFPreferencesCopyValue(key as CFString, kCFPreferencesAnyApplication, kCFPreferencesCurrentUser,
+                                   kCFPreferencesAnyHost) as? String
+        }
+
+        func set(_ value: String?, for key: String) {
+            CFPreferencesSetValue(key as CFString, value as CFString?, kCFPreferencesAnyApplication,
+                                  kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
+            CFPreferencesSynchronize(kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
+        }
+    }
+
+    /// Open "Show in Finder" from other apps in Folio: NSFileViewer names Folio.
+    static var revealsInFolio: Bool { FileViewerSetting.isFolio(bundleID: bundleID, defaults: GlobalPreferences()) }
+
+    static func setRevealsInFolio(_ on: Bool) -> FileViewerReport {
+        FileViewerSetting.apply(on: on, bundleID: bundleID, defaults: GlobalPreferences())
     }
 
     static var launchesAtLogin: Bool { SMAppService.mainApp.status == .enabled }
