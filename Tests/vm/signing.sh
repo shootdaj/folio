@@ -26,6 +26,7 @@
 # the VM has SIP on; with SIP off those shots are a record. Every row is removed at the end.
 # PNGs go to ~/folio/shots/:
 #   signing-1-a-nogrant.png      A, no grant: ~/Library/Mail (blocked, with the status line, when SIP is on)
+#   signing-2a-menu.png          the Folio menu open: Full Disk Access… under Keep Running When the Last Window Closes
 #   signing-2-settings.png       Folio > Full Disk Access…: System Settings at Privacy & Security > Full Disk Access
 #   signing-3-a-granted.png      A after the grant: ~/Library/Mail
 #   signing-4-settings-on.png    Folio > Full Disk Access… again: Folio in the list, its switch on
@@ -335,15 +336,20 @@ else
 fi
 
 # --- 2: Folio > Full Disk Access… opens System Settings at Full Disk Access ------------------------------------
+# The Folio menu opened by a click, the item clicked in it, as a person would.
 front
-menu_bar Folio "Full Disk Access…"
+osascript -e 'tell application "System Events" to tell process "Folio" to click menu bar item "Folio" of menu bar 1' >/dev/null 2>&1
+sleep 0.8
+m=$(shot signing-2a-menu)
+item=$(osascript -e 'tell application "System Events" to tell process "Folio" to get name of every menu item of menu 1 of menu bar item "Folio" of menu bar 1' 2>/dev/null | tr ',' '\n' | sed 's/^ *//' | grep -Fx "Full Disk Access…")
+osascript -e 'tell application "System Events" to tell process "Folio" to click menu item "Full Disk Access…" of menu 1 of menu bar item "Folio" of menu bar 1' >/dev/null 2>&1
 pane=$(wait_settings)
 sleep 1.5
 f=$(shot signing-2-settings)
-if [ "$pane" = "Full Disk Access" ] && [ "$(frontmost)" = "System Settings" ] && [ -n "$f" ]; then
-    pass 2 settings "System Settings frontmost, window [$pane], $f"
+if [ -n "$item" ] && [ "$pane" = "Full Disk Access" ] && [ "$(frontmost)" = "System Settings" ] && [ -n "$f" ] && [ -n "$m" ]; then
+    pass 2 settings "Folio menu lists [$item]; clicked: System Settings frontmost, window [$pane], $m, $f"
 else
-    fail 2 settings "System Settings window [$pane], frontmost [$(frontmost)], shot: ${f:-none}"
+    fail 2 settings "menu item [$item], System Settings window [$pane], frontmost [$(frontmost)], shots: ${m:-none} ${f:-none}"
 fi
 quit_settings
 quit_folio
