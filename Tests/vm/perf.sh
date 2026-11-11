@@ -8,7 +8,8 @@
 #   launch          quit, `open -a Folio f1k`: the script's clock to the first rows drawn (and the app's own
 #                   time since its process started)
 #   open-<n>        address bar to a flat folder of 1k, 10k, 50k or 200k files: the Return key reaching
-#                   Folio to rows drawn (-load: the app's load start to display), the longest stall
+#                   Folio to rows drawn (-load: the app's load start to display), the longest stall, and
+#                   Folio's memory footprint once the rows are drawn
 #   sort-<n>-<key>  View > Sort By > Size, Date modified, Name in that folder: sort start to rows drawn, and
 #                   the longest main-thread stall of the three
 #   filter-50k      Cmd+F in the 50k folder, type IMG_0123: last key to results drawn (300 ms of it is the
@@ -23,6 +24,8 @@
 #   copy-2gb        Cmd+C a 2 GB file, Cmd+V onto another APFS volume (a disk image): job done, MB/s
 #   memory-50       after opening 50 folders of 1,000 files one after another: footprint and RSS
 #   churn-cpu       a tab on a folder while 100 files a second are written below it for 20 s: Folio's CPU
+#   refresh-10k     a tab on a folder of 10,000 files while 5 files a second come and go in it for 10 s (a
+#                   busy Downloads): Folio's CPU, how many refreshes, each refresh's time, the longest stall
 #   bench           (builds that have it) `Folio --bench` on the 50k and 200k folders: each step of opening
 #                   them timed on its own (list, arrange, keys, tree, search walk), printed under the table
 # ~/folio/perf.conf may set RUNS=n and ONLY="launch open sort ..." (moment groups) for a quicker pass.
@@ -40,7 +43,7 @@ MARKS="$RUN/marks.log"
 RAW="$RUN/raw.tsv"
 TOOL="$HOME/folio/folio-perftool"
 RUNS=3
-ONLY="launch open sort filter selectall scroll view thumbs search copy memory churn bench"
+ONLY="launch open sort filter selectall scroll view thumbs search copy memory churn refresh bench"
 # A perf.conf counts for one run only.
 [ -f "$HOME/folio/perf.conf" ] && { . "$HOME/folio/perf.conf"; rm -f "$HOME/folio/perf.conf"; }
 fails=0
@@ -67,6 +70,7 @@ cat > "$RUN/folio-perftool.swift" <<'SWIFT'
 //   folio-perftool images <dir> <count> <seed>      fresh JPEGs (new files, so no thumbnail cache knows them)
 //   folio-perftool scroll <x> <y> <events> <px> <hz> wheel events in pixels (negative px scrolls down)
 //   folio-perftool churn <dir> <seconds> <perSecond> create, write and remove files in <dir>
+//   folio-perftool files <dir> <count>             that many small files (the names the flat folders have)
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -191,6 +195,9 @@ case "scroll" where args.count == 6:
         if wait > 0 { usleep(useconds_t(wait * 1_000_000)) }
     }
     print(String(format: "scrolled %d events of %d px at %.0f Hz from %.4f to %.4f", events, px, hz, start, Date().timeIntervalSince1970))
+case "files" where args.count == 3:
+    flat(args[1], count: Int(args[2]) ?? 0)
+    print("files: \(args[2]) in \(args[1])")
 case "churn" where args.count == 4:
     let dir = args[1], seconds = Double(args[2]) ?? 10, rate = Double(args[3]) ?? 100
     mkdirs(dir)
@@ -377,6 +384,7 @@ for n in 1k 10k 50k 200k; do
         k=$(key_before "$t1" 36)
         [ -n "$k" ] && record "open-$n" "$(ms_between "$k" "$t1")" ms
         record "open-$n-load" "$(field "$m" ms)" ms
+        record "open-$n-mb" "$(field "$m" mb)" MB
         set -- $(stalls "${k:-$NAV_T}" "$t1")
         record "open-$n-longest-stall" "$3" ms
         if wants sort; then
@@ -608,6 +616,30 @@ if wants churn; then
         record churn-cpu "$(perl -e "printf '%.2f', $c1 - $c0")" s
         set -- $(stalls "$t0" "$(now)")
         record churn-stalls "$(awk -v a="$t0" '$2 == "stall" && $1 >= a' "$MARKS" | wc -l | tr -d ' ')" stalls
+    done
+fi
+
+# --- auto-refresh in a big folder that keeps changing ------------------------------------------------------
+if wants refresh; then
+    "$TOOL" files "$RUN/busy" 10000 >/dev/null
+    for r in $(seq 1 "$RUNS"); do
+        nav "$RUN/busy" >/dev/null || { fail "refresh: busy did not open"; break; }
+        sleep 1
+        pid=$(pgrep -x Folio | head -1)
+        c0=$(cpu_seconds "$pid")
+        before=$(lines)
+        t0=$(now)
+        "$TOOL" churn "$RUN/busy" 10 5 >/dev/null
+        sleep 1.5
+        t1=$(now)
+        c1=$(cpu_seconds "$pid")
+        record refresh-10k-cpu "$(perl -e "printf '%.2f', $c1 - $c0")" s
+        tail -n +"$((before + 1))" "$MARKS" | awk '$2 == "rows"' > "$RUN/refreshes.txt"
+        record refresh-10k-count "$(wc -l < "$RUN/refreshes.txt" | tr -d ' ')" refreshes
+        each=$(sed -n 's/.* ms=\([0-9.]*\) .*/\1/p' "$RUN/refreshes.txt" | sort -g | awk '{ v[NR] = $1 } END { if (NR) print v[int((NR + 1) / 2)] }')
+        [ -n "$each" ] && record refresh-10k-each "$each" ms
+        set -- $(stalls "$t0" "$t1")
+        record refresh-10k-longest-stall "$3" ms
     done
 fi
 
