@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 @testable import FolioCore
@@ -40,6 +41,67 @@ import Testing
         #expect(!tree.isLoaded(path(t, "tree/alpha")), "grandchildren wait until their node opens")
         tree.invalidate(top)
         #expect(!tree.isLoaded(top))
+    }
+
+    @Test func aFolderReadOffTheMainThreadIsUsedOnceAndFiltered() throws {
+        let t = try makeTree()
+        defer { t.close() }
+        let tree = FolderTree()
+        let top = path(t, "tree")
+        tree.prime([top: FolderTree.subfolders(of: top)])
+        #expect(!tree.isLoaded(top), "a primed folder is not in the tree until it is asked for")
+        #expect(tree.children(of: top).map(\.name) == ["alpha", "beta", "File2", "File10", "Zeta"], "hidden folders are filtered as from the disk")
+        tree.invalidate(top)
+        try t.folder("tree/Added")
+        #expect(tree.children(of: top).map(\.name).contains("Added"), "after a change the disk is read again")
+        tree.prime([top: []])
+        #expect(tree.children(of: top).contains { $0.name == "Added" }, "a folder already in the tree keeps its children")
+    }
+
+    /// The reader as it was: URL values for every entry, files included.
+    private func subfoldersByURL(_ path: String) -> [TreeFolder] {
+        let keys: [URLResourceKey] = [.isDirectoryKey, .isPackageKey, .isSymbolicLinkKey, .isHiddenKey]
+        let urls = (try? FileManager.default.contentsOfDirectory(at: URL(fileURLWithPath: path, isDirectory: true),
+                                                                  includingPropertiesForKeys: keys, options: [])) ?? []
+        var out: [TreeFolder] = []
+        for url in urls {
+            guard let v = try? url.resourceValues(forKeys: Set(keys)) else { continue }
+            var dir = v.isDirectory ?? false, pkg = v.isPackage ?? false
+            if v.isSymbolicLink == true {
+                let target = try? url.resolvingSymlinksInPath().resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
+                dir = target?.isDirectory ?? false
+                pkg = target?.isPackage ?? false
+            }
+            guard dir && !pkg else { continue }
+            out.append(TreeFolder(name: url.lastPathComponent, path: path + "/" + url.lastPathComponent,
+                                  isHidden: (v.isHidden ?? false) || url.lastPathComponent.hasPrefix("."), isLink: v.isSymbolicLink ?? false))
+        }
+        return out.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    @Test func theFastReaderFindsTheFoldersTheURLWayFinds() throws {
+        let t = try makeTree()
+        defer { t.close() }
+        try t.folder("tree/Library.bundle")
+        try t.folder("tree/folder.with.dots")
+        try t.folder("tree/Bundled")
+        try t.folder("tree/Bundled.dots")
+        for p in ["tree/Bundled", "tree/Bundled.dots"] {
+            var info = [UInt8](repeating: 0, count: 32)
+            info[8] = 0x20
+            #expect(setxattr(t.url(p).path, "com.apple.FinderInfo", info, 32, 0, XATTR_NOFOLLOW) == 0)
+        }
+        for i in 0..<200 { try t.file("tree/file \(i).txt") }
+        let fm = FileManager.default
+        try fm.createSymbolicLink(atPath: t.url("tree/to-alpha").path, withDestinationPath: "alpha")
+        try fm.createSymbolicLink(atPath: t.url("tree/to-app").path, withDestinationPath: "App.app")
+        try fm.createSymbolicLink(atPath: t.url("tree/to-file").path, withDestinationPath: "notes.txt")
+        try fm.createSymbolicLink(atPath: t.url("tree/broken").path, withDestinationPath: "nowhere")
+        let top = path(t, "tree")
+        let fast = FolderTree.subfolders(of: top)
+        #expect(fast == subfoldersByURL(top))
+        #expect(!fast.contains { $0.name == "Bundled" || $0.name == "Bundled.dots" || $0.name == "App.app" }, "packages are left out")
+        #expect(fast.contains { $0.name == "to-alpha" && $0.isLink })
     }
 
     @Test func foldersOnlyInNaturalOrderWithoutHiddenOnes() throws {

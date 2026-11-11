@@ -130,15 +130,25 @@ extension BrowserWindowController {
     }
 
     /// Folders under the tree's roots changed: nodes already read whose subfolders differ are read again.
+    /// The folders are read off the main thread, and a stale node takes the read instead of a second one.
     private func treeFoldersChanged(_ keys: Set<String>) {
-        let tree = chassis.sidebar.pane.tree
-        var stale: Set<String> = []
-        for key in keys {
-            guard let cached = tree.cachedChildren(of: key) else { continue }
-            let now = FolderTree.subfolders(of: key).filter { tree.showHidden || !$0.isHidden }.map(\.path)
-            if Set(cached.map(\.path)) != Set(now) { stale.insert(key) }
+        let loaded = keys.filter { chassis.sidebar.pane.tree.isLoaded($0) }
+        guard !loaded.isEmpty else { return }
+        Task.detached(priority: .utility) { [weak self] in
+            var lists: [String: [TreeFolder]] = [:]
+            for key in loaded { lists[key] = FolderTree.subfolders(of: key) }
+            await self?.treeFoldersRead(lists)
         }
-        if !stale.isEmpty { chassis.sidebar.pane.refresh(folders: stale) }
+    }
+
+    private func treeFoldersRead(_ lists: [String: [TreeFolder]]) {
+        let pane = chassis.sidebar.pane
+        var stale: Set<String> = []
+        for (key, all) in lists {
+            guard let cached = pane.tree.cachedChildren(of: key) else { continue }
+            if Set(cached.map(\.path)) != Set(pane.tree.shown(all).map(\.path)) { stale.insert(key) }
+        }
+        if !stale.isEmpty { pane.refresh(folders: stale, lists: lists) }
     }
 
     // MARK: Access keys (Explorer's Alt)

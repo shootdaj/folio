@@ -289,6 +289,7 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
     func label(_ v: VolumeCapacity) -> String { VolumeList.label(v, showPath: layoutOptions.showDriveLetters) }
 
     func setVolumes(_ volumes: [VolumeCapacity]) {
+        resolvedKeys.removeAll()
         allVolumes = volumes
         let (drives, network) = VolumeList.arrange(volumes, hideEmpty: layoutOptions.hideEmptyDrives)
         func reuse(_ old: [SideNode], _ list: [VolumeCapacity], share: Bool) -> [SideNode] {
@@ -453,7 +454,19 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
     func isCurrent(_ node: SideNode) -> Bool {
         if case .home = node.kind { return isHome }
         guard !isHome, let path = node.path else { return false }
-        return FilePaths.folderKey(URL(fileURLWithPath: path)) == currentPath
+        return resolvedKey(path) == currentPath
+    }
+
+    /// Each row's folder resolved once (`realpath` on every draw cost a disk call per row, a network
+    /// call for a share). Cleared when folders or drives change.
+    private var resolvedKeys: [String: String] = [:]
+
+    private func resolvedKey(_ path: String) -> String {
+        if let known = resolvedKeys[path] { return known }
+        if resolvedKeys.count > 4096 { resolvedKeys.removeAll() }
+        let key = FilePaths.folderKey(URL(fileURLWithPath: path))
+        resolvedKeys[path] = key
+        return key
     }
 
     /// The tree depth of a folder row (its volume's children are depth 0).
@@ -554,6 +567,49 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
         return out
     }
 
+    /// Every node from its volume down to `path`, the volume first; nil when no row leads there.
+    private func chain(to path: String) -> [String]? {
+        let roots = (volumeNodes + shareNodes + cloudNodes).compactMap(\.path)
+        return FolderTree.chain(from: FolderTree.root(for: path, roots: roots), to: path)
+    }
+
+    /// What a read in the background is for: a newer read for the same purpose drops an older one.
+    private enum ReadPurpose { case reveal, restore }
+    private var readGenerations: [ReadPurpose: Int] = [:]
+
+    /// Reads the folders the tree does not have yet off the main thread, then runs `done` on it with
+    /// them in the tree. A newer call for the same purpose drops an older one's `done`.
+    private func readInBackground(_ paths: [String], for purpose: ReadPurpose, then done: @escaping @MainActor () -> Void) {
+        let missing = Array(Set(paths.filter { tree.cachedChildren(of: $0) == nil }))
+        let generation = (readGenerations[purpose] ?? 0) + 1
+        readGenerations[purpose] = generation
+        guard !missing.isEmpty else { done(); return }
+        Task.detached(priority: .userInitiated) { [weak self] in
+            var lists: [String: [TreeFolder]] = [:]
+            for path in missing { lists[path] = FolderTree.subfolders(of: path) }
+            await self?.backgroundRead(lists, purpose: purpose, generation: generation, then: done)
+        }
+    }
+
+    private func backgroundRead(_ lists: [String: [TreeFolder]], purpose: ReadPurpose, generation: Int, then done: @MainActor () -> Void) {
+        guard generation == readGenerations[purpose] else { return }
+        tree.prime(lists)
+        done()
+    }
+
+    /// `reveal`, with the folders on the way read off the main thread first: a move to another folder
+    /// never waits for the tree.
+    func revealInBackground(_ path: String, select: Bool = false) {
+        guard let chain = chain(to: path) else { return }
+        readInBackground(Array(chain.dropLast()), for: .reveal) { [weak self] in self?.reveal(path, select: select) }
+    }
+
+    /// `expandFolders`, with every folder on the way read off the main thread first.
+    func expandFoldersInBackground(_ paths: [String]) {
+        let needed = paths.flatMap { chain(to: $0) ?? [] }
+        readInBackground(needed, for: .restore) { [weak self] in self?.expandFolders(paths) }
+    }
+
     /// Opens these folders again, parents first; folders that are gone are skipped.
     func expandFolders(_ paths: [String]) {
         guard let outline else { return }
@@ -621,10 +677,13 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
     }
 
     /// Folders changed on disk: their tree nodes read again (those already read).
-    func refresh(folders: Set<String>) {
+    /// `lists` holds folders already read off the main thread, used instead of reading them again.
+    func refresh(folders: Set<String>, lists: [String: [TreeFolder]] = [:]) {
         guard let outline else { return }
+        resolvedKeys.removeAll()
         for path in folders where tree.isLoaded(path) {
             tree.invalidate(path)
+            if let list = lists[path] { tree.prime([path: list]) }
             if let node = dirNodes[path] {
                 outline.reloadItem(node, reloadChildren: true)
             } else if let node = (volumeNodes + shareNodes + cloudNodes).first(where: { $0.path == path }) {
