@@ -286,7 +286,7 @@ extension BrowserWindowController {
     func applyPendingTree() {
         guard let folders = pendingTreeFolders else { return }
         pendingTreeFolders = nil
-        chassis.sidebar.pane.expandFolders(folders)
+        chassis.sidebar.pane.expandFoldersInBackground(folders)
     }
 
     func sessionChanged() {
@@ -346,7 +346,7 @@ extension BrowserWindowController {
     func revealCurrentFolder(select: Bool) {
         // Home and the Recycle Bin have their own rows; the tree is not opened for them.
         guard !history.isHome, !RecycleBin.isTrash(history.current, home: FileManager.default.homeDirectoryForCurrentUser) else { return }
-        chassis.sidebar.pane.reveal(FilePaths.folderKey(history.current), select: select)
+        chassis.sidebar.pane.revealInBackground(FilePaths.folderKey(history.current), select: select)
     }
 
     /// Ctrl+Shift+E: the tree opens to this folder, which takes the keyboard there (Right, Left, * work on).
@@ -389,9 +389,9 @@ extension BrowserWindowController {
     /// Folders that changed on disk: their tree nodes are read again.
     func refreshTree(_ note: Notification) {
         var folders = (note.userInfo?["folders"] as? Set<String>) ?? []
-        for path in (note.userInfo?["select"] as? [String]) ?? [] {
-            folders.insert(FilePaths.folderKey(URL(fileURLWithPath: path).deletingLastPathComponent()))
-        }
+        // Each pasted item's folder, resolved once per folder (a paste of thousands shares a few).
+        let parents = Set(((note.userInfo?["select"] as? [String]) ?? []).map { ($0 as NSString).deletingLastPathComponent })
+        for parent in parents { folders.insert(FilePaths.folderKey(URL(fileURLWithPath: parent))) }
         if folders.isEmpty, !history.isHome { folders.insert(FilePaths.folderKey(history.current)) }
         chassis.sidebar.pane.refresh(folders: folders)
     }

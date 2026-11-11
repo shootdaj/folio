@@ -65,24 +65,8 @@ public enum PathCompleter {
     /// Every folder inside `directory` in natural order: real folders and symlinks to folders, never
     /// files or packages. Hidden ones are included and marked.
     public static func subfolders(in directory: URL) -> [Subfolder] {
-        let keys: [URLResourceKey] = [.isDirectoryKey, .isPackageKey, .isSymbolicLinkKey, .isHiddenKey]
-        guard let urls = try? FileManager.default.contentsOfDirectory(
-            at: directory, includingPropertiesForKeys: keys, options: []) else { return [] }
-        var out: [Subfolder] = []
-        for url in urls {
-            guard let values = try? url.resourceValues(forKeys: Set(keys)) else { continue }
-            var isDirectory = values.isDirectory ?? false
-            var isPackage = values.isPackage ?? false
-            if values.isSymbolicLink == true {
-                let target = try? url.resolvingSymlinksInPath().resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
-                isDirectory = target?.isDirectory ?? false
-                isPackage = target?.isPackage ?? false
-            }
-            guard isDirectory && !isPackage else { continue }
-            let name = url.lastPathComponent
-            out.append(Subfolder(name: name, isHidden: (values.isHidden ?? false) || name.hasPrefix(".")))
-        }
-        return out.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        // The tree's reader: files cost no metadata read, in natural order.
+        FolderTree.subfolders(of: directory.path).map { Subfolder(name: $0.name, isHidden: $0.isHidden) }
     }
 
     /// The names that start with `prefix`, ignoring case. Dot folders only show for a dot prefix;

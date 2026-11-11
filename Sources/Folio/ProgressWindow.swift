@@ -161,6 +161,11 @@ final class JobPanelView: NSView {
     private var applyAll = false
     private var resolution: String?
     private var lastConflictID: Int?
+    /// What the panel showed when it last asked to draw (a tick changes nothing most of the time).
+    private struct DrawState: Equatable {
+        var snap: JobSnapshot?, shown: Double, samples: Int, resolution: String?, compare: Bool, armed: Bool
+    }
+    private var lastDrawn: DrawState?
 
     private let headLight = LedView(diameter: 9)
     private let cardLight = LedView(diameter: 7)
@@ -266,10 +271,17 @@ final class JobPanelView: NSView {
         if s.state == .running, s.speed > 0, t - lastSample > 0.09 {
             lastSample = t
             samples.append((s.fraction, s.speed))
+            // The speed graph spans the whole copy: a long one keeps every other sample, not all of them.
+            if samples.count > 2000 { samples = stride(from: 0, to: samples.count, by: 2).map { samples[$0] } }
         }
         if let armedAt, t - armedAt > 3 { self.armedAt = nil }
         applyState(s)
-        needsDisplay = true
+        // Ticks come 30 times a second: the panel draws again only when something on it moved.
+        let now = DrawState(snap: snap, shown: shown, samples: samples.count, resolution: resolution, compare: compare, armed: armedAt != nil)
+        if now != lastDrawn {
+            lastDrawn = now
+            needsDisplay = true
+        }
         if preferredHeight != before { needsLayout = true; return true }
         return false
     }

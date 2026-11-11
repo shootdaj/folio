@@ -41,7 +41,14 @@ public final class FileSubject: SearchSubject {
     private lazy var values: URLResourceValues? = try? entry.url.resourceValues(forKeys: [.creationDateKey, .contentTypeKey, .tagNamesKey])
     public var created: Date? { (given["created"] as? Date) ?? values?.creationDate }
     public var contentType: String? { (given["type"] as? String) ?? values?.contentType?.identifier }
-    public var tags: [String] { (given["tags"] as? [String]) ?? values?.tagNames ?? [] }
+    /// A plain word is also looked for in the tags, so every item whose name does not match asks for
+    /// them: one `getxattr` says first whether the item has any (most have none).
+    public var tags: [String] {
+        if let t = given["tags"] as? [String] { return t }
+        // The listing usually knows the item has no extended attributes at all: then no disk call.
+        guard entry.mayHaveTags, FileTags.hasTags(entry.url) else { return [] }
+        return values?.tagNames ?? []
+    }
 
     private lazy var mdItem: MDItem? = readsProperties ? MDItemCreateWithURL(kCFAllocatorDefault, entry.url as CFURL) : nil
     public var authors: [String] {
@@ -124,16 +131,20 @@ public struct SearchMerger: Sendable {
 
     public func contains(_ url: URL) -> Bool { seen.contains(FilePaths.itemKey(url)) }
 
-    /// Relevance first, then names as Finder sorts them.
+    /// Relevance first, then names as Finder sorts them (StandardOrder: each name made a Core
+    /// Foundation string once, not on every comparison).
     public static func ranked(_ hits: [SearchHit]) -> [SearchHit] {
-        hits.sorted { a, b in
+        let names = hits.map { StandardOrder.key($0.entry.name) }
+        let order = StandardOrder()
+        return hits.indices.sorted { i, j in
+            let (a, b) = (hits[i], hits[j])
             if a.score != b.score { return a.score > b.score }
-            switch a.entry.name.localizedStandardCompare(b.entry.name) {
-            case .orderedAscending: return true
-            case .orderedDescending: return false
-            case .orderedSame: return a.entry.url.path < b.entry.url.path
+            switch order.compare(names[i], names[j]) {
+            case -1: return true
+            case 1: return false
+            default: return a.entry.url.path < b.entry.url.path
             }
-        }
+        }.map { hits[$0] }
     }
 }
 
@@ -166,35 +177,28 @@ public struct SearchWalk: Sendable {
     }
 
     /// Progress is folders listed over folders found so far: it crawls as the tree unfolds.
-    public func run(isCancelled: () -> Bool, onBatch: ([SearchHit], Double) -> Void) {
+    ///
+    /// Folders are taken a wave at a time, one per core, each listed and checked on its own thread; the
+    /// hits and the subfolders found come back here, in the wave's order, and batches go out from here.
+    public func run(isCancelled: @Sendable () -> Bool, onBatch: ([SearchHit], Double) -> Void) {
         var pending = roots
         var listed = 0
         var batch: [SearchHit] = []
         var lastSend = Date()
-        var kinds: [String: String] = [:]
-        let readsProperties = matcher.query.terms.contains { $0.property == .author || $0.property == .title }
-        let policy: FileSubject.ContentPolicy = options.fileContents ? .read(cap: options.contentCap) : .off
-        let keys = FolderListing.resourceKeys
-        while let dir = pending.popLast() {
+        let width = max(1, ProcessInfo.processInfo.activeProcessorCount)
+        while !pending.isEmpty {
             if isCancelled() { return }
-            let urls = (try? FileManager.default.contentsOfDirectory(
-                at: dir, includingPropertiesForKeys: keys, options: options.includeHidden ? [] : [.skipsHiddenFiles])) ?? []
-            listed += 1
-            for url in urls {
-                if isCancelled() { return }
-                let entry = FolderListing.entry(for: url, kinds: &kinds)
-                if !options.includeHidden && entry.isHidden { continue }
-                let subject = FileSubject(entry: entry, policy: policy, readsProperties: readsProperties)
-                if matcher.matches(subject, trustUnknown: false) {
-                    batch.append(SearchHit(entry: entry, score: matcher.score(subject)))
-                }
-                if options.zippedFolders, options.recursive, !entry.isFolder, ArchiveNaming.isBrowsable(url) {
-                    batch += zipHits(url)
-                }
-                if options.recursive, entry.isFolder, !entry.isLink, !options.skip.contains(url.path),
-                   options.systemFiles || !SearchPlan.isSystemFolder(url.path, home: options.home) {
-                    pending.append(url)
-                }
+            let wave = Array(pending.suffix(width).reversed())
+            pending.removeLast(wave.count)
+            let results = WaveResults(count: wave.count)
+            DispatchQueue.concurrentPerform(iterations: wave.count) { i in
+                results.set(i, scan(wave[i], isCancelled: isCancelled))
+            }
+            for i in wave.indices {
+                guard let found = results.get(i) else { return }
+                listed += 1
+                batch += found.hits
+                pending += found.folders
             }
             if batch.count >= 250 || (!batch.isEmpty && Date().timeIntervalSince(lastSend) > 0.08) {
                 onBatch(batch, Double(listed) / Double(listed + pending.count))
@@ -203,6 +207,33 @@ public struct SearchWalk: Sendable {
             }
         }
         onBatch(batch, 1)
+    }
+
+    /// One folder listed and checked: its hits and the subfolders to walk next; nil when cancelled.
+    private func scan(_ dir: URL, isCancelled: () -> Bool) -> (hits: [SearchHit], folders: [URL])? {
+        let readsProperties = matcher.query.terms.contains { $0.property == .author || $0.property == .title }
+        let policy: FileSubject.ContentPolicy = options.fileContents ? .read(cap: options.contentCap) : .off
+        // The window's own listing: one bulk read per folder, kinds shared with every window.
+        let entries = (try? FolderListing.list(dir, includeHidden: options.includeHidden)) ?? []
+        var hits: [SearchHit] = []
+        var folders: [URL] = []
+        for (n, entry) in entries.enumerated() {
+            if n % 256 == 0, isCancelled() { return nil }
+            let url = entry.url
+            if !options.includeHidden && entry.isHidden { continue }
+            let subject = FileSubject(entry: entry, policy: policy, readsProperties: readsProperties)
+            if matcher.matches(subject, trustUnknown: false) {
+                hits.append(SearchHit(entry: entry, score: matcher.score(subject)))
+            }
+            if options.zippedFolders, options.recursive, !entry.isFolder, ArchiveNaming.isBrowsable(url) {
+                hits += zipHits(url)
+            }
+            if options.recursive, entry.isFolder, !entry.isLink, !options.skip.contains(url.path),
+               options.systemFiles || !SearchPlan.isSystemFolder(url.path, home: options.home) {
+                folders.append(url)
+            }
+        }
+        return (hits, folders)
     }
 
     /// Every entry of a zip, checked like a file (names, sizes, dates, kinds; contents are not read).
@@ -231,4 +262,16 @@ public struct SearchWalk: Sendable {
         run(isCancelled: { false }) { hits, _ in out += hits }
         return out
     }
+}
+
+/// Each wave's results, one slot per folder, filled from the wave's threads.
+private final class WaveResults: @unchecked Sendable {
+    private let lock = NSLock()
+    private var slots: [(hits: [SearchHit], folders: [URL])?]
+
+    init(count: Int) { slots = Array(repeating: nil, count: count) }
+
+    func set(_ i: Int, _ value: (hits: [SearchHit], folders: [URL])?) { lock.withLock { slots[i] = value } }
+
+    func get(_ i: Int) -> (hits: [SearchHit], folders: [URL])? { lock.withLock { slots[i] } }
 }

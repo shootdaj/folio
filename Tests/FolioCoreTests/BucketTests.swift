@@ -142,3 +142,67 @@ private func file(_ name: String, size: Int64? = 10, modified: Date? = nil, fold
         #expect(Buckets.duration(nil) == .unspecified)
     }
 }
+
+/// The buckets worked out once per arrange give what the per-item way gave.
+@Suite struct BucketFastPathTests {
+    private func referenceName(_ name: String) -> String {
+        guard let first = name.first else { return "other" }
+        let folded = String(first).folding(options: [.diacriticInsensitive, .caseInsensitive, .widthInsensitive],
+                                           locale: Locale(identifier: "en_US_POSIX")).uppercased()
+        guard let scalar = folded.unicodeScalars.first, folded.unicodeScalars.count == 1 else { return "other" }
+        switch scalar.value {
+        case 0x30...0x39: return "0-9"
+        case 0x41...0x48: return "A-H"
+        case 0x49...0x50: return "I-P"
+        case 0x51...0x5A: return "Q-Z"
+        default: return "other"
+        }
+    }
+
+    private func referenceDate(_ date: Date, now: Date, cal: Calendar) -> String {
+        let today = cal.startOfDay(for: now)
+        func add(_ unit: Calendar.Component, _ n: Int, _ to: Date) -> Date { cal.date(byAdding: unit, value: n, to: to)! }
+        let tomorrow = add(.day, 1, today)
+        let week = cal.dateInterval(of: .weekOfYear, for: now)?.start ?? today
+        let month = cal.dateInterval(of: .month, for: now)?.start ?? today
+        let year = cal.dateInterval(of: .year, for: now)?.start ?? today
+        if date >= tomorrow {
+            if date < add(.day, 1, tomorrow) { return "tomorrow" }
+            if date < add(.day, 7, week) { return "laterThisWeek" }
+            if date < add(.day, 14, week) { return "nextWeek" }
+            if date < add(.month, 1, month) { return "laterThisMonth" }
+            if date < add(.year, 1, year) { return "laterThisYear" }
+            return "future"
+        }
+        if date >= today { return "today" }
+        if date >= add(.day, -1, today) { return "yesterday" }
+        if date >= week { return "earlierThisWeek" }
+        if date >= add(.day, -7, week) { return "lastWeek" }
+        if date >= month { return "earlierThisMonth" }
+        if date >= add(.month, -1, month) { return "lastMonth" }
+        if date >= year { return "earlierThisYear" }
+        return "longAgo"
+    }
+
+    @Test func everyFirstCharacterLandsWhereItDid() {
+        var names = (0..<128).map { String(UnicodeScalar(UInt8($0))) + "x" }
+        names += ["Ångström", "éclair", "Ünïcode", "ﬁle", "ｆｉｌｅ", "日本", "😀", "ß", "Æther", "", "ñ", "Ø"]
+        for n in names { #expect(Buckets.name(n).id == referenceName(n), "\(n.unicodeScalars.map(\.value))") }
+    }
+
+    @Test func everyDateLandsWhereItDid() {
+        var cal = Calendar(identifier: .gregorian)
+        for (zone, firstWeekday) in [("America/Chicago", 1), ("Asia/Bangkok", 2), ("Pacific/Auckland", 7)] {
+            cal.timeZone = TimeZone(identifier: zone)!
+            cal.firstWeekday = firstWeekday
+            for nowOffset in stride(from: 0.0, to: 400 * 86_400, by: 86_400 * 37.3) {
+                let now = Date(timeIntervalSince1970: 1_767_000_000 + nowOffset)
+                let context = BucketContext(now: now, calendar: cal)
+                for d in stride(from: -800.0, to: 500, by: 0.37) {
+                    let date = now.addingTimeInterval(d * 86_400)
+                    #expect(Buckets.date(date, context).id == referenceDate(date, now: now, cal: cal), "\(zone) \(now) \(date)")
+                }
+            }
+        }
+    }
+}

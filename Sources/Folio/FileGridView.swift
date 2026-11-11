@@ -13,10 +13,19 @@ final class ThumbnailCache {
     init() { cache.countLimit = 2000 }
 
     /// Explorer thumbnails images, videos and PDFs; everything else keeps its type icon.
+    /// The answer is kept per extension: every cell asks while it is configured.
     static func wants(_ entry: FileEntry) -> Bool {
-        guard !entry.isFolder, let type = UTType(filenameExtension: entry.url.pathExtension) else { return false }
-        return type.conforms(to: .image) || type.conforms(to: .audiovisualContent) || type.conforms(to: .pdf)
+        guard !entry.isFolder else { return false }
+        let ext = (entry.name as NSString).pathExtension.lowercased()
+        if let known = wantsByExtension[ext] { return known }
+        let answer = UTType(filenameExtension: ext).map {
+            $0.conforms(to: .image) || $0.conforms(to: .audiovisualContent) || $0.conforms(to: .pdf)
+        } ?? false
+        wantsByExtension[ext] = answer
+        return answer
     }
+
+    private static var wantsByExtension: [String: Bool] = [:]
 
     private func key(_ entry: FileEntry, _ size: CGFloat) -> String {
         "\(entry.url.path)|\(entry.modified?.timeIntervalSince1970 ?? 0)|\(Int(size))"
@@ -33,6 +42,7 @@ final class ThumbnailCache {
             return nil
         }
         pending[k] = [done]
+        if PerfTrace.isOn, pending.count == 1, madeSinceIdle == 0 { busySince = PerfTrace.now }
         let request = QLThumbnailGenerator.Request(fileAt: entry.url, size: CGSize(width: size, height: size),
                                                    scale: NSScreen.main?.backingScaleFactor ?? 2, representationTypes: .thumbnail)
         QLThumbnailGenerator.shared.generateBestRepresentation(for: request, completion: Self.handler(for: k))
@@ -55,7 +65,18 @@ final class ThumbnailCache {
         if let ns { cache.setObject(ns, forKey: key as NSString) }
         let waiting = pending.removeValue(forKey: key) ?? []
         for w in waiting { w(ns) }
+        if PerfTrace.isOn {
+            madeSinceIdle += 1
+            if pending.isEmpty {
+                PerfTrace.mark("thumbs-idle", "made=\(madeSinceIdle) ms=\(PerfTrace.ms(since: busySince))")
+                madeSinceIdle = 0
+            }
+        }
     }
+
+    /// The speed harness (PerfTrace): thumbnails made since the queue was last empty, and since when.
+    private var madeSinceIdle = 0
+    private var busySince = 0.0
 }
 
 private struct SendableImage: @unchecked Sendable { let cg: CGImage? }

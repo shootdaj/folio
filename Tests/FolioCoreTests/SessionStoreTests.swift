@@ -41,6 +41,22 @@ import Testing
         ], viewMode: "largeIcons")
     }
 
+    @Test func aBackgroundWriteLandsAndAWriteNowComesAfterIt() throws {
+        try withStore { store, _ in
+            let first = fullSession()
+            var second = first
+            second.viewMode = "tiles"
+            // Every selected item is kept, however many (no cap).
+            second.windows[0].tabs[0].selection = (0..<5_000).map { "/tmp/s/a/b/item \($0).txt" }
+            store.saveInBackground(first) { _ in Issue.record("the background write failed") }
+            try store.saveNow(second)
+            #expect(store.load() == .session(second), "the write now lands last, after the one in flight")
+            store.saveInBackground(first) { _ in }
+            try store.saveNow(first)
+            #expect(store.load() == .session(first))
+        }
+    }
+
     @Test func everyFieldRoundTripsThroughTheFile() throws {
         try withStore { store, file in
             let session = fullSession()

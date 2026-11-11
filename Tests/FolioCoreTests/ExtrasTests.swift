@@ -164,6 +164,18 @@ import Testing
         #expect(without == "Folders: Sub\nFiles: one.txt, two.txt")
     }
 
+    @Test func aFolderTipLeavesHiddenItemsOutAndListsInNaturalOrder() throws {
+        let t = try TestTree()
+        defer { t.close() }
+        for f in ["f/File10.txt", "f/File2.txt", "f/.dot", "f/flagged.txt"] { try t.file(f, bytes: 10) }
+        try t.folder("f/App.app/Contents")
+        try ItemFlags.setHidden(true, t.url("f/flagged.txt"))
+        let summary = InfoTip.summarize(folder: t.url("f"))
+        #expect(summary.files == ["File2.txt", "File10.txt"])
+        #expect(summary.folders == ["App.app"], "a package is a folder on disk, as before")
+        #expect(summary.bytes == 20)
+    }
+
     // MARK: Hide folder merge conflicts off: ask before merging
 
     @Test func withMergeConflictsShownAFolderMergeAsksFirst() async throws {
