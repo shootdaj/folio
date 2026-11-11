@@ -18,6 +18,25 @@ public enum FilePaths {
         return (parent == "/" ? "" : parent) + "/" + std.lastPathComponent
     }
 
+    /// `itemKey` of each URL, resolving each folder once: a folder's 50,000 items cost one realpath, not
+    /// 50,000 (the Columns view keys every column it lists, off the main thread).
+    public static func itemKeys(_ urls: [URL]) -> [String] {
+        var parents: [String: String] = [:]
+        return urls.map { url in
+            let std = url.standardizedFileURL
+            guard std.path != "/" else { return "/" }
+            let folder = std.deletingLastPathComponent()
+            let parent: String
+            if let known = parents[folder.path] {
+                parent = known
+            } else {
+                parent = folderKey(folder)
+                parents[folder.path] = parent
+            }
+            return (parent == "/" ? "" : parent) + "/" + std.lastPathComponent
+        }
+    }
+
     /// The folder key of the item's folder, for "is this item in that window's folder".
     public static func parentKey(ofItemKey key: String) -> String {
         let parent = (key as NSString).deletingLastPathComponent
