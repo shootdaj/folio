@@ -100,7 +100,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        saveSession()
+        saveSession(now: true)
         terminating = true
         // File promises from Folio's last drag would hold up quitting (AppKit resolves them all).
         DragState.releasePasteboard()
@@ -307,15 +307,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         sessionTimer = timer
     }
 
-    func saveSession() {
+    /// `now` writes before returning (quitting); otherwise the JSON is encoded and written off the main thread.
+    func saveSession(now: Bool = false) {
         guard uitest == nil, !terminating else { return }
         sessionTimer?.invalidate()
         sessionTimer = nil
         let ordered = NSApp.orderedWindows.compactMap { $0.windowController as? BrowserWindowController }
         let all = ordered.filter { c in windows.contains { $0 === c } } + windows.filter { c in !ordered.contains { $0 === c } }
         let session = Session(windows: all.compactMap { $0.windowSession() }, viewMode: ViewCenter.shared.mode.rawValue)
+        guard now else {
+            SessionStore().saveInBackground(session) { error in
+                perfLog.error("session not saved: \(error.localizedDescription, privacy: .public)")
+            }
+            return
+        }
         do {
-            try SessionStore().save(session)
+            try SessionStore().saveNow(session)
         } catch {
             perfLog.error("session not saved: \(error.localizedDescription, privacy: .public)")
         }
