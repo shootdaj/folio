@@ -29,14 +29,21 @@ private func suite() -> UserDefaults {
     }
 
     @Test func movesInsideTheColumnsKeepTheirFirstColumnAndLeavingItStartsAgain() {
+        let docs = "/Users/anshul/Documents"
         // From Home's column into Documents: Home's column stays first (Right adds a column, it never re-roots).
-        #expect(ColumnPath.root(for: "/Users/anshul/Documents", previous: home, anchors: anchors) == home)
-        #expect(ColumnPath.root(for: "/Users/anshul/Documents/a/b", previous: home, anchors: anchors) == home)
+        #expect(ColumnPath.root(for: docs, previous: home, shown: [home], anchors: anchors) == home)
+        #expect(ColumnPath.root(for: "/Users/anshul/Documents/a/b", previous: home, shown: [home, docs, "/Users/anshul/Documents/a"],
+                                anchors: anchors) == home)
+        // Back or Left to a folder on screen: the same first column.
+        #expect(ColumnPath.root(for: docs, previous: home, shown: [home, docs, "/Users/anshul/Documents/a"], anchors: anchors) == home)
         // Left out of the first column: its parent becomes the first column (the deepest anchor that holds it).
-        #expect(ColumnPath.root(for: "/Users/anshul", previous: "/Users/anshul/Documents", anchors: anchors) == home)
-        #expect(ColumnPath.root(for: "/Users", previous: home, anchors: anchors) == "/")
+        #expect(ColumnPath.root(for: home, previous: docs, shown: [docs], anchors: anchors) == home)
+        #expect(ColumnPath.root(for: "/Users", previous: home, shown: [home], anchors: anchors) == "/")
+        // The sidebar or the address bar to a folder deeper down, not on screen: a fresh start, kept short.
+        #expect(ColumnPath.root(for: "/Users/anshul/Documents/a/b", previous: home, shown: [home], anchors: anchors) == docs)
+        #expect(ColumnPath.root(for: "/Users/anshul/Documents/a/b", previous: "/", shown: ["/", "/tmp"], anchors: anchors) == docs)
         // Somewhere else entirely: a fresh start there.
-        #expect(ColumnPath.root(for: "/Volumes/Backup/x", previous: home, anchors: anchors) == "/Volumes/Backup")
+        #expect(ColumnPath.root(for: "/Volumes/Backup/x", previous: home, shown: [home], anchors: anchors) == "/Volumes/Backup")
     }
 
     @Test func theFoldersRunFromTheFirstColumnToTheCurrentFolder() {

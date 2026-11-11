@@ -15,13 +15,30 @@ extension BrowserWindowController: GridHost {
     func applyViewMode() {
         let started = Date()
         let mode = viewMode
-        let focused = window?.firstResponder === tableView || window?.firstResponder === grid
+        let focused = window?.firstResponder === tableView || window?.firstResponder === grid || window?.firstResponder is ColumnTableView
         chassis.pane.mode = mode
         grid.compact = ListOptions.compact
         grid.mode = mode
-        if !mode.usesTable { grid.reloadData() }
+        if mode.usesGrid { grid.reloadData() }
+        if mode == .columns {
+            // Header filters do not apply to columns (and are never saved); the tab keeps its Group by for the
+            // other views.
+            if !filters.isEmpty {
+                filters.clearAll()
+                header.filtered = []
+                updateFilterTokens()
+            }
+        } else {
+            columnStore.reset()
+            columnStore.clear()
+            columnBrowser.setColumns([], preview: false)
+        }
+        // Into or out of Columns: arranged again without (or with) Group by and filters.
+        if !isSearching, !history.isHome, arrangedWith != nil, arrangeKey != arrangedWith { rearrange() }
+        syncColumns()
         if focused || window?.firstResponder === window { window?.makeFirstResponder(listView) }
-        window?.initialFirstResponder = listView
+        // Never a column's table: columns come and go.
+        window?.initialFirstResponder = mode == .columns ? tableView : listView
         if let f = selection.focus ?? selection.rows.first { scrollToItem(f) }
         updateStatus()
         selectionDidChange()
@@ -40,7 +57,8 @@ extension BrowserWindowController: GridHost {
     /// The one view for every window, or while results show, theirs alone (they open in Details).
     func chooseView(_ mode: ViewMode) {
         if isSearching {
-            guard mode != viewMode else { return }
+            // Search results show in their list, never in columns.
+            guard mode != viewMode, mode != .columns else { return }
             searchView = mode
             applyViewMode()
         } else {
@@ -66,7 +84,7 @@ extension BrowserWindowController: GridHost {
     /// Ctrl+Shift+1 to 8 pick Explorer's layouts; Option+P and Option+Shift+P the right-hand panes;
     /// Cmd+= (Explorer's Ctrl+Numpad +) fits every column.
     func handleViewKey(_ event: NSEvent, modifiers: NSEvent.ModifierFlags, editingText: Bool) -> Bool {
-        let numbers: [UInt16: Int] = [18: 1, 19: 2, 20: 3, 21: 4, 23: 5, 22: 6, 26: 7, 28: 8]
+        let numbers: [UInt16: Int] = [18: 1, 19: 2, 20: 3, 21: 4, 23: 5, 22: 6, 26: 7, 28: 8, 25: 9]
         switch (event.keyCode, modifiers) {
         case (let code, [.control, .shift]) where numbers[code] != nil:
             if let mode = ViewMode.forShortcut(numbers[code]!) { chooseView(mode) }
@@ -89,7 +107,7 @@ extension BrowserWindowController: GridHost {
         switch item.action {
         case #selector(setViewMode(_:)):
             item.state = (item.representedObject as? String) == viewMode.rawValue ? .on : .off
-            return true
+            return !(isSearching && (item.representedObject as? String) == ViewMode.columns.rawValue)
         case #selector(makeDefaultView(_:)):
             item.state = ViewCenter.shared.settings.isDefault ? .on : .off
             return !ViewCenter.shared.settings.isDefault
@@ -101,27 +119,29 @@ extension BrowserWindowController: GridHost {
             item.state = ListOptions.thumbnails != iconsOnly ? .on : .off
         case #selector(togglePreviewPane(_:)): item.state = ListOptions.sidePane == .preview ? .on : .off
         case #selector(toggleDetailsPane(_:)): item.state = ListOptions.sidePane == .details ? .on : .off
+        // Columns has no groups, filters or Details columns: those are greyed, as Finder greys them.
         case #selector(groupByColumn(_:)):
             let raw = item.representedObject as? String
             item.state = raw == (group?.key.rawValue ?? "none") ? .on : .off
+            return viewMode != .columns
         case #selector(groupAscending(_:)):
             item.state = group?.ascending == true ? .on : .off
-            return group != nil
+            return group != nil && viewMode != .columns
         case #selector(groupDescending(_:)):
             item.state = group?.ascending == false ? .on : .off
-            return group != nil
+            return group != nil && viewMode != .columns
         case #selector(collapseAllGroups(_:)), #selector(expandAllGroups(_:)):
             return layout.isGrouped
         case #selector(sizeAllColumnsToFit(_:)), #selector(chooseDetails(_:)):
-            return !history.isHome
+            return !history.isHome && viewMode != .columns
         case #selector(toggleColumn(_:)):
             let raw = item.representedObject as? String
             item.state = raw.flatMap(ColumnID.init(rawValue:)).map(ColumnCenter.shared.set.isVisible) == true ? .on : .off
-            return raw != ColumnID.name.rawValue
+            return raw != ColumnID.name.rawValue && viewMode != .columns
         case #selector(sizeColumnToFit(_:)):
-            return item.representedObject != nil
+            return item.representedObject != nil && viewMode != .columns
         case #selector(clearAllFilters(_:)):
-            return !filters.isEmpty
+            return !filters.isEmpty && viewMode != .columns
         default: return nil
         }
         return true
@@ -262,6 +282,7 @@ extension BrowserWindowController: GridHost {
                                  columnIndexes: IndexSet(tableView.tableColumns.indices))
         }
         grid.forEachVisibleCell { cell, i in configure(cell, item: i) }
+        columnBrowser.columns.forEach { $0.reloadVisible() }
     }
 
     /// Tags or Comments typed in the Details pane.
@@ -364,5 +385,6 @@ extension BrowserWindowController: GridHost {
                 panel.reloadData()
             }
         }
+        syncColumns()
     }
 }

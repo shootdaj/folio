@@ -9,11 +9,15 @@ public enum ColumnPath {
         return f == path || f == "/" || path.hasPrefix(f + "/")
     }
 
-    /// Where the columns start for `folder`. `previous` (the first column shown before) stays while the
-    /// folder is still it or inside it, so Right adds a column instead of starting again; otherwise the
-    /// deepest of `anchors` (home, Quick access, volume roots) that holds the folder, else "/".
-    public static func root(for folder: String, previous: String?, anchors: [String]) -> String {
-        if let previous, contains(previous, folder) { return clean(previous) }
+    /// Where the columns start for `folder`. A move inside the columns (to a folder on screen, `shown`, or
+    /// into one: Right, Left, a click, Back) keeps `previous`, the first column, while it still holds the
+    /// folder, so Right adds a column instead of starting again. Any other move (the sidebar, the address
+    /// bar) starts at the deepest of `anchors` (home, Quick access, volume roots) that holds the folder, else "/".
+    public static func root(for folder: String, previous: String?, shown: [String] = [], anchors: [String]) -> String {
+        if let previous, contains(previous, folder) {
+            let parent = (folder as NSString).deletingLastPathComponent
+            if shown.contains(folder) || shown.contains(parent.isEmpty ? "/" : parent) { return clean(previous) }
+        }
         let holding = anchors.map(clean).filter { contains($0, folder) }
         return holding.max { depth($0) < depth($1) } ?? "/"
     }
