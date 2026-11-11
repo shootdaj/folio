@@ -7,6 +7,13 @@
 #   VM_TESTS="m2 m9"     run only these scripts
 #   VM_WAIT_MINUTES=20   how long to wait while another VM script is running before taking the VM over
 set -uo pipefail
+# One VM, many users (CI and agents): hold the shared lock for the whole run. Agents take the same lock
+# through /Users/anshul/AgentWork/folio/vm-test.sh, so a run never stages over another one mid-test.
+if [ -z "${FOLIO_VM_LOCKED:-}" ] && [ -x /usr/bin/lockf ]; then
+    export FOLIO_VM_LOCKED=1
+    echo "vm-tests.sh: waiting for the VM lock"
+    exec /usr/bin/lockf -k -t 7200 "${FOLIO_VM_HOME:-/Users/anshul/AgentWork/folio}/vm.lock" "$0" "$@"
+fi
 cd "$(dirname "$0")/../.." || exit 1
 
 FOLIO_VM_HOME=${FOLIO_VM_HOME:-/Users/anshul/AgentWork/folio}
