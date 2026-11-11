@@ -397,4 +397,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         options.keepRunning.toggle()
         ListOptions.apply(options)
     }
+
+    /// Folio > Full Disk Access…: System Settings > Privacy & Security > Full Disk Access, where the user turns
+    /// Folio on once. Release builds keep the same signature, so the grant survives updates.
+    @objc func openFullDiskAccess(_ sender: Any?) {
+        NSWorkspace.shared.open(DiskAccess.settingsURL)
+    }
 }

@@ -672,9 +672,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             show(arranged, selecting: select)
             if !keepingState { addressHistory.record(folder.path) }
         case .failure(let error):
-            loadError = isTrashView && (error as NSError).code == NSFileReadNoPermissionError
-                ? "Folio needs Full Disk Access to show the Recycle Bin (System Settings, Privacy & Security)"
-                : error.localizedDescription
+            // A folder macOS's privacy protection refuses points at Folio > Full Disk Access…, in the status bar.
+            loadError = DiskAccess.loadErrorText(error, isRecycleBin: isTrashView)
             listing = []
             arrangedWith = key
             show(ListLayout(items: []), selecting: [])
