@@ -55,10 +55,12 @@ install-cli:
 	install -m 755 "$$(swift build -c release --show-bin-path)/ff" $(PREFIX)/bin/ff
 	@echo "installed $(PREFIX)/bin/ff"
 
-# Moves the app and ff to the Trash. Turn off "Open folders in Folio instead of Finder" first (Folder
-# Options > General), so macOS hands folders back to Finder.
+# Moves the app and ff to the Trash, and takes Folio out of NSFileViewer (other apps' "Show in Finder").
+# Turn off "Open folders in Folio instead of Finder" first (Folder Options > General), so macOS hands
+# folders back to Finder.
 uninstall:
 	@if pgrep -x Folio >/dev/null; then echo "Quit Folio first (Cmd+Q)."; exit 1; fi
 	@if [ -d /Applications/Folio.app ]; then $(LSREGISTER) -u /Applications/Folio.app; mv /Applications/Folio.app "$$HOME/.Trash/Folio-$$(date +%Y%m%d-%H%M%S).app"; fi
+	@if [ "$$(defaults read -g NSFileViewer 2>/dev/null)" = "com.anshul.folio" ]; then defaults delete -g NSFileViewer; echo "\"Show in Finder\" in other apps goes to Finder again"; fi
 	@for f in /usr/local/bin/ff "$$HOME/bin/ff"; do if [ -f "$$f" ]; then mv "$$f" "$$HOME/.Trash/ff-$$(date +%Y%m%d-%H%M%S)"; echo "moved $$f to the Trash"; fi; done
 	@echo "Folio removed (its settings stay in ~/Library/Preferences/com.anshul.folio.plist and ~/Library/Application Support/Folio)"

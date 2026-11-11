@@ -11,6 +11,11 @@ pushed; the release workflow publishes the section below with that number as the
 
 - **Folio > Settings... (Cmd+,)** opens Folder Options, as Cmd+, opens an app's settings on a Mac, also
   with no window open. View > Options... (Cmd+Option+,) stays.
+- **Open "Show in Finder" from other apps in Folio.** A new box in View > Options... > General > Folio
+  and macOS, off on a new install. On, it sets the `NSFileViewer` default to Folio, so "Show in Finder" and
+  "Reveal in Finder" in apps that ask macOS through NSWorkspace show the item selected in Folio. Apps that
+  call Finder by name still go to Finder. Off sends reveals to Finder again, and `make uninstall` removes
+  the key. See docs/INSTALL.md section 5.
 
 ### Fixed
 

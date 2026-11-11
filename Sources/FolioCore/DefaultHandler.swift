@@ -73,10 +73,10 @@ public enum DefaultFolderHandler {
     public static let protectedStatus: Int32 = -50
 
     public static let revealNote = """
-        macOS keeps "Reveal in Finder" and "Show in Finder" from other apps on Finder: those commands \
-        call Finder by name, whatever the default for folders is. Folders opened through Launch \
-        Services (`open <folder>` in Terminal, another app opening a folder) follow the setting. For a \
-        reveal in Folio use `ff --reveal <path>`.
+        "Show in Finder" and "Reveal in Finder" in other apps do not follow this setting: they go to \
+        Finder unless Open "Show in Finder" from other apps in Folio is on. Folders opened through \
+        Launch Services (`open <folder>` in Terminal, another app opening a folder) follow it. In \
+        Terminal, `ff --reveal <path>` shows an item selected in Folio.
         """
 
     public static func appName(_ bundleID: String?) -> String {
