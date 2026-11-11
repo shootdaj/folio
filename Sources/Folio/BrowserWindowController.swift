@@ -179,6 +179,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     }
     /// Bumped on every load or re-sort; results for an older value are dropped.
     var requestID = 0
+    /// The folder read in flight (`load`), cancelled when a newer one starts.
+    private var loadTask: Task<Void, Never>?
     private var isFittingColumns = false
     /// The one dropdown this window shows at a time (typeahead, history, crumb folders, Back list).
     let dropdown = Dropdown()
@@ -601,7 +603,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         let started = Date()
         // Tags, flags and custom icons are read again for what the list shows next.
         ItemDecorCache.shared.clear()
-        Task.detached(priority: .userInitiated) { [weak self] in
+        // A newer load replaces this one: the old one stops at its next step instead of finishing unseen.
+        loadTask?.cancel()
+        loadTask = Task.detached(priority: .userInitiated) { [weak self] in
             let result = Result { () -> ([FileEntry], ListLayout) in
                 let rows: [FileEntry]
                 if zip {
@@ -615,8 +619,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
                 } else {
                     rows = try FolderListing.list(folder, includeHidden: hidden, cloud: cloud, hideProtected: protected)
                 }
+                try Task.checkCancellation()
                 return (rows, Self.arrange(rows, key))
             }
+            if Task.isCancelled { return }
             let volume = VolumeCapacity.read(folder)
             await self?.finishLoad(result, volume: volume, id: id, key: key, folder: folder, started: started,
                                    keepingState: keepingState)
