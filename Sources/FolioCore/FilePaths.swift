@@ -22,30 +22,48 @@ public enum FilePaths {
     /// path is split as text instead of through `standardizedFileURL`.
     public static func itemKeys(_ urls: [URL]) -> [String] {
         var folders: [Substring: String] = [:]
-        return urls.map { url in
-            let path = url.path
+        // A listing's items share their folder: the last one is checked before the table.
+        var lastParent: Substring = ""
+        var lastKey = ""
+        var out: [String] = []
+        out.reserveCapacity(urls.count)
+        for url in urls {
+            var path = url.path
+            path.makeContiguousUTF8()
             // "." or ".." parts, a double slash or the root: the careful way.
-            guard isPlain(path), let slash = path.lastIndex(of: "/") else { return itemKey(url) }
+            guard isPlain(path), let slash = path.utf8.lastIndex(of: UInt8(ascii: "/")) else {
+                out.append(itemKey(url))
+                continue
+            }
             let parentPath = slash == path.startIndex ? Substring("/") : path[..<slash]
             let parent: String
-            if let known = folders[parentPath] {
+            if !lastKey.isEmpty, parentPath == lastParent {
+                parent = lastKey
+            } else if let known = folders[parentPath] {
                 parent = known
             } else {
                 parent = folderKey(URL(fileURLWithPath: String(parentPath), isDirectory: true))
                 folders[parentPath] = parent
             }
-            return (parent == "/" ? "" : parent) + path[slash...]
+            lastParent = parentPath
+            lastKey = parent
+            out.append((parent == "/" ? "" : parent) + path[slash...])
         }
+        return out
     }
 
     /// An absolute path with no "." or ".." part, no double slash and no slash at the end (not the root).
     static func isPlain(_ path: String) -> Bool {
+        if let plain = path.utf8.withContiguousStorageIfAvailable(isPlain) { return plain }
+        return isPlain(Array(path.utf8).withUnsafeBufferPointer { $0 })
+    }
+
+    private static func isPlain(_ bytes: UnsafeBufferPointer<UInt8>) -> Bool {
         let slash = UInt8(ascii: "/"), dot = UInt8(ascii: ".")
-        var bytes = path.utf8.makeIterator()
-        guard bytes.next() == slash else { return false }
+        guard bytes.first == slash else { return false }
         // How the current part looks so far: 0 just after a slash, 1 ".", 2 "..", 3 anything else.
         var part = 0
-        while let b = bytes.next() {
+        for b in bytes.dropFirst() {
             if b == slash {
                 if part != 3 { return false }
                 part = 0
