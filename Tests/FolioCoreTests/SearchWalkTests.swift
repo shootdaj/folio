@@ -46,6 +46,27 @@ private func walk(_ t: TestTree, _ text: String, recursive: Bool = true, hidden:
         #expect(try walk(t, "kind:folder") == ["level2", "level3"])
     }
 
+    @Test func aWideTreeWalkedSeveralFoldersAtOnceFindsEveryHitOnce() throws {
+        let t = try TestTree(); defer { t.close() }
+        var want: [String] = []
+        for a in 0..<6 {
+            for b in 0..<8 {
+                for i in 0..<15 {
+                    let name = (a * 8 + b) % 5 == 0 && i == 3 ? "needle \(a)-\(b).txt" : "hay \(a)-\(b)-\(i).txt"
+                    try t.file("work/A\(a)/B\(b)/\(name)")
+                    if name.hasPrefix("needle") { want.append(name) }
+                }
+            }
+        }
+        #expect(try walk(t, "needle") == want.sorted())
+        // Stopped after the first batch, the walk ends without the rest.
+        let w = SearchWalk(roots: [t.url("work")], matcher: SearchMatcher(try parse("hay")), options: SearchWalk.Options())
+        let stop = StopFlag()
+        var batches = 0
+        w.run(isCancelled: { stop.isSet }) { _, _ in batches += 1; stop.set() }
+        #expect(batches <= 1)
+    }
+
     @Test func currentFolderOnlyLooksOneLevel() throws {
         let t = try searchTree(); defer { t.close() }
         #expect(try walk(t, "bert", recursive: false) == ["Bert.txt"])
@@ -214,4 +235,12 @@ private func walk(_ t: TestTree, _ text: String, recursive: Bool = true, hidden:
         try await Task.sleep(for: .milliseconds(600))
         #expect(box.with(\.updates) == 0)
     }
+}
+
+/// A cancel flag the walk's threads can read.
+final class StopFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var on = false
+    var isSet: Bool { lock.withLock { on } }
+    func set() { lock.withLock { on = true } }
 }
