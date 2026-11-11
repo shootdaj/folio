@@ -600,7 +600,13 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
         }
         let row = outline.row(forItem: last)
         guard row >= 0 else { return }
-        outline.scrollRowToVisible(row)
+        // A row for this folder already in view (a Quick access pin, say): the pane stays where it is.
+        let visible = outline.rows(in: outline.visibleRect)
+        let paths = (visible.location..<NSMaxRange(visible)).map { (outline.item(atRow: $0) as? SideNode)?.path }
+        if SidebarFollow.shouldScroll(to: path, visiblePaths: paths, forced: select,
+                                      key: { FilePaths.folderKey(URL(fileURLWithPath: $0)) }) {
+            outline.scrollRowToVisible(row)
+        }
         if select { outline.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false) }
         outline.redrawRows()
     }
