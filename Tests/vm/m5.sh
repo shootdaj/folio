@@ -1,7 +1,9 @@
 #!/bin/bash
 # Milestone 5 GUI check: the navigation pane's tree, tabs (tear out and merge too), a second window side
 # by side, Home, This PC with a scratch disk image (Properties, Rename, Eject, opening the image), the
-# session coming back after a relaunch, and the Recycle Bin with Restore.
+# session coming back after a relaunch, and the Recycle Bin with Restore. Then, in a second launch, how
+# the navigation pane follows the folder: a Quick access click keeps the pane still, while Ctrl+Shift+E,
+# New folder from a pin's menu and a typed path scroll to the folder's tree row.
 #
 # Runs INSIDE the tart VM folio-test as admin (docs/plan/VM.md), never on a host Mac (docs/plan/RULES.md,
 # rule 0). Mounts the scratch image /private/tmp/folio-tests/scratch.dmg (FolioScratch) so This PC shows
@@ -33,6 +35,13 @@
 #   m5-14-restored-file.png  Restore from its menu: report.txt back in delta
 #   m5-15-torn-out.png       a tab dragged off the strip: its own window
 #   m5-16-merged.png         that tab dropped on the first window's strip: merged back, the window gone
+#   m5-18-pin-click.png      a short window, pane at the top, a click on the delta pin: the tree opens to
+#                            delta under work, and the pane stays where it was
+#   m5-19-expand-current.png Ctrl+Shift+E: the pane scrolls to delta's tree row and selects it
+#   m5-20-new-folder.png     pane at the top again, New folder here from the delta pin's menu: the pane
+#                            scrolls to the new folder's tree row
+#   m5-21-typed-path.png     pane at the top, work/alpha/beta/gamma typed in the address bar: the pane
+#                            scrolls to gamma's tree row
 # Prints one line per step and exits non-zero if any step fails.
 set -u
 
@@ -389,6 +398,42 @@ on run argv
         set {px, py} to position of found
         set {sx, sy} to size of found
         return ((px + (sx div 2)) as text) & " " & ((py + (sy div 2)) as text)
+    end tell
+end run
+OSA
+}
+
+# pane_scroll <window>: the navigation pane's vertical scroll position, 0 (top) to 1.
+pane_scroll() {
+    osascript -e "tell application \"System Events\" to tell process \"Folio\" to get value of scroll bar 1 of scroll area 1 of window \"$1\"" 2>/dev/null
+}
+pane_top() {
+    osascript -e "tell application \"System Events\" to tell process \"Folio\" to set value of scroll bar 1 of scroll area 1 of window \"$1\" to 0" >/dev/null 2>&1
+    sleep 0.5
+}
+
+# tree_in_view <window> <name>: "yes" when the last tree row with that name (a tree row comes after a pin
+# of the same name) lies inside the pane's scroll area, "no" when it is out of view, "" with no such row.
+tree_in_view() {
+    osascript - "$1" "$2" 2>/dev/null <<'OSA'
+on run argv
+    tell application "System Events" to tell process "Folio"
+        set s to scroll area 1 of window (item 1 of argv)
+        set {sx, sy} to position of s
+        set {sw, sh} to size of s
+        set found to ""
+        repeat with r in rows of outline 1 of s
+            if ((description of UI element 1 of r) as text) is (item 2 of argv) then
+                set {px, py} to position of r
+                set {rw, rh} to size of r
+                if py >= sy and py + rh <= sy + sh then
+                    set found to "yes"
+                else
+                    set found to "no"
+                end if
+            end if
+        end repeat
+        return found
     end tell
 end run
 OSA
@@ -833,8 +878,94 @@ else
     fail 15 tear-out "Cmd+T twice: tabs $(tabs "$win")"
 fi
 
-# --- quit and clean up ------------------------------------------------------------------------------------
 if quit_folio; then pass 17 quit "Folio quit"; else fail 17 quit "Folio was still running 10 s after quit"; fi
+
+# --- 18 to 21: how the navigation pane follows the folder (a second launch, a short window) -----------------
+# Explorer's "Expand to open folder" opens the tree down to the folder after every move; the pane scrolls
+# only when no row for that folder is in view. A short window keeps the tree rows under the pins out of
+# view; delta is pinned after the six default pins.
+clean_defaults
+defaults write com.anshul.folio quickAccessPins -array "$HOME/Downloads" "$HOME/Desktop" "$HOME/Documents" \
+    "$HOME/Pictures" "$HOME/Movies" "$HOME/Music" "$WORK/delta"
+open -a "$APP" "$WORK"
+if wait_window work 15 && wait_list_row work notes.txt 10; then
+    front
+    osascript -e 'tell application "System Events" to tell process "Folio" to set size of window "work" to {1000, 520}' >/dev/null 2>&1
+    sleep 1
+    pane_top work
+    v0=$(pane_scroll work)
+    click_at "$(tree_point work delta 120 -1)"
+    if wait_window delta 6; then
+        sleep 1.2
+        v1=$(pane_scroll delta)
+        rows=$(tree_rows delta)
+        f=$(shot m5-18-pin-click)
+        if [ "$v1" = "$v0" ] && echo "$rows" | grep -q "|work|alpha|delta|epsilon"; then
+            pass 18 pin-click "the delta pin: the tree opened to work > delta, the pane stayed at $v1 ($v0 before); $f"
+        else
+            fail 18 pin-click "pane at [$v1], [$v0] before; rows: $rows; ${f:-no shot}"
+        fi
+
+        pane_top delta
+        keys 'key code 14 using {control down, shift down}'
+        sleep 1
+        v2=$(pane_scroll delta)
+        sel=$(tree_selected delta)
+        seen=$(tree_in_view delta delta)
+        f=$(shot m5-19-expand-current)
+        if [ "$sel" = "delta" ] && [ "$seen" = "yes" ] && [ "$v2" != "$v0" ]; then
+            pass 19 expand-current "Ctrl+Shift+E: delta's tree row selected and in view, the pane moved to $v2; $f"
+        else
+            fail 19 expand-current "selected [$sel], tree row in view [$seen], pane [$v2]; ${f:-no shot}"
+        fi
+
+        pane_top delta
+        click_at "$(tree_point delta delta 120 -1)" --right
+        sleep 0.8
+        menu_pick "new"
+        i=0
+        while [ ! -d "$WORK/delta/New folder" ] && [ "$i" -lt 20 ]; do sleep 0.25; i=$((i + 1)); done
+        sleep 1
+        v3=$(pane_scroll delta)
+        seen=$(tree_in_view delta "New folder")
+        f=$(shot m5-20-new-folder)
+        if [ -d "$WORK/delta/New folder" ] && [ "$seen" = "yes" ]; then
+            pass 20 new-folder "New folder here from the delta pin's menu: the pane scrolled to the new folder's tree row ($v3); $f"
+        else
+            fail 20 new-folder "made: $([ -d "$WORK/delta/New folder" ] && echo yes || echo no), its tree row in view [$seen], pane [$v3]; ${f:-no shot}"
+        fi
+
+        pane_top delta
+        keys 'keystroke "l" using command down'
+        sleep 0.5
+        keys 'keystroke "a" using command down'
+        keys "keystroke \"$WORK/alpha/beta/gamma\""
+        sleep 0.5
+        keys 'key code 36'
+        if wait_window gamma 6; then
+            sleep 1.2
+            v4=$(pane_scroll gamma)
+            seen=$(tree_in_view gamma gamma)
+            f=$(shot m5-21-typed-path)
+            if [ "$seen" = "yes" ] && [ "$v4" != "$v0" ]; then
+                pass 21 typed-path "a typed path: the pane scrolled to gamma's tree row ($v4); $f"
+            else
+                fail 21 typed-path "gamma's tree row in view [$seen], pane [$v4]; ${f:-no shot}"
+            fi
+        else
+            f=$(shot m5-21-typed-path)
+            fail 21 typed-path "no window gamma (windows: $(names_now)); ${f:-no shot}"
+        fi
+    else
+        f=$(shot m5-18-pin-click)
+        fail 18 pin-click "no window delta after the pin click (windows: $(names_now)); ${f:-no shot}"
+    fi
+else
+    fail 18 relaunch "no window work after the second launch (windows: $(names_now))"
+fi
+
+# --- quit and clean up ------------------------------------------------------------------------------------
+if quit_folio; then pass 22 quit "Folio quit"; else fail 22 quit "Folio was still running 10 s after quit"; fi
 clean_defaults
 for v in "$SCRATCH" /Volumes/ScratchRenamed; do [ -d "$v" ] && hdiutil detach "$v" -force >/dev/null 2>&1; done
 detach_scratch
