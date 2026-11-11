@@ -27,8 +27,8 @@
 #   columns-10-search.png    Cmd+F "g1": results in the Details list, not columns
 #   columns-11-groupby.png   View > Group By open: greyed in Columns
 #   columns-12-divider.png   alpha's divider dragged 80 pt wider, then beta's double-clicked to fit
-#   columns-12b-spring.png   g1.txt held over sibling in alpha's column: sibling springs open, alpha stays put
-#   columns-13a-big-scrolled.png  big clicked in tree's column, Right into its 50,000 files, the wheel spun over it
+#   columns-12b-spring.png   Left, photo.png held over sibling in alpha's column: sibling springs open, alpha stays put
+#   columns-13a-big-scrolled.png  Up to tree, "bi" lights big, Right into its 50,000 files, the wheel spun over it
 #   columns-13-big.png       then End: the last file lit
 # Prints one line per step and exits non-zero if any step fails.
 set -u
@@ -354,6 +354,10 @@ on run argv
 end run
 OSA
 }
+# strip_left <window>: the x where the columns' strip starts on screen (left of it is the sidebar).
+strip_left() {
+    osascript -e "tell application \"System Events\" to tell process \"Folio\" to get item 1 of (position of scroll area 2 of window \"$1\")" 2>/dev/null
+}
 preview_value() {
     osascript - "$1" 2>/dev/null <<'OSA'
 on find(e, depth)
@@ -580,6 +584,13 @@ sleep 1.2
 wait_window gamma 4
 cols=$(col_names gamma)
 if [ "$cols" = "tree|alpha|beta|gamma" ]; then echo "  Esc: back to the columns [$cols]"; else fail 10 search-esc "after Esc: windows [$(names_now)], columns [$cols]"; fi
+# The keyboard stays in the search box after Esc: a click on gamma's empty space gives it back to the column.
+fg=$(col_frame gamma gamma)
+if [ -n "$fg" ]; then
+    set -- $fg
+    click_at "$(( $1 + $3 / 2 )) $(( $2 + $4 - 60 ))"
+    sleep 0.6
+fi
 
 # --- 11: Group by greyed in Columns --------------------------------------------------------------------------
 g=$(menu_enabled View "Group By" "Date modified")
@@ -626,9 +637,16 @@ else
 fi
 
 # --- 12b: a drag held on a folder in another column: it springs open, nothing slides under the pointer ------
-from=$(col_point gamma gamma g1.txt)
-to=$(col_point gamma alpha sibling)
-fa=$(col_frame gamma alpha)
+# Left first, so alpha's column is in view (beta current, gamma's column after it).
+front
+keys 'key code 123'
+sleep 1.2
+from=$(col_point beta beta photo.png)
+to=$(col_point beta alpha sibling)
+fa=$(col_frame beta alpha)
+left=$(strip_left beta)
+# Only the part of a column inside the strip takes the drop: never aim left of the strip's edge.
+if [ -n "$to" ] && [ -n "$left" ] && [ "${to% *}" -lt $((left + 30)) ]; then to="$((left + 30)) ${to#* }"; fi
 fa2=""
 if [ -n "$from" ] && [ -n "$to" ]; then
     "$MOUSE" drag ${from% *} ${from#* } ${to% *} ${to#* } --steps 12 --hold 2.4 --shot "$SHOTS/columns-12b-spring.png" --shot-at 1.6 \
@@ -640,24 +658,25 @@ if [ -n "$from" ] && [ -n "$to" ]; then
     echo "  $(cat "$ROOT/spring.out")"
     sleep 2
 fi
-if [ -f "$TREE/alpha/sibling/g1.txt" ] && has_window sibling && [ -n "$fa" ] && [ "${fa%% *}" = "${fa2%% *}" ]; then
-    pass 12b spring "held on sibling: it opened (window \"sibling\"), alpha's column stayed at x ${fa%% *}, g1.txt dropped into it; $SHOTS/columns-12b-spring.png"
+if [ -f "$TREE/alpha/sibling/photo.png" ] && has_window sibling && [ -n "$fa" ] && [ "${fa%% *}" = "${fa2%% *}" ]; then
+    pass 12b spring "held on sibling: it opened (window \"sibling\"), alpha's column stayed at x ${fa%% *} under the drag, photo.png dropped into it; $SHOTS/columns-12b-spring.png"
 else
-    fail 12b spring "from [$from] to [$to]; alpha [$fa] -> [$fa2]; sibling holds: $(ls "$TREE/alpha/sibling" | paste -sd ' ' -); windows [$(names_now)]"
+    fail 12b spring "from [$from] to [$to] (strip from x $left); alpha [$fa] -> [$fa2]; sibling holds: $(ls "$TREE/alpha/sibling" | paste -sd ' ' -); windows [$(names_now)]"
 fi
 
 # --- 13: 50,000 files in a column -------------------------------------------------------------------------
-# big in tree's column (a click in a column that is not the current one), its 50,000 files read off the
-# main thread into the next column, Right into it (shown from its column at once), the wheel over it, End.
+# Up to tree, "bi" types big's name: its 50,000 files are read off the main thread into the next column;
+# Right goes into it (shown from its column at once), the wheel spins over it, End lights the last file.
 front
-here=$(window_names | head -1)
-big=$(col_point "$here" tree big)
-t0=$(perl -MTime::HiRes=time -e 'printf "%d", time*1000')
-click_at "$big"
 i=0
-while [ "$i" -lt 80 ] && ! col_names tree | grep -q "|big$"; do sleep 0.1; i=$((i + 1)); done
-while [ "$i" -lt 80 ] && [ -z "$(perf_lines 1m "columns: read 50000 items" 1)" ]; do sleep 0.1; i=$((i + 1)); done
+while ! has_window tree && [ "$i" -lt 5 ]; do keys 'key code 126 using {option down}'; sleep 1; i=$((i + 1)); done
+sleep 1.1
+t0=$(perl -MTime::HiRes=time -e 'printf "%d", time*1000')
+keys 'keystroke "bi"'
+i=0
+while [ "$i" -lt 60 ] && [ -z "$(perf_lines 1m "columns: read 50000 items" 1)" ]; do sleep 0.2; i=$((i + 1)); done
 t1=$(perl -MTime::HiRes=time -e 'printf "%d", time*1000')
+lit=$(col_selected tree tree)
 keys 'key code 124'
 sleep 1.5
 fbig=$(col_frame big big)
@@ -679,10 +698,10 @@ last=$(col_selected_fast big big)
 f=$(shot columns-13-big)
 perf=$(perf_lines 3m "columns: (read 50000|50000 items)" 4)
 echo "$perf" | sed 's/^/    /'
-if has_window big && [ "$last" = "file-50000.txt" ] && echo "$perf" | grep -q "read 50000 items"; then
-    pass 13 big "big's column read and shown $((t1 - t0)) ms after the click; Right into it; $scroll_out, answered $((t3 - t2)) ms after the last; End lit $last; $f13a $f"
+if [ "$lit" = "big" ] && has_window big && [ "$last" = "file-50000.txt" ] && echo "$perf" | grep -q "read 50000 items"; then
+    pass 13 big "\"bi\" lit big, its 50,000 files read and logged $((t1 - t0)) ms after the keys; Right into it; $scroll_out, answered $((t3 - t2)) ms after the last; End lit $last; $f13a $f"
 else
-    fail 13 big "windows [$(names_now)], lit [$last], frame [$fbig], perf [$perf]; ${f:-none}"
+    fail 13 big "lit [$lit], windows [$(names_now)], last [$last], frame [$fbig], perf [$perf]; ${f:-none}"
 fi
 
 # --- quit and clean up ------------------------------------------------------------------------------------
