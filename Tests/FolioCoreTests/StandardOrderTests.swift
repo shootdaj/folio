@@ -70,4 +70,26 @@ import Testing
             }
         }
     }
+
+    @Test func aListLargeEnoughToSortInPartsComesOutTheSame() {
+        // Over the parallel threshold, with ties everywhere: few sizes, few dates, the same names in
+        // several folders (the path decides), folders mixed in, and names with no number.
+        var rng = SystemRandomNumberGenerator()
+        let words = ["File", "file", "Report", "IMG_", "résumé", "track ", "ｆｉｌｅ", "Zeta", "alpha", ""]
+        var entries: [FileEntry] = []
+        for i in 0..<(SortEngine.parallelThreshold * 2 + 777) {
+            let name = words[i % words.count] + (i % 3 == 0 ? "" : String(Int.random(in: 0..<500, using: &rng)))
+            let folder = i % 13 == 0
+            entries.append(FileEntry(url: URL(fileURLWithPath: "/private/tmp/folio-tests/big/\(i % 4)/\(name)"), name: name, isFolder: folder,
+                                     modified: i % 7 == 0 ? nil : Date(timeIntervalSince1970: Double(Int.random(in: 0..<20, using: &rng))),
+                                     size: folder ? nil : Int64(Int.random(in: 0..<30, using: &rng)), kind: ["PNG image", "Plain Text", "Folder"][i % 3]))
+        }
+        for spec in [SortSpec.standard, SortSpec(key: .size, ascending: false), SortSpec(key: .modified, ascending: true),
+                     SortSpec(key: .kind, ascending: false, then: [SortTerm(key: .size, ascending: true)])] {
+            let mine = SortEngine.sort(entries, by: spec).map(\.url)
+            #expect(mine == reference(entries, spec, folders: .followSort).map(\.url), "\(spec)")
+        }
+        #expect(SortEngine.sort(entries, by: .standard, folders: .filesFirst).map(\.url)
+                == reference(entries, .standard, folders: .filesFirst).map(\.url))
+    }
 }
