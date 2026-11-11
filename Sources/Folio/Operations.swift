@@ -31,9 +31,17 @@ enum FileClipboard {
         return (urls, pb.types?.contains(cutMarker) == true)
     }
 
+    /// Asked on every selection change (the Paste button): the answer is read again only when the
+    /// pasteboard changed.
     static var hasFiles: Bool {
-        NSPasteboard.general.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true])
+        let count = NSPasteboard.general.changeCount
+        if count == hasFilesAt { return hasFilesAnswer }
+        hasFilesAnswer = NSPasteboard.general.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true])
+        hasFilesAt = count
+        return hasFilesAnswer
     }
+    private static var hasFilesAt = Int.min
+    private static var hasFilesAnswer = false
 
     /// Item keys drawn dimmed: the pending cut, unless something else was copied since.
     static var dimmedPaths: Set<String> {

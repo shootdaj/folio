@@ -167,8 +167,16 @@ final class NavigationPane: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
         didSet {
             guard details != oldValue, let outline else { return }
             let row = outline.row(forItem: detailsNode)
-            if row >= 0 { outline.noteHeightOfRows(withIndexesChanged: IndexSet(integer: row)) }
-            outline.redrawRows()
+            guard row >= 0 else { return }
+            let before = outline.rect(ofRow: row).height
+            outline.noteHeightOfRows(withIndexesChanged: IndexSet(integer: row))
+            // A new height moves the rows and cards below: all redraw. Otherwise only the card does.
+            if outline.rect(ofRow: row).height != before {
+                outline.redrawRows()
+            } else {
+                outline.setNeedsDisplay(outline.rect(ofRow: row))
+                outline.rowView(atRow: row, makeIfNecessary: false)?.needsDisplay = true
+            }
         }
     }
     private let connectNode = SideNode(.connect)

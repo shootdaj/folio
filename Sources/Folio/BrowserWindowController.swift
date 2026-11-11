@@ -185,6 +185,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     var searchArrangeWork: DispatchWorkItem?
     var lastSearchArrange: CFTimeInterval = 0
     var lastSearchTitle = ""
+    /// The Preview pane, Gallery and Quick Look follow the selection at this pace (updatePreviewsSoon).
+    var previewWork: DispatchWorkItem?
+    var lastPreviewUpdate: CFTimeInterval = 0
     private var isFittingColumns = false
     /// The one dropdown this window shows at a time (typeahead, history, crumb folders, Back list).
     let dropdown = Dropdown()
@@ -1288,8 +1291,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             updateFocusRow()
             grid.forEachVisibleCell { cell, i in cell.isSelected = items.contains(i) }
             selectionDidChange()
+            updateStatus()
         }
-        updateStatus()
+        // A change the window made itself (applySelection, show) updates the status bar there, once.
     }
 
     /// Dragging a divider gives or takes the space from Name; the width is kept for every folder.
