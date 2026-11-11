@@ -28,7 +28,8 @@
 #                   busy Downloads): Folio's CPU, how many refreshes, each refresh's time, the longest stall
 #   bench           (builds that have it) `Folio --bench` on the 50k and 200k folders: each step of opening
 #                   them timed on its own (list, arrange, keys, tree, search walk), printed under the table
-# ~/folio/perf.conf may set RUNS=n and ONLY="launch open sort ..." (moment groups) for a quicker pass.
+# ~/folio/perf.conf may set RUNS=n, ONLY="launch open sort ..." (moment groups) for a quicker pass, and
+# LABEL=name to keep this run's table apart from another build's in the same session.
 # Fixtures are made once under /private/tmp/folio-tests/perf-fixtures (about 460,000 small sparse files, 300
 # JPEGs and a 2 GB file) and kept for the next run. The vm-test helper brings back only ~/folio/shots/*.png,
 # so the results table also goes there as perf-results.txt.png (plain text). Ends with "result: ok".
@@ -43,6 +44,7 @@ MARKS="$RUN/marks.log"
 RAW="$RUN/raw.tsv"
 TOOL="$HOME/folio/folio-perftool"
 RUNS=3
+LABEL=""
 ONLY="launch open sort filter selectall scroll view thumbs search copy memory churn refresh bench"
 # A perf.conf counts for one run only.
 [ -f "$HOME/folio/perf.conf" ] && { . "$HOME/folio/perf.conf"; rm -f "$HOME/folio/perf.conf"; }
@@ -231,7 +233,7 @@ if [ ! -f "$FIX/.made-v1" ]; then
     touch "$FIX/.made-v1"
     echo "perf: fixtures made in $(perl -MTime::HiRes=time -e "printf '%.0f', time - $t0") s"
 fi
-echo "perf: $(sysctl -n hw.ncpu) cpus, $(( $(sysctl -n hw.memsize) / 1073741824 )) GB, $(df -h /private/tmp | tail -1 | awk '{print $4}') free; runs=$RUNS; only=$ONLY"
+echo "perf: $(sysctl -n hw.ncpu) cpus, $(( $(sysctl -n hw.memsize) / 1073741824 )) GB, $(df -h /private/tmp | tail -1 | awk '{print $4}') free; runs=$RUNS; only=$ONLY; label=${LABEL:-none}; build=$(defaults read "$APP/Contents/Info" FolioVersion 2>/dev/null)"
 if sudo -n true 2>/dev/null; then CANPURGE=1; else CANPURGE=0; fi
 
 # --- helpers ------------------------------------------------------------------------------------------
@@ -653,6 +655,7 @@ fi
 
 # --- the table ---------------------------------------------------------------------------------------------------
 {
+    echo "Folio $(defaults read "$APP/Contents/Info" FolioVersion 2>/dev/null) ${LABEL:+($LABEL) }$(date '+%Y-%m-%d %H:%M'), runs=$RUNS"
     printf '%-30s %3s %9s %9s %9s  %s\n' moment n median min max unit
     awk -F'\t' '{ v[$1] = v[$1] " " $2; u[$1] = $3; if (!($1 in seen)) { seen[$1] = 1; order[++k] = $1 } }
         END { for (i = 1; i <= k; i++) print order[i] "\t" u[order[i]] "\t" v[order[i]] }' "$RAW" |
@@ -665,7 +668,7 @@ fi
     cat "$RUN/bench.txt"
 } > "$RUN/results.txt"
 cat "$RUN/results.txt"
-cp "$RUN/results.txt" "$SHOTS/perf-results.txt.png"
-cp "$MARKS" "$SHOTS/perf-marks.txt.png"
+cp "$RUN/results.txt" "$SHOTS/perf-results${LABEL:+-$LABEL}.txt.png"
+cp "$MARKS" "$SHOTS/perf-marks${LABEL:+-$LABEL}.txt.png"
 echo "perf: raw values in $RAW, marks in $MARKS"
 if [ "$fails" -eq 0 ]; then echo "result: ok"; else echo "result: $fails failed"; exit 1; fi
