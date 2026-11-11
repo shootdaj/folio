@@ -201,6 +201,10 @@ final class OperationCenter {
             timer?.invalidate()
             timer = nil
             progress.closeIfEmpty()
+        } else if jobs.allSatisfy({ snapshots[$0.id]?.state == .cancelled }) {
+            // Cancelled jobs wait for their panel to be closed: nothing moves, so no 30 Hz tick.
+            timer?.invalidate()
+            timer = nil
         }
     }
 
