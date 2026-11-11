@@ -7,6 +7,12 @@ pushed; the release workflow publishes the section below with that number as the
 
 ## [Unreleased]
 
+### Fixed
+
+- **Mission Control works again after a drag over the navigation pane or the file list.** The drag ended
+  with an error inside macOS's drag code ("unrecognized selector draggingEnded:"), so macOS still saw a
+  drag, and Mission Control did not open, by key or by mouse, until Folio quit.
+
 ## [1.0.0] - 2026-11-07
 
 The first release: all nine milestones of docs/plan/MILESTONES.md and the D4 Obsidian spotlight look,
