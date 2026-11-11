@@ -553,8 +553,8 @@ fi
 
 # --- copy 2 GB to another volume -----------------------------------------------------------------------------
 free_gb=$(df -g /private/tmp | tail -1 | awk '{print $4}')
-if wants copy && [ "$free_gb" -lt 4 ]; then
-    fail "copy: only $free_gb GB free on the VM's disk, 4 needed for the 2 GB copy; skipped"
+if wants copy && [ "$free_gb" -lt 3 ]; then
+    fail "copy: only $free_gb GB free on the VM's disk, 3 needed for the 2 GB copy; skipped"
 elif wants copy; then
     hdiutil create -size 3g -type SPARSE -fs APFS -volname FolioPerf "$RUN/perf" >/dev/null 2>&1
     vol=$(hdiutil attach -nobrowse "$RUN/perf.sparseimage" 2>/dev/null | awk -F'\t' '/FolioPerf/ {print $NF}' | tail -1)
