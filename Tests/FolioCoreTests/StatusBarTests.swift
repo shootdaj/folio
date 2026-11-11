@@ -128,3 +128,25 @@ private func entry(_ name: String, folder: Bool = false, size: Int64? = nil) -> 
         #expect(card.title == "Select an item to see its details here.")
     }
 }
+
+/// A selection counted in place gives what the copied selection gave (Cmd+A in a big folder copies nothing).
+@Suite struct SelectionInPlaceTests {
+    private static func entry(_ i: Int) -> FileEntry {
+        let folder = i % 5 == 0
+        let size: Int64? = folder ? nil : Int64(i * 1000)
+        let url = URL(fileURLWithPath: "/private/tmp/folio-tests/sel/\(i)")
+        return FileEntry(url: url, name: "item \(i)", isFolder: folder, modified: Date(timeIntervalSince1970: Double(i) * 3600),
+                         size: size, kind: "Plain Text")
+    }
+    private let entries: [FileEntry] = (0..<40).map(SelectionInPlaceTests.entry)
+
+    @Test func summariesAndCardsMatchForAnySelection() {
+        let selections: [IndexSet] = [[], [3], [0], IndexSet(0..<40), IndexSet([1, 2, 7, 8, 9, 30]), IndexSet(5..<15), [0, 5, 10], [4, 39]]
+        for rows in selections {
+            let copied = rows.map { entries[$0] }
+            #expect(SelectionSummary(entries, rows: rows) == SelectionSummary(copied), "\(Array(rows))")
+            let tz = TimeZone(identifier: "UTC")!
+            #expect(DetailsCard.make(entries, rows: rows, timeZone: tz) == DetailsCard.make(copied, timeZone: tz), "\(Array(rows))")
+        }
+    }
+}

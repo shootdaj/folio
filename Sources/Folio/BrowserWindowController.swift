@@ -836,7 +836,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     /// The table row of an item (rows include group headers when grouped).
     func tableRow(ofItem i: Int) -> Int { layout.rowOfItem.indices.contains(i) ? layout.rowOfItem[i] : i }
 
-    func tableRows(of items: IndexSet) -> IndexSet { IndexSet(items.map(tableRow(ofItem:))) }
+    /// Ungrouped, an item's row is its index: the set as it is (Cmd+A in a big folder maps nothing).
+    func tableRows(of items: IndexSet) -> IndexSet { layout.isGrouped ? IndexSet(items.map(tableRow(ofItem:))) : items }
 
     func scrollToItem(_ i: Int) {
         guard entries.indices.contains(i) else { return }
@@ -894,7 +895,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     }
 
     func updateStatus() {
-        let selection = SelectionSummary(selectedEntries)
+        let selection = SelectionSummary(entries, rows: self.selection.rows)
         let path = history.isHome ? "Home" : history.current.path
         if let statusMessage {
             chassis.status.countText = statusMessage
@@ -1284,9 +1285,12 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
+        // A change the window made itself (applySelection, show) is already in the model.
+        guard !applyingSelection else { return }
         // Type to select and the table's own Select All change the rows behind the model's back.
-        let items = IndexSet(tableView.selectedRowIndexes.compactMap { layout.item(atRow: $0) })
-        if !applyingSelection, items != selection.rows {
+        let items = layout.isGrouped ? IndexSet(tableView.selectedRowIndexes.compactMap { layout.item(atRow: $0) })
+            : tableView.selectedRowIndexes
+        if items != selection.rows {
             let focus = layout.item(atRow: tableView.selectedRow)
             selection.adopt(items, focus: focus)
             updateFocusRow()
@@ -1294,7 +1298,6 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             selectionDidChange()
             updateStatus()
         }
-        // A change the window made itself (applySelection, show) updates the status bar there, once.
     }
 
     /// Dragging a divider gives or takes the space from Name; the width is kept for every folder.

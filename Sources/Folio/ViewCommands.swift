@@ -339,9 +339,8 @@ extension BrowserWindowController: GridHost {
     // MARK: Following the selection: the right-hand pane, the Gallery's preview, Quick Look
 
     func selectionDidChange() {
-        let selected = selectedEntries
         sessionChanged()
-        chassis.sidebar.pane.details = DetailsCard.make(history.isHome ? [] : selected)
+        chassis.sidebar.pane.details = history.isHome ? DetailsCard.make([]) : DetailsCard.make(entries, rows: selection.rows)
         updatePreviewsSoon()
     }
 
@@ -360,6 +359,9 @@ extension BrowserWindowController: GridHost {
     private func updatePreviews() {
         previewWork = nil
         lastPreviewUpdate = CACurrentMediaTime()
+        let quickLook = QLPreviewPanel.sharedPreviewPanelExists() && QLPreviewPanel.shared()?.isVisible == true
+        // Nothing here follows the selection: no copy of it (Cmd+A in a big folder).
+        guard (ListOptions.sidePane != .none && !history.isHome) || viewMode == .gallery || quickLook else { return }
         let selected = selectedEntries
         if ListOptions.sidePane != .none, !history.isHome {
             var meta: ItemMetadata?

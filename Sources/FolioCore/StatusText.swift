@@ -10,6 +10,24 @@ public struct SelectionSummary: Sendable, Equatable {
     /// True when at least one selected item has a size (a file).
     public let hasSize: Bool
 
+    /// The items at `rows` of `entries`, read in place (Cmd+A in a big folder copies nothing).
+    public init(_ entries: [FileEntry], rows: IndexSet) {
+        var count = 0, total: Int64 = 0, any = false
+        for range in rows.rangeView {
+            let r = range.clamped(to: entries.indices)
+            count += r.count
+            for i in r {
+                if let size = entries[i].size { total += size; any = true }
+            }
+        }
+        self.count = count
+        let first = rows.first.flatMap { entries.indices.contains($0) ? entries[$0] : nil }
+        firstName = first?.name
+        firstIsFolder = first?.isFolder ?? false
+        bytes = total
+        hasSize = any
+    }
+
     public init(_ selected: [FileEntry]) {
         count = selected.count
         firstName = selected.first?.name
@@ -132,6 +150,20 @@ public struct DetailsCard: Sendable, Equatable {
     public var isEmpty: Bool { icon == nil }
 
     public static let emptyText = "Select an item to see its details here."
+
+    /// The card for the items at `rows` of `entries`: a large selection is counted in place.
+    public static func make(_ entries: [FileEntry], rows: IndexSet, timeZone: TimeZone = .current) -> DetailsCard {
+        guard rows.count > 1 else { return make(rows.compactMap { entries.indices.contains($0) ? entries[$0] : nil }, timeZone: timeZone) }
+        var folders = 0, files = 0
+        for range in rows.rangeView {
+            for i in range.clamped(to: entries.indices) { if entries[i].isFolder { folders += 1 } else { files += 1 } }
+        }
+        let what = [folders > 0 ? "\(folders) folder" + (folders == 1 ? "" : "s") : nil,
+                    files > 0 ? "\(files) file" + (files == 1 ? "" : "s") : nil].compactMap { $0 }.joined(separator: ", ")
+        let summary = SelectionSummary(entries, rows: rows)
+        return DetailsCard(icon: .stack, title: ByteText.grouped(folders + files) + " items selected", subtitle: what,
+                           fields: summary.bytes > 0 ? [Field(key: "Size", value: ByteText.kilobytes(summary.bytes))] : [])
+    }
 
     public static func make(_ selected: [FileEntry], timeZone: TimeZone = .current) -> DetailsCard {
         guard let first = selected.first else {
