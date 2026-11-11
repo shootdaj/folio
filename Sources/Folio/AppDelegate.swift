@@ -58,6 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        PerfTrace.start()
         if let uitest {
             let controller = BrowserWindowController(
                 folder: uitest.folder,

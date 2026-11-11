@@ -30,6 +30,7 @@ extension BrowserWindowController: GridHost {
             view \(mode.rawValue, privacy: .public): \(self.entries.count, privacy: .public) items shown in \
             \(Int(Date().timeIntervalSince(started) * 1000), privacy: .public) ms
             """)
+        PerfTrace.mark("view", "mode=\(mode.rawValue) items=\(entries.count) ms=\(PerfTrace.ms(since: started.timeIntervalSince1970))")
     }
 
     @objc func setViewMode(_ sender: NSMenuItem) {

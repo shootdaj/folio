@@ -33,6 +33,7 @@ final class ThumbnailCache {
             return nil
         }
         pending[k] = [done]
+        if PerfTrace.isOn, pending.count == 1, madeSinceIdle == 0 { busySince = PerfTrace.now }
         let request = QLThumbnailGenerator.Request(fileAt: entry.url, size: CGSize(width: size, height: size),
                                                    scale: NSScreen.main?.backingScaleFactor ?? 2, representationTypes: .thumbnail)
         QLThumbnailGenerator.shared.generateBestRepresentation(for: request, completion: Self.handler(for: k))
@@ -55,7 +56,18 @@ final class ThumbnailCache {
         if let ns { cache.setObject(ns, forKey: key as NSString) }
         let waiting = pending.removeValue(forKey: key) ?? []
         for w in waiting { w(ns) }
+        if PerfTrace.isOn {
+            madeSinceIdle += 1
+            if pending.isEmpty {
+                PerfTrace.mark("thumbs-idle", "made=\(madeSinceIdle) ms=\(PerfTrace.ms(since: busySince))")
+                madeSinceIdle = 0
+            }
+        }
     }
+
+    /// The speed harness (PerfTrace): thumbnails made since the queue was last empty, and since when.
+    private var madeSinceIdle = 0
+    private var busySince = 0.0
 }
 
 private struct SendableImage: @unchecked Sendable { let cg: CGImage? }

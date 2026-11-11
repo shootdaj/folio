@@ -268,6 +268,8 @@ extension BrowserWindowController {
                 search done: "\(text, privacy: .public)" \(u.total, privacy: .public) hits in \(Int(u.elapsed * 1000), privacy: .public) ms; \
                 first after \(Int((u.firstHitAfter ?? u.elapsed) * 1000), privacy: .public) ms; walk \(u.walked ? "yes" : "no", privacy: .public)
                 """)
+            PerfTrace.mark("search-done", "hits=\(u.total) ms=\(String(format: "%.1f", u.elapsed * 1000)) "
+                + "first_ms=\(String(format: "%.1f", (u.firstHitAfter ?? u.elapsed) * 1000)) walked=\(u.walked ? 1 : 0)")
         }
         if !searchReplacePending, !u.hits.isEmpty || u.done {
             listing = SearchMerger.ranked(searchHits).map(\.entry)

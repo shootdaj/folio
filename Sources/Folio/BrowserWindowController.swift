@@ -7,6 +7,7 @@ final class BrowserWindow: NSWindow {
     var allowsOffscreen = false
 
     override func sendEvent(_ event: NSEvent) {
+        if event.type == .keyDown, PerfTrace.isOn { PerfTrace.mark("key", "code=\(event.keyCode)") }
         if let controller = windowController as? BrowserWindowController {
             // Access keys: an Option tap shows the command bar's letters; the next key uses or hides them.
             if event.type == .flagsChanged { controller.handleFlagsChanged(event) }
@@ -710,6 +711,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
             list+sort \(Int(now.timeIntervalSince(started) * 1000), privacy: .public) ms; \
             \(Int(now.timeIntervalSince(processStartDate) * 1000), privacy: .public) ms since launch
             """)
+        if PerfTrace.isOn {
+            PerfTrace.mark("rows", "items=\(entries.count) ms=\(PerfTrace.ms(since: started.timeIntervalSince1970)) "
+                + "launch_ms=\(PerfTrace.ms(since: processStartDate.timeIntervalSince1970)) mb=\(PerfTrace.footprintMB) path=\(folder.path)")
+        }
     }
 
     // MARK: Arranging: filters, sort and groups, off the main thread
@@ -761,19 +766,25 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         let id = requestID
         isResorting = true
         updateStatus()
+        let started = PerfTrace.now
         Task.detached(priority: .userInitiated) { [weak self] in
             let arranged = Self.arrange(rows, key)
-            await self?.finishRearrange(arranged, key: key, id: id, selecting: selected)
+            await self?.finishRearrange(arranged, key: key, id: id, selecting: selected, started: started)
         }
     }
 
-    private func finishRearrange(_ arranged: ListLayout, key: ArrangeKey, id: Int, selecting selected: Set<String>) {
+    private func finishRearrange(_ arranged: ListLayout, key: ArrangeKey, id: Int, selecting selected: Set<String>, started: Double) {
         guard id == requestID else { return }
         isResorting = false
         arrangedWith = key
         show(arranged, selecting: selected)
         if let first = selection.rows.first { scrollToItem(first) }
         if arrangeKey != key { rearrange() }
+        if PerfTrace.isOn {
+            window?.displayIfNeeded()
+            PerfTrace.mark("arranged", "items=\(entries.count) ms=\(PerfTrace.ms(since: started)) searching=\(isSearching ? 1 : 0) "
+                + "done=\(searchFinished ? 1 : 0) sort=\(key.sort.key.rawValue)")
+        }
     }
 
     /// The selected items' keys, in list order.

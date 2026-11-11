@@ -110,6 +110,10 @@ final class OperationCenter {
     }
 
     private func jobFinished(_ job: any ProgressJob, _ result: JobResult) {
+        if PerfTrace.isOn, let begun = started[job.id] {
+            let s = job.snapshot()
+            PerfTrace.mark("job-done", "kind=\(s.kind) state=\(result.state) bytes=\(s.bytesDone) ms=\(String(format: "%.1f", (now - begun) * 1000))")
+        }
         if let record = result.record { history.record(record) }
         finishedAt[job.id] = now
         if result.state == .cancelled { progress.reveal(near: anchorWindow) }
