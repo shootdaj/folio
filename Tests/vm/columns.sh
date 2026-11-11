@@ -349,6 +349,8 @@ on find(e, depth)
     tell application "System Events"
         try
             if (role of e is "AXGroup") and ((description of e) as text is "Preview") then return e
+            -- Never into a column's rows (50,000 of them in big).
+            if role of e is "AXTable" then return missing value
         end try
         if depth is 0 then return missing value
         try
