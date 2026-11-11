@@ -24,8 +24,8 @@
 #   copy-2gb        Cmd+C a 2 GB file, Cmd+V onto another APFS volume (a disk image): job done, MB/s
 #   memory-50       after opening 50 folders of 1,000 files one after another: footprint and RSS
 #   churn-cpu       a tab on a folder while 100 files a second are written below it for 20 s: Folio's CPU
-#   refresh-10k     a tab on a folder of 10,000 files while 5 files a second come and go in it for 10 s (a
-#                   busy Downloads): Folio's CPU, how many refreshes, each refresh's time, the longest stall
+#   refresh-<n>     a tab on a folder of 10,000 (and 50,000) files while 5 files a second come and go in it
+#                   for 10 s (a busy Downloads): Folio's CPU, refreshes drawn, each one's time, longest stall
 #   bench           (builds that have it) `Folio --bench` on the 50k and 200k folders: each step of opening
 #                   them timed on its own (list, arrange, keys, tree, search walk), printed under the table
 # ~/folio/perf.conf may set RUNS=n, ONLY="launch open sort ..." (moment groups) for a quicker pass, and
@@ -552,7 +552,10 @@ if wants search; then
 fi
 
 # --- copy 2 GB to another volume -----------------------------------------------------------------------------
-if wants copy; then
+free_gb=$(df -g /private/tmp | tail -1 | awk '{print $4}')
+if wants copy && [ "$free_gb" -lt 4 ]; then
+    fail "copy: only $free_gb GB free on the VM's disk, 4 needed for the 2 GB copy; skipped"
+elif wants copy; then
     hdiutil create -size 3g -type SPARSE -fs APFS -volname FolioPerf "$RUN/perf" >/dev/null 2>&1
     vol=$(hdiutil attach -nobrowse "$RUN/perf.sparseimage" 2>/dev/null | awk -F'\t' '/FolioPerf/ {print $NF}' | tail -1)
     if [ -z "$vol" ] || [ ! -d "$vol" ]; then fail "copy: the disk image did not mount"; else
@@ -567,7 +570,7 @@ if wants copy; then
             sleep 0.5
             before=$(lines)
             key 'keystroke "v" using command down'
-            j=$(wait_mark job-done "$before" 600)
+            j=$(wait_mark job-done "$before" 120)
             [ -n "$j" ] || { fail "copy run $r: no job-done"; continue; }
             ms=$(field "$j" ms)
             record copy-2gb "$ms" ms
@@ -623,25 +626,28 @@ fi
 
 # --- auto-refresh in a big folder that keeps changing ------------------------------------------------------
 if wants refresh; then
-    "$TOOL" files "$RUN/busy" 10000 >/dev/null
-    for r in $(seq 1 "$RUNS"); do
-        nav "$RUN/busy" >/dev/null || { fail "refresh: busy did not open"; break; }
-        sleep 1
-        pid=$(pgrep -x Folio | head -1)
-        c0=$(cpu_seconds "$pid")
-        before=$(lines)
-        t0=$(now)
-        "$TOOL" churn "$RUN/busy" 10 5 >/dev/null
-        sleep 1.5
-        t1=$(now)
-        c1=$(cpu_seconds "$pid")
-        record refresh-10k-cpu "$(perl -e "printf '%.2f', $c1 - $c0")" s
-        tail -n +"$((before + 1))" "$MARKS" | awk '$2 == "rows"' > "$RUN/refreshes.txt"
-        record refresh-10k-count "$(wc -l < "$RUN/refreshes.txt" | tr -d ' ')" refreshes
-        each=$(sed -n 's/.* ms=\([0-9.]*\) .*/\1/p' "$RUN/refreshes.txt" | sort -g | awk '{ v[NR] = $1 } END { if (NR) print v[int((NR + 1) / 2)] }')
-        [ -n "$each" ] && record refresh-10k-each "$each" ms
-        set -- $(stalls "$t0" "$t1")
-        record refresh-10k-longest-stall "$3" ms
+    for size in 10k 50k; do
+        n=${size%k}000
+        "$TOOL" files "$RUN/busy-$size" "$n" >/dev/null
+        for r in $(seq 1 "$RUNS"); do
+            nav "$RUN/busy-$size" >/dev/null || { fail "refresh: busy-$size did not open"; break; }
+            sleep 1
+            pid=$(pgrep -x Folio | head -1)
+            c0=$(cpu_seconds "$pid")
+            before=$(lines)
+            t0=$(now)
+            "$TOOL" churn "$RUN/busy-$size" 10 5 >/dev/null
+            sleep 1.5
+            t1=$(now)
+            c1=$(cpu_seconds "$pid")
+            record refresh-$size-cpu "$(perl -e "printf '%.2f', $c1 - $c0")" s
+            tail -n +"$((before + 1))" "$MARKS" | awk '$2 == "rows"' > "$RUN/refreshes.txt"
+            record refresh-$size-count "$(wc -l < "$RUN/refreshes.txt" | tr -d ' ')" refreshes
+            each=$(sed -n 's/.* ms=\([0-9.]*\) .*/\1/p' "$RUN/refreshes.txt" | sort -g | awk '{ v[NR] = $1 } END { if (NR) print v[int((NR + 1) / 2)] }')
+            [ -n "$each" ] && record refresh-$size-each "$each" ms
+            set -- $(stalls "$t0" "$t1")
+            record refresh-$size-longest-stall "$3" ms
+        done
     done
 fi
 
@@ -655,7 +661,8 @@ fi
 
 # --- the table ---------------------------------------------------------------------------------------------------
 {
-    echo "Folio $(defaults read "$APP/Contents/Info" FolioVersion 2>/dev/null) ${LABEL:+($LABEL) }$(date '+%Y-%m-%d %H:%M'), runs=$RUNS"
+    echo "Folio $(defaults read "$APP/Contents/Info" FolioVersion 2>/dev/null) ${LABEL:+($LABEL) }$(date '+%Y-%m-%d %H:%M'), runs=$RUNS, $(df -h /private/tmp | tail -1 | awk '{print $4}') free"
+    [ "$fails" -gt 0 ] && echo "FAILED: $fails (see the run's output)"
     printf '%-30s %3s %9s %9s %9s  %s\n' moment n median min max unit
     awk -F'\t' '{ v[$1] = v[$1] " " $2; u[$1] = $3; if (!($1 in seen)) { seen[$1] = 1; order[++k] = $1 } }
         END { for (i = 1; i <= k; i++) print order[i] "\t" u[order[i]] "\t" v[order[i]] }' "$RAW" |
@@ -670,5 +677,7 @@ fi
 cat "$RUN/results.txt"
 cp "$RUN/results.txt" "$SHOTS/perf-results${LABEL:+-$LABEL}.txt.png"
 cp "$MARKS" "$SHOTS/perf-marks${LABEL:+-$LABEL}.txt.png"
+# The run's bulky leftovers go (the fixtures stay for the next run).
+rm -rf "$RUN"/photos-* "$RUN"/busy-* "$RUN/churn" "$RUN/perf.sparseimage" 2>/dev/null
 echo "perf: raw values in $RAW, marks in $MARKS"
 if [ "$fails" -eq 0 ]; then echo "result: ok"; else echo "result: $fails failed"; exit 1; fi
