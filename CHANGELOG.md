@@ -7,6 +7,8 @@ pushed; the release workflow publishes the section below with that number as the
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-11
+
 ### Added
 
 - **Folio > Settings... (Cmd+,)** opens Folder Options, as Cmd+, opens an app's settings on a Mac, also
