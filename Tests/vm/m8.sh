@@ -1,7 +1,8 @@
 #!/bin/bash
 # Milestone 8 GUI check: Compress to ZIP with its progress window, the zip browsed like a folder, Extract all
 # with its destination dialog and Show extracted files when complete, Folder Options (General, then View:
-# Display the full path in the title bar and Use check boxes to select items, OK), Tags > Red with the tag
+# Display the full path in the title bar and Use check boxes to select items, OK; the hidden-files radio
+# beside the typing radios; Settings on Cmd+,), Tags > Red with the tag
 # dot and the Tags column, auto-refresh after a file made from the shell, the Option tap's access keys and
 # N for New, full screen with Ctrl+Cmd+F, and Rotate right on a JPEG with the Dimensions column swapping.
 #
@@ -17,8 +18,11 @@
 #   m8-4-extract-dialog.png      Back, right-click big.zip > Extract all...: the destination dialog
 #   m8-5-extracted.png           Return: the extracted folder opened in a window of its own
 #   m8-6-options-general.png     View > Options (Cmd+Option+,): Folder Options, General
+#   m8-7a-hidden-radio.png       View tab, "Show hidden files, folders and drives" clicked: it stays chosen,
+#                                and the typing group keeps its own choice
 #   m8-7-options-view.png        the View tab with the two boxes ticked
 #   m8-8-fullpath-checkboxes.png OK: the full path in the title bar, check boxes on the rows
+#   m8-8b-settings-key.png       Cmd+, (Folio > Settings...): Folder Options again
 #   m8-9-tags.png                right-click alpha.txt > Tags > Red: the red dot and the Tags column
 #   m8-10-autorefresh.png        touch fresh.txt from the shell: in the list within a second
 #   m8-11-access-keys.png        Option tapped: the command bar's letters
@@ -587,6 +591,25 @@ if wait_window "Folder Options" 6; then
     fi
     click_at "$(ax_find AXButton View "Folder Options")"
     sleep 0.8
+    # Two radio groups share the Advanced settings list (hidden items, typing). AppKit groups every radio
+    # of one view, so the typing radio used to turn "Show hidden files" off again at once.
+    show="Show hidden files, folders and drives"
+    dont="Don't show hidden files, folders or drives"
+    click_at "$(ax_find AXRadioButton "$show" "Folder Options")"
+    sleep 0.5
+    r_show=$(ax_find AXRadioButton "$show" "Folder Options" value)
+    r_dont=$(ax_find AXRadioButton "$dont" "Folder Options" value)
+    r_typed=$(ax_find AXRadioButton "Select the typed item in the view" "Folder Options" value)
+    f=$(shot m8-7a-hidden-radio)
+    # Back to Don't show, so OK below leaves hidden items off for the rest of the run.
+    click_at "$(ax_find AXRadioButton "$dont" "Folder Options")"
+    sleep 0.4
+    r_back=$(ax_find AXRadioButton "$dont" "Folder Options" value)
+    if [ "$r_show" = "1" ] && [ "$r_dont" = "0" ] && [ "$r_typed" = "1" ] && [ "$r_back" = "1" ]; then
+        pass 7a hidden-radio "Show hidden [$r_show], Don't show [$r_dont], Select the typed item kept [$r_typed]; Don't show again [$r_back]; $f"
+    else
+        fail 7a hidden-radio "after the click: Show hidden [$r_show], Don't show [$r_dont], Select the typed item [$r_typed]; back [$r_back]; ${f:-none}"
+    fi
     click_at "$(ax_find AXCheckBox "Display the full path in the title bar" "Folder Options")"
     sleep 0.4
     # Use check boxes is further down the Advanced settings list: scroll it into view, then click it.
@@ -633,6 +656,26 @@ else
     fail 8 fullpath-checkboxes "no window named \"$W\" (windows: $(names_now)); ${f:-none}"
     W=work
 fi
+
+# --- 8b: Cmd+, (Folio > Settings...) opens Folder Options; Esc closes it ------------------------------------------
+keys 'keystroke "," using command down'
+if wait_window "Folder Options" 5; then
+    sleep 0.6
+    f=$(shot m8-8b-settings-key)
+    keys 'key code 53'
+    i=0
+    while has_window "Folder Options" && [ "$i" -lt 20 ]; do sleep 0.25; i=$((i + 1)); done
+    if ! has_window "Folder Options"; then
+        pass 8b settings-key "Cmd+, opened Folder Options, Esc closed it; $f"
+    else
+        fail 8b settings-key "Cmd+, opened Folder Options, Esc left it open; $f"
+    fi
+else
+    f=$(shot m8-8b-settings-key)
+    fail 8b settings-key "Cmd+,: no Folder Options window (windows: $(names_now)); ${f:-none}"
+fi
+front
+sleep 0.4
 
 # --- 9: the Tags and Dimensions columns; right-click alpha.txt > Tags > Red -------------------------------------
 click_at "$(ax_find AXButton "Type header" "$W")" --right
