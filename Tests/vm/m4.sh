@@ -1,7 +1,10 @@
 #!/bin/bash
 # Milestone 4 GUI check: the item menu and Copy as path, Properties (General and Permissions), dragging a
 # file onto a folder row, the background menu, a Control-drop's Move/Copy/Alias menu, a spring-loaded
-# folder, pinning a folder by dropping it in Quick access, and Create alias.
+# folder, pinning a folder by dropping it in Quick access, and Create alias. Then two checks of presses
+# and drags that lose their end: a marquee whose release never reaches Folio (the press must end with the
+# button, so the next click works at once), and no "unrecognized selector" from a drag's end in Folio's
+# log, so Mission Control (Ctrl+Up) still opens after the drags.
 #
 # Runs INSIDE the tart VM folio-test as admin (docs/plan/VM.md), never on a host Mac (docs/plan/RULES.md,
 # rule 0). Makes /private/tmp/folio-tests/m4-<stamp>/work with a folder "target" and five text files,
@@ -14,6 +17,10 @@
 #                                then "Copy as path": pbpaste reads "<work>/alpha.txt" in quotes
 #   m4-2-properties-general.png  Option+Return on alpha.txt: the Properties window, General tab
 #   m4-3-properties-permissions.png  the Permissions tab (owner, group, the nine boxes, mode); Esc closes it
+#   m4-3b-marquee-held.png       a marquee held from the empty space up over delta.txt to gamma.txt
+#   m4-3c-after-lost-release.png the button let go with the release dropped before Folio (an event tap):
+#                                the marquee is gone
+#   m4-3d-after-press.png        one click on alpha.txt, then Down: beta.txt selected (the press had ended)
 #   m4-4-drag-over-target.png    beta.txt dragged over the target row, mid-drag: row lit, "Move to target"
 #   m4-5-dropped.png             after the drop: beta.txt moved into target (same volume moves)
 #   m4-6-background-menu.png     right-click empty space: View, Sort by, Group by, Refresh, Paste, New...
@@ -23,6 +30,7 @@
 #   m4-8b-spring-dropped.png     dropped on target's background: delta.txt moved into target
 #   m4-9-pinned.png              back in work, target dropped between Quick access's first two pins
 #   m4-10-alias.png              right-click epsilon.txt, "Create alias": "epsilon.txt alias" appears
+#   m4-12-mission-control.png    after every drag above, Ctrl+Up: Mission Control opens
 # Prints one line per step and exits non-zero if any step fails.
 set -u
 
@@ -55,11 +63,16 @@ cat > "$ROOT/folio-mouse.swift" <<'SWIFT'
 //   folio-mouse click <x> <y> [--right] [--option]
 //   folio-mouse drag <x1> <y1> <x2> <y2> [--right] [--control] [--hold S]
 //                    [--shot PATH --shot-at S] [--then X Y --then-hold S]
+//   folio-mouse press <x1> <y1> <x2> <y2>   left press at 1, dragged to 2, and left held (no release)
+//   folio-mouse release <x> <y> [--swallow-for <pid>]  the left button up at (x, y); with --swallow-for an
+//                                           event tap on that process drops the release before it gets it,
+//                                           while the rest of the system sees the button go up
 //
 // A drag presses at (x1, y1), moves in small steps to (x2, y2), stays there `--hold` seconds (nudging
 // the pointer so the destination keeps getting updates), takes `--shot` with screencapture `--shot-at`
 // seconds into the hold, optionally moves on to `--then` (after a spring-loaded folder opened) and
 // lets go. `--control` holds the Control key for the last part of the drag and the drop.
+import AppKit
 import CoreGraphics
 import Foundation
 
@@ -115,6 +128,7 @@ let control = flag("--control")
 let hold = Double(value("--hold") ?? "0.5") ?? 0.5
 let shotPath = value("--shot")
 let shotAt = Double(value("--shot-at") ?? "0.3") ?? 0.3
+let swallowFor = value("--swallow-for").flatMap { pid_t($0) }
 let then = values("--then", 2)
 let thenHold = Double(value("--then-hold") ?? "0.6") ?? 0.6
 let mode = args.first ?? ""
@@ -197,9 +211,44 @@ case "drag" where nums.count == 4:
     print("drag \(Int(a.x)),\(Int(a.y)) -> \(Int(end.x)),\(Int(end.y))" + (control ? " with Control" : "")
           + (right ? " with the right button" : ""))
 
+case "press" where nums.count == 4:
+    let a = CGPoint(x: nums[0], y: nums[1]), b = CGPoint(x: nums[2], y: nums[3])
+    post(.mouseMoved, a, .left)
+    pause(0.15)
+    post(.leftMouseDown, a, .left)
+    pause(0.25)
+    for i in 1...30 {
+        let t = CGFloat(i) / 30
+        post(.leftMouseDragged, CGPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t), .left)
+        pause(0.02)
+    }
+    pause(0.2)
+    print("press \(Int(a.x)),\(Int(a.y)) -> \(Int(b.x)),\(Int(b.y)), button still down")
+
+case "release" where nums.count == 2:
+    let p = CGPoint(x: nums[0], y: nums[1])
+    var tap: CFMachPort?
+    if let pid = swallowFor {
+        // What a press meets when Mission Control or a Space switch takes its release: the button is up
+        // for the system, but no mouse-up event reaches the app. A tap on that one process drops it.
+        tap = CGEvent.tapCreateForPid(pid: pid, place: .headInsertEventTap, options: .defaultTap,
+                                      eventsOfInterest: CGEventMask(1 << CGEventType.leftMouseUp.rawValue),
+                                      callback: { _, type, event, _ in type == .leftMouseUp ? nil : Unmanaged.passUnretained(event) },
+                                      userInfo: nil)
+        guard let tap else { print("release: no event tap on \(pid) (Accessibility?)"); exit(1) }
+        CFRunLoopAddSource(CFRunLoopGetCurrent(), CFMachPortCreateRunLoopSource(nil, tap, 0), .commonModes)
+        CGEvent.tapEnable(tap: tap, enable: true)
+    }
+    post(.leftMouseUp, p, .left)
+    // Stay a moment: a release posted just before exiting can be lost, leaving the button held.
+    RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.4))
+    if let tap { CGEvent.tapEnable(tap: tap, enable: false) }
+    print("released at \(Int(p.x)),\(Int(p.y))" + (swallowFor.map { ", the event dropped before process \($0)" } ?? "")
+          + "; left button down now: \(NSEvent.pressedMouseButtons & 1 == 1)")
+
 default:
     print("usage: folio-mouse click <x> <y> [--right] [--option] | drag <x1> <y1> <x2> <y2> [--right] [--control] "
-          + "[--hold S] [--shot PATH --shot-at S] [--then X Y --then-hold S]")
+          + "[--hold S] [--shot PATH --shot-at S] [--then X Y --then-hold S] | press <x1> <y1> <x2> <y2> | release <x> <y>")
     exit(2)
 }
 for p in captures { p.waitUntilExit() }
@@ -294,6 +343,35 @@ end run
 OSA
 }
 row_names() { rows "$1" | paste -sd '|' -; }
+
+# selected_rows <window>: the names on the file list's selected rows, joined with |.
+selected_rows() {
+    osascript - "$1" 2>/dev/null <<'OSA'
+on run argv
+    set out to {}
+    tell application "System Events" to tell process "Folio"
+        set t to table 1 of scroll area 2 of window (item 1 of argv)
+        repeat with r in rows of t
+            if selected of r then set end of out to (description of UI element 1 of r) as text
+        end repeat
+    end tell
+    set AppleScript's text item delimiters to "|"
+    return out as text
+end run
+OSA
+}
+
+# Mission Control is open while the Dock shows its "Mission Control" group.
+mission_control_open() { osascript -e 'tell application "System Events" to tell process "Dock" to exists group "Mission Control"' 2>/dev/null; }
+wait_mission_control() {
+    local i=0 n=$(( ${2:-3} * 4 ))
+    while [ "$i" -lt "$n" ]; do
+        [ "$(mission_control_open)" = "$1" ] && return 0
+        sleep 0.25
+        i=$((i + 1))
+    done
+    return 1
+}
 has_row() { rows "$1" | grep -Fxq "$2"; }
 
 wait_rows() {
@@ -426,6 +504,8 @@ defaults delete com.anshul.folio quickAccessPins >/dev/null 2>&1
 osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true' >/dev/null 2>&1
 echo -n "" | pbcopy
 
+# Folio's log from here on is read in step 11.
+LOG_START="$(date '+%Y-%m-%d %H:%M:%S')"
 open -a "$APP" "$WORK"
 if wait_window "work" 15 && wait_rows "work" 10 "epsilon.txt"; then
     echo "launch: ok - window \"work\", rows: $(row_names work)"
@@ -481,6 +561,36 @@ else
 fi
 osascript -e 'tell application "System Events" to set frontmost of process "Folio" to true' >/dev/null 2>&1
 sleep 0.5
+
+# --- 3b: a marquee whose release never reaches Folio; then one click and Down work at once ----------------
+# The press follows the button, not only its mouse-up event: once the button is up, the marquee ends.
+# Without that, the click's mouse-up went to ending the marquee, the list sat in that click's press, and
+# Down waited for the next click. Mission Control or a Space switch can take a release on a real Mac; in
+# the VM, Ctrl+Up during a press still let the release through, so an event tap drops it instead.
+blank=$(list_blank work)
+over=$(row_point work delta.txt)
+echo "  $("$MOUSE" press ${blank% *} ${blank#* } ${over% *} ${over#* })"
+sleep 0.4
+f1=$(shot m4-3b-marquee-held)
+banded=$(selected_rows work)
+rel=$("$MOUSE" release ${over% *} ${over#* } --swallow-for "$(pgrep -x Folio | head -1)")
+echo "  $rel"
+sleep 0.8
+f2=$(shot m4-3c-after-lost-release)
+pt=$(row_point work alpha.txt)
+echo "  $("$MOUSE" click ${pt% *} ${pt#* })"
+sleep 0.5
+keys 'key code 125'
+sleep 0.8
+after=$(selected_rows work)
+f3=$(shot m4-3d-after-press)
+if echo "$rel" | grep -q "dropped before process [0-9]*; left button down now: false" && [ "$after" = "beta.txt" ]; then
+    pass 3b press-without-release "marquee held over [$banded], its release dropped before Folio; one click on alpha.txt and Down select [$after]; $f1 $f2 $f3"
+else
+    fail 3b press-without-release "marquee [$banded]; release: [$rel]; after a click on alpha.txt and Down: [$after], expected beta.txt; ${f3:-no shot}"
+fi
+# A list still stuck in a press would hold the next steps' events: one more release frees it.
+[ "$after" = "beta.txt" ] || echo "  $("$MOUSE" click ${pt% *} ${pt#* })"
 
 # --- 4 and 5: drag beta.txt onto the target row ------------------------------------------------------
 from=$(row_point work beta.txt)
@@ -570,15 +680,38 @@ else
     fail 10 alias "rows: $(row_names work)"
 fi
 
+# --- 11: the drags above ended cleanly: no "unrecognized selector" in Folio's log -------------------------
+# NSTableView and NSOutlineView have no draggingEnded:, so a super call there threw inside macOS's drag
+# completion; the system then still saw a drag (step 12).
+thrown=$(log show --start "$LOG_START" --style compact --predicate 'process == "Folio"' 2>/dev/null | grep "unrecognized selector")
+if [ -z "$thrown" ]; then
+    pass 11 drag-log "no \"unrecognized selector\" in Folio's log since launch ($LOG_START), after the drags of steps 4 to 9"
+else
+    fail 11 drag-log "$(echo "$thrown" | wc -l | tr -d ' ') lines, first: $(echo "$thrown" | head -1 | cut -c1-220)"
+fi
+
+# --- 12: Mission Control still opens (Ctrl+Up) with Folio running ------------------------------------------
+osascript -e 'tell application "System Events" to key code 126 using control down' >/dev/null 2>&1
+if wait_mission_control true 4; then
+    sleep 0.6
+    f=$(shot m4-12-mission-control)
+    pass 12 mission-control "Ctrl+Up opened Mission Control after the drags; $f"
+else
+    f=$(shot m4-12-mission-control)
+    fail 12 mission-control "Ctrl+Up: no Mission Control within 4 s; ${f:-no shot}"
+fi
+osascript -e 'tell application "System Events" to key code 53' >/dev/null 2>&1
+wait_mission_control false 3
+
 # --- quit and clean up ------------------------------------------------------------------------------
 osascript -e 'quit app "Folio"' >/dev/null 2>&1
 i=0
 while pgrep -x Folio >/dev/null && [ "$i" -lt 40 ]; do sleep 0.25; i=$((i + 1)); done
 if pgrep -x Folio >/dev/null; then
     pkill -x Folio
-    fail 11 quit "Folio was still running 10 s after quit"
+    fail 13 quit "Folio was still running 10 s after quit"
 else
-    pass 11 quit "Folio quit"
+    pass 13 quit "Folio quit"
 fi
 defaults delete com.anshul.folio quickAccessPins >/dev/null 2>&1
 mv "$ROOT" "$HOME/.Trash/" 2>/dev/null
