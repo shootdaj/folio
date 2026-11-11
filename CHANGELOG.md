@@ -25,6 +25,10 @@ pushed; the release workflow publishes the section below with that number as the
   item in the view" turned the hidden-files radio off again at once. General's "Click items as follows"
   had the same fault for its two pairs. Each group now keeps its own choice. View > Show > Hidden Items
   (Cmd+Shift+.) was not affected.
+- **Open folders in Folio says why macOS 26 keeps folders on Finder.** macOS 26 protects the default
+  app for folders and refuses it with error -50 for every app, Finder too. Folio now says that macOS
+  protects the setting and that only Finder can change it, in place of a bare "error -50". Drives still
+  open in Folio, and the box now shows on while they do, so a second click hands them back to Finder.
 
 ## [1.0.0] - 2026-11-07
 
