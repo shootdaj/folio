@@ -278,6 +278,13 @@ extension BrowserWindowController: FileListDelegate {
         scrollToItem(row)
         renameBatch = batch
         let entry = entries[row]
+        if viewMode == .columns {
+            // Over the name in the current folder's column (its cells start at the row's edge).
+            if let table = activeColumnTable {
+                renamer.begin(in: table, tableRow: row, row: row, entry: entry, textX: ListMetrics.rowLead + 16 + 9)
+            }
+            return
+        }
         if !viewMode.usesTable {
             // The icon views: the box goes over the label, as wide as the cell.
             grid.layoutSubtreeIfNeeded()

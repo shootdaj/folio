@@ -518,7 +518,7 @@ extension BrowserWindowController: QLPreviewPanelDelegate {
         let key = event.keyCode
         return MainActor.assumeIsolated {
             guard quickLookItems.count <= 1 else { return false }
-            let grid = !viewMode.usesTable
+            let grid = viewMode.usesGrid
             let line = grid ? self.grid.itemsPerLine : 1
             switch key {
             case 125: moveSelection(grid && line > 1 && !self.grid.isHorizontal ? .pageDown(line) : .down, extend: false)

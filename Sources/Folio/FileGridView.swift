@@ -399,15 +399,15 @@ final class FileGridView: NSCollectionView {
         case .content:
             return NSSize(width: room.width, height: compact ? 54 : 62)
         case .gallery: return NSSize(width: 150, height: 160)
-        case .details: return NSSize(width: 200, height: 24)
+        case .details, .columns: return NSSize(width: 200, height: 24)
         }
     }
 
-    /// In Details the grid is hidden and holds nothing.
+    /// In Details and Columns the grid is hidden and holds nothing.
     func sectionCount() -> Int {
         // Counts depend on the view and the layout only, never on geometry, or the collection view's cached
         // counts and its layout's disagree and it lays out forever.
-        guard !mode.usesTable else { return 0 }
+        guard mode.usesGrid else { return 0 }
         return layoutModel.isGrouped ? layoutModel.groups.count : 1
     }
 

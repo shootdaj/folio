@@ -16,6 +16,14 @@ pushed; the release workflow publishes the section below with that number as the
   "Reveal in Finder" in apps that ask macOS through NSWorkspace show the item selected in Folio. Apps that
   call Finder by name still go to Finder. Off sends reveals to Finder again, and `make uninstall` removes
   the key. See docs/INSTALL.md section 5.
+- **Columns view.** Finder's column view in Folio's look, beside Details, List, the icons, Tiles, Content
+  and Gallery (View > Columns, the View button, Ctrl+Shift+9). A column per folder from the first one
+  (home, a Quick access place or the drive) to the current folder; a selected folder's contents or a
+  selected file's preview card after it. Right goes into the selected folder, Left back to the column
+  before; Back, Forward and Up work as everywhere; every file command, drag and menu works in the current
+  column, and a click in another column makes its folder the current one at once. Dividers drag to resize
+  (the width is kept for every folder) and double-click to fit. Group by and filters are greyed there, and
+  search results keep their list.
 
 ### Fixed
 

@@ -93,7 +93,7 @@ private func suite() -> UserDefaults {
         #expect(ViewMode.forShortcut(6) == .details)
         #expect(ViewMode.forShortcut(7) == .tiles)
         #expect(ViewMode.forShortcut(8) == .content)
-        #expect(ViewMode.forShortcut(9) == nil)
+        #expect(ViewMode.forShortcut(9) == .columns)
         #expect(ViewMode.gallery.shortcut == nil)
     }
 

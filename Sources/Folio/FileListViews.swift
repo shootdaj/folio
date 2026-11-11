@@ -53,8 +53,9 @@ protocol FileListDelegate: AnyObject {
 }
 
 /// The table, with hover tracking for the 5.5% row wash, Explorer clicks (Cmd+click toggles, Shift+click
-/// ranges, Cmd+Shift+click adds a range), a rubber band from empty space, and item check boxes.
-final class FolioTableView: NSTableView {
+/// ranges, Cmd+Shift+click adds a range), a rubber band from empty space, and item check boxes. The
+/// Columns view's tables (ColumnTableView) are this table too, one per column.
+class FolioTableView: NSTableView {
     private(set) var hoveredRow = -1
     weak var listDelegate: FileListDelegate?
     /// Table row to item (nil on a group header) and item to table row; identity until grouped.
@@ -558,8 +559,14 @@ final class GroupHeaderCellView: NSTableCellView {
 
 /// A row (D4's `.row.os-row`): a hairline under it; on hover a 3% wash, the cursor glow in the row's hue
 /// following the pointer and a 2 pt edge in the hue; selected, the `--sel` fill and a glowing 3 pt
-/// accent edge on the left.
+/// accent edge on the left. In the Columns view (`columnStyle`) there is no hairline, a folder shows a
+/// chevron at its right edge, and a column other than the current one draws its lit row `quiet`.
 final class FolioRowView: NSTableRowView {
+    var columnStyle = false { didSet { if columnStyle != oldValue { needsDisplay = true } } }
+    /// The item that leads to the next column, in a column that is not the current one: the accent, softer.
+    var quiet = false { didSet { if quiet != oldValue { needsDisplay = true } } }
+    /// Room kept clear at the right edge for the folder chevron (the column's cells end before it).
+    static let chevronRoom: CGFloat = 26
     var isHovered = false {
         didSet {
             guard isHovered != oldValue else { return }
@@ -596,7 +603,7 @@ final class FolioRowView: NSTableRowView {
         guard !isGroupRowStyle else { return }
         let p = Palette.current
         let hue = self.hue
-        if !isSelected {
+        if !isSelected && !columnStyle {
             fillRect(NSRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1), p.rowLine)
         }
         if isHovered && !isSelected {
@@ -616,6 +623,11 @@ final class FolioRowView: NSTableRowView {
     override func drawSelection(in dirtyRect: NSRect) {
         guard !isGroupRowStyle else { return }
         let p = Palette.current
+        if quiet {
+            fillRect(bounds, p.selectionFill.withAlpha(p.selectionFill.a * 0.75))
+            fillRect(NSRect(x: 0, y: 0, width: 2, height: bounds.height), p.accent.withAlpha(0.7))
+            return
+        }
         fillRect(bounds, p.selectionFill)
         drawCursorGlow(in: bounds, center: glowCentre(), color: hue, alpha: p.glowAlpha)
         drawEdgeBar(NSRect(x: 0, y: 0, width: 3, height: bounds.height), color: p.accent, glowAlpha: 1)
@@ -626,6 +638,11 @@ final class FolioRowView: NSTableRowView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
+        if columnStyle, item?.isFolder == true {
+            let p = Palette.current
+            let tone = isSelected ? (quiet ? p.text2 : p.accent) : (isHovered ? p.text2 : p.muted)
+            Glyph.chevron.draw(in: NSRect(x: bounds.maxX - 8 - 14, y: bounds.midY - 7, width: 14, height: 14), color: tone.ns)
+        }
         guard isDropTarget else { return }
         let p = Palette.current
         let r = bounds.insetBy(dx: 3, dy: 0.5)
@@ -841,12 +858,15 @@ final class ListPaneView: NSView {
     let scrollView = NSScrollView()
     let gridScroll = NSScrollView()
     let gallery = QuickLookBox()
+    /// The Columns view: a table per folder, side by side.
+    let columns = ColumnBrowserView(frame: .zero)
     static let galleryStripH: CGFloat = 186
     var mode: ViewMode = .details {
         didSet {
             guard mode != oldValue else { return }
             scrollView.isHidden = !mode.usesTable
-            gridScroll.isHidden = mode.usesTable
+            gridScroll.isHidden = !mode.usesGrid
+            columns.isHidden = mode != .columns
             gallery.isHidden = mode != .gallery
             if mode != .gallery { gallery.close() }
             gridScroll.hasHorizontalScroller = mode == .list || mode == .gallery
@@ -899,6 +919,8 @@ final class ListPaneView: NSView {
         addSubview(gridScroll)
         gallery.isHidden = true
         addSubview(gallery)
+        columns.isHidden = true
+        addSubview(columns)
         searchFooter.isHidden = true
         searchEmpty.isHidden = true
         addSubview(searchEmpty)
@@ -921,6 +943,7 @@ final class ListPaneView: NSView {
             searchEmpty.frame = NSRect(x: inner.minX, y: inner.minY + top, width: inner.width, height: max(0, min(120, inner.height - top)))
         }
         scrollView.frame = inner
+        columns.frame = inner
         if mode == .gallery {
             let strip = min(Self.galleryStripH, inner.height / 2)
             gallery.frame = NSRect(x: inner.minX, y: inner.minY, width: inner.width, height: inner.height - strip)

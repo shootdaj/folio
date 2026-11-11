@@ -158,6 +158,8 @@ extension BrowserWindowController {
         }
         guard !searchUIShown else { return }
         searchUIShown = true
+        // The list holds results now, not a folder's items (Columns must not take them for one).
+        listedFolder = nil
         isLoading = false
         isTrashView = false
         filters.clearAll()

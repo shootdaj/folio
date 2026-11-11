@@ -73,6 +73,7 @@ extension BrowserWindowController {
         updateChrome()
         chassis.statusShown = o.showStatusBar
         tableView.singleClickOpens = o.singleClickOpens
+        columnBrowser.forEachTable { $0.singleClickOpens = o.singleClickOpens }
         chassis.sidebar.pane.setLayout(NavigationLayout(showAllFolders: o.showAllFolders, showNetwork: o.showNetwork,
                                                         showThisPC: o.showThisPC, hideEmptyDrives: o.hideEmptyDrives,
                                                         showDriveLetters: o.showDriveLetters))
@@ -132,7 +133,11 @@ extension BrowserWindowController {
 
     /// The folders every tab shows (not Home, not inside a zip), and the tree's roots.
     func updateWatches() {
-        let folders = tabs.tabs.map(\.history.current).filter { !NavigationHistory.isHome($0) && ZipPath.split($0) == nil }
+        var folders = tabs.tabs.map(\.history.current).filter { !NavigationHistory.isHome($0) && ZipPath.split($0) == nil }
+        // Columns: every folder from the first column to the current one stays live.
+        if viewMode == .columns {
+            folders += columnStore.pathFolders.map { URL(fileURLWithPath: $0) }.filter { ZipPath.split($0) == nil }
+        }
         folderWatcher?.watch(Set(folders.map(\.path)))
         let roots = Set(volumes.map(\.path) + [FileManager.default.homeDirectoryForCurrentUser.path])
         treeWatcher?.watch(roots: roots)
@@ -140,7 +145,9 @@ extension BrowserWindowController {
 
     /// The shown tab's folder changed on disk: listed again, selection and scroll kept.
     private func watchedFoldersChanged(_ keys: Set<String>) {
-        guard !history.isHome, !isInZip, !isSearching else { return }
+        guard !history.isHome, !isSearching else { return }
+        columnFoldersChanged(keys)
+        guard !isInZip else { return }
         guard keys.contains(FilePaths.folderKey(history.current)) else { return }
         refreshSoon()
     }
