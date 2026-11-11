@@ -269,7 +269,12 @@ final class ColumnView: NSView, NSTableViewDataSource, NSTableViewDelegate {
         didSet {
             guard isActive != oldValue else { return }
             table.isActiveColumn = isActive
-            table.enumerateAvailableRowViews { view, _ in (view as? FolioRowView)?.quiet = !isActive }
+            // Only the current column shows the keyboard focus ring; the others light their path row, quieter.
+            table.enumerateAvailableRowViews { view, row in
+                guard let view = view as? FolioRowView else { return }
+                view.quiet = !isActive
+                view.isFocusRow = isActive && row == focusRow
+            }
         }
     }
     /// Explorer's focus rectangle (Ctrl+arrows), in the current column.

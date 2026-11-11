@@ -324,21 +324,6 @@ end run
 OSA
 }
 col_selected() { col_rows "$1" "$2" selected; }
-# col_selected_fast <window> <column>: the first lit name from AXSelectedRows (no walk over 50,000 rows).
-col_selected_fast() {
-    osascript - "$1" "$2" 2>/dev/null <<OSA
-$AX_WALK
-on run argv
-    tell application "System Events" to tell process "Folio"
-        set found to my walk(window (item 1 of argv), 9, item 2 of argv, {})
-        if (count of found) is 0 then return ""
-        set picked to value of attribute "AXSelectedRows" of (item 1 of found)
-        if (count of picked) is 0 then return ""
-        return (description of UI element 1 of (item 1 of picked)) as text
-    end tell
-end run
-OSA
-}
 # col_frame <window> <column>: "x y w h" of that column's table on screen.
 col_frame() {
     osascript - "$1" "$2" 2>/dev/null <<OSA
@@ -641,6 +626,9 @@ fi
 front
 keys 'key code 123'
 sleep 1.2
+# photo.png selected first: its preview column comes in and the strip settles before the drag.
+click_at "$(col_point beta beta photo.png)"
+sleep 1.2
 from=$(col_point beta beta photo.png)
 to=$(col_point beta alpha sibling)
 fa=$(col_frame beta alpha)
@@ -693,12 +681,16 @@ fi
 sleep 0.5
 f13a=$(shot columns-13a-big-scrolled)
 keys 'key code 119'
-sleep 1.2
-last=$(col_selected_fast big big)
+sleep 1.5
+# The last file is lit when the preview column shows it and the status bar counts one selected.
+last=$(preview_value big | cut -d';' -f1)
+status13=$(status_text big)
+echo "  wheel: $scroll_out; the app answered $((t3 - t2)) ms after the last event; status \"$status13\""
 f=$(shot columns-13-big)
 perf=$(perf_lines 3m "columns: (read 50000|50000 items)" 4)
 echo "$perf" | sed 's/^/    /'
-if [ "$lit" = "big" ] && has_window big && [ "$last" = "file-50000.txt" ] && echo "$perf" | grep -q "read 50000 items"; then
+if [ "$lit" = "big" ] && has_window big && [ "$last" = "file-50000.txt" ] && echo "$status13" | grep -q "^50,000 items, 1 selected" \
+   && echo "$perf" | grep -q "read 50000 items"; then
     pass 13 big "\"bi\" lit big, its 50,000 files read and logged $((t1 - t0)) ms after the keys; Right into it; $scroll_out, answered $((t3 - t2)) ms after the last; End lit $last; $f13a $f"
 else
     fail 13 big "lit [$lit], windows [$(names_now)], last [$last], frame [$fbig], perf [$perf]; ${f:-none}"
