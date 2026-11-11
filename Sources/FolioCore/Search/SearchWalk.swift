@@ -124,16 +124,20 @@ public struct SearchMerger: Sendable {
 
     public func contains(_ url: URL) -> Bool { seen.contains(FilePaths.itemKey(url)) }
 
-    /// Relevance first, then names as Finder sorts them.
+    /// Relevance first, then names as Finder sorts them (StandardOrder: each name made a Core
+    /// Foundation string once, not on every comparison).
     public static func ranked(_ hits: [SearchHit]) -> [SearchHit] {
-        hits.sorted { a, b in
+        let names = hits.map { StandardOrder.key($0.entry.name) }
+        let order = StandardOrder()
+        return hits.indices.sorted { i, j in
+            let (a, b) = (hits[i], hits[j])
             if a.score != b.score { return a.score > b.score }
-            switch a.entry.name.localizedStandardCompare(b.entry.name) {
-            case .orderedAscending: return true
-            case .orderedDescending: return false
-            case .orderedSame: return a.entry.url.path < b.entry.url.path
+            switch order.compare(names[i], names[j]) {
+            case -1: return true
+            case 1: return false
+            default: return a.entry.url.path < b.entry.url.path
             }
-        }
+        }.map { hits[$0] }
     }
 }
 
