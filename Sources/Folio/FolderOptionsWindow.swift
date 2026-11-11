@@ -379,14 +379,18 @@ final class OptionsListView: NSView {
     }
 }
 
-/// A radio in D4's language: a 14 pt ring (outline), the accent ring and dot when chosen, a Geist label. An NSButton of the
-/// radio type, so accessibility sees a radio button.
+/// A radio in D4's language: a 14 pt ring (outline), the accent ring and dot when chosen, a Geist label.
+///
+/// Not of AppKit's radio type: AppKit makes one group of every radio with the same superview and action,
+/// and turning one on turns the others off. Advanced settings has two groups in one view (hidden items,
+/// typing), so the typing radio turned "Show hidden files" off again. The window keeps each group's
+/// choice itself (the draft). Accessibility still sees a radio button, with its value.
 final class OSRadio: NSButton {
     var onPick: (() -> Void)?
 
     init(_ title: String) {
         super.init(frame: NSRect(x: 0, y: 0, width: 200, height: 20))
-        setButtonType(.radio)
+        setButtonType(.onOff)
         self.title = title
         setAccessibilityLabel(title)
         isBordered = false
@@ -403,6 +407,10 @@ final class OSRadio: NSButton {
         set { state = newValue ? .on : .off; needsDisplay = true }
     }
 
+    override func accessibilityRole() -> NSAccessibility.Role? { .radioButton }
+    override func accessibilityValue() -> Any? { NSNumber(value: isSelected ? 1 : 0) }
+
+    /// A click on a chosen radio leaves it on, as a radio does (the on-off type would turn it off).
     @objc private func picked(_ sender: Any?) {
         isSelected = true
         onPick?()

@@ -20,6 +20,11 @@ pushed; the release workflow publishes the section below with that number as the
   folder, but the pane scrolls to it only when no row for that folder (a pin, a tree row) is in view.
   Before, a click on a pin scrolled the pane to the same folder under This PC, and the pin left the view.
   A typed path, New folder from a node's menu and Ctrl+Shift+E still scroll to the folder's tree row.
+- **"Show hidden files, folders and drives" can be chosen in Folder Options.** AppKit made one radio
+  group of every radio in a view, so View > Advanced settings had one group, not two: "Select the typed
+  item in the view" turned the hidden-files radio off again at once. General's "Click items as follows"
+  had the same fault for its two pairs. Each group now keeps its own choice. View > Show > Hidden Items
+  (Cmd+Shift+.) was not affected.
 
 ## [1.0.0] - 2026-11-07
 
