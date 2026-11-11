@@ -22,9 +22,13 @@ public struct FileEntry: Sendable, Hashable {
     /// read them with the item (BulkListing); nil means not known, so ask the disk.
     public let finderFlags: UInt16?
     public let bsdFlags: UInt32?
+    /// False when the listing knows the item has no extended attributes at all (so no tags): no need
+    /// to ask the disk. Nil when not known.
+    public let hasExtendedAttributes: Bool?
 
     public init(url: URL, name: String, isFolder: Bool, modified: Date?, size: Int64?, kind: String, isCloudOnly: Bool = false,
-                isHidden: Bool = false, isLink: Bool = false, finderFlags: UInt16? = nil, bsdFlags: UInt32? = nil) {
+                isHidden: Bool = false, isLink: Bool = false, finderFlags: UInt16? = nil, bsdFlags: UInt32? = nil,
+                hasExtendedAttributes: Bool? = nil) {
         self.url = url
         self.name = name
         self.isFolder = isFolder
@@ -36,7 +40,11 @@ public struct FileEntry: Sendable, Hashable {
         self.isLink = isLink
         self.finderFlags = finderFlags
         self.bsdFlags = bsdFlags
+        self.hasExtendedAttributes = hasExtendedAttributes
     }
+
+    /// The item may have tags (the listing did not rule it out).
+    public var mayHaveTags: Bool { hasExtendedAttributes ?? true }
 
     /// Finder's "has custom icon" flag: false when known to be off, true when on or not read.
     public var mayHaveCustomIcon: Bool { finderFlags.map { $0 & FolderIcon.hasCustomIconFlag != 0 } ?? true }

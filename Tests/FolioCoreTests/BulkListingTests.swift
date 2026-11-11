@@ -110,6 +110,26 @@ import Testing
         #expect(unknown.first { $0.name == "Plain Folder" }?.mayHaveCustomIcon == true)
     }
 
+    @Test func theListingKnowsWhichItemsHaveNoExtendedAttributes() throws {
+        let t = try makeFixture()
+        defer { close(t) }
+        try FileTags.setNames(["Work"], of: t.url("fx/data.json"))
+        var kinds: [String: String] = [:]
+        let rows = try #require(BulkListing.entries(t.url("fx"), includeHidden: true, hideProtected: false, kinds: &kinds))
+        var seen = 0
+        for row in rows where !row.isLink {
+            let real = listxattr(row.url.path, nil, 0, XATTR_NOFOLLOW) > 0
+            if let known = row.hasExtendedAttributes {
+                #expect(known == real, "\(row.name): listing says \(known), the disk \(real)")
+                seen += 1
+            }
+        }
+        #expect(seen > 10, "APFS gives the flag for every item")
+        #expect(rows.first { $0.name == "data.json" }?.mayHaveTags == true)
+        // And every other value still reads as the URL way gives it.
+        try compare(t.url("fx"), hidden: true)
+    }
+
     @Test func aFolderNeedingSeveralKernelCallsReadsEveryItem() throws {
         // 3,000 entries with long names fill the 256 KB buffer more than once.
         let t = try TestTree()

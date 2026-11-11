@@ -19,6 +19,8 @@ enum BulkListing {
         /// BSD flags (`UF_HIDDEN`, `UF_IMMUTABLE`, `UF_COMPRESSED`).
         var flags: UInt32
         var isMountPoint: Bool
+        /// The file system's extended flags (EF_NO_XATTRS), when it gives them.
+        var extFlags: UInt64?
         /// The kernel could not read this entry's attributes.
         var failed: Bool
     }
@@ -47,12 +49,14 @@ enum BulkListing {
             | attrgroup_t(ATTR_CMN_FNDRINFO) | attrgroup_t(ATTR_CMN_ACCESSMASK) | attrgroup_t(ATTR_CMN_FLAGS)
         request.dirattr = attrgroup_t(ATTR_DIR_MOUNTSTATUS)
         request.fileattr = attrgroup_t(ATTR_FILE_DATALENGTH)
+        // Extended common attributes ride in forkattr: the extended flags say "no extended attributes".
+        request.forkattr = attrgroup_t(ATTR_CMNEXT_EXT_FLAGS)
         let size = 256 * 1024
         let buffer = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)
         defer { buffer.deallocate() }
         var out: [Raw] = []
         while true {
-            let count = getattrlistbulk(fd, &request, buffer, size, 0)
+            let count = getattrlistbulk(fd, &request, buffer, size, UInt64(FSOPT_ATTR_CMN_EXTENDED))
             if count < 0 { return nil }
             if count == 0 { break }
             var entry = UnsafeRawPointer(buffer)
@@ -74,7 +78,7 @@ enum BulkListing {
         let common = returned.commonattr
         func has(_ bit: Int32) -> Bool { common & attrgroup_t(bit) != 0 }
         var raw = Raw(name: "", type: 0, modified: nil, size: nil, finderFlags: 0, mode: 0, flags: 0,
-                      isMountPoint: false, failed: false)
+                      isMountPoint: false, extFlags: nil, failed: false)
         if has(ATTR_CMN_ERROR) {
             raw.failed = p.loadUnaligned(as: UInt32.self) != 0
             p += 4
@@ -116,6 +120,10 @@ enum BulkListing {
         }
         if returned.fileattr & attrgroup_t(ATTR_FILE_DATALENGTH) != 0 {
             raw.size = p.loadUnaligned(as: Int64.self)
+            p += 8
+        }
+        if returned.forkattr & attrgroup_t(ATTR_CMNEXT_EXT_FLAGS) != 0 {
+            raw.extFlags = p.loadUnaligned(as: UInt64.self)
             p += 8
         }
         return raw
@@ -176,7 +184,8 @@ enum BulkListing {
                 isHidden: hidden,
                 isLink: isAlias,
                 finderFlags: raw.finderFlags,
-                bsdFlags: raw.flags))
+                bsdFlags: raw.flags,
+                hasExtendedAttributes: raw.extFlags.map { $0 & UInt64(EF_NO_XATTRS) == 0 }))
         }
         return out
     }

@@ -27,7 +27,8 @@ public enum FolderListing {
             let status = (try? e.url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey]))?.ubiquitousItemDownloadingStatus
             guard let status, status != .current, status != .downloaded else { return e }
             return FileEntry(url: e.url, name: e.name, isFolder: e.isFolder, modified: e.modified, size: e.size, kind: e.kind,
-                             isCloudOnly: true, isHidden: e.isHidden, isLink: e.isLink, finderFlags: e.finderFlags, bsdFlags: e.bsdFlags)
+                             isCloudOnly: true, isHidden: e.isHidden, isLink: e.isLink, finderFlags: e.finderFlags, bsdFlags: e.bsdFlags,
+                             hasExtendedAttributes: e.hasExtendedAttributes)
         }
     }
 

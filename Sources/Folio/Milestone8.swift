@@ -32,7 +32,10 @@ final class ItemDecorCache {
         icons[url.path] = nil
     }
 
-    func tagColors(_ url: URL) -> [TagColor] {
+    /// The listing usually knows an item has no extended attributes at all (so no tags): no disk call.
+    func tagColors(_ entry: FileEntry) -> [TagColor] {
+        guard entry.mayHaveTags else { return [] }
+        let url = entry.url
         if let known = tags[url.path] { return known }
         let colors = FileTags.read(url).map(\.color).filter { $0 != .none }
         tags[url.path] = colors
@@ -85,7 +88,7 @@ extension BrowserWindowController {
         let o = ListOptions.folder
         let decor = ItemDecorCache.shared
         let real = !isInZip
-        cell.tagColors = real ? decor.tagColors(entry.url) : []
+        cell.tagColors = real ? decor.tagColors(entry) : []
         cell.underline = o.singleClickOpens ? o.underline : nil
         cell.isFlagDimmed = real && o.showCompressedInColour && decor.lockedOrCompressed(entry)
         cell.customIcon = real && entry.isFolder ? decor.customIcon(entry) : nil
@@ -96,7 +99,7 @@ extension BrowserWindowController {
         let o = ListOptions.folder
         let decor = ItemDecorCache.shared
         cell.showsTypeBadge = o.fileIconOnThumbnails
-        cell.tagColors = isInZip ? [] : decor.tagColors(entry.url)
+        cell.tagColors = isInZip ? [] : decor.tagColors(entry)
         cell.isFlagDimmed = !isInZip && o.showCompressedInColour && decor.lockedOrCompressed(entry)
         cell.tip = o.showPopupDescriptions ? { [weak self] in self?.infoTip(entry) } : nil
     }

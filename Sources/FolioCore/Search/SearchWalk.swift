@@ -45,7 +45,8 @@ public final class FileSubject: SearchSubject {
     /// them: one `getxattr` says first whether the item has any (most have none).
     public var tags: [String] {
         if let t = given["tags"] as? [String] { return t }
-        guard FileTags.hasTags(entry.url) else { return [] }
+        // The listing usually knows the item has no extended attributes at all: then no disk call.
+        guard entry.mayHaveTags, FileTags.hasTags(entry.url) else { return [] }
         return values?.tagNames ?? []
     }
 
