@@ -7,6 +7,11 @@ pushed; the release workflow publishes the section below with that number as the
 
 ## [Unreleased]
 
+### Added
+
+- **Folio > Settings... (Cmd+,)** opens Folder Options, as Cmd+, opens an app's settings on a Mac, also
+  with no window open. View > Options... (Cmd+Option+,) stays.
+
 ### Fixed
 
 - **Mission Control works again after a drag over the navigation pane or the file list.** The drag ended

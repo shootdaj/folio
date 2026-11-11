@@ -78,6 +78,7 @@ item show only one key, or the key would take keys away from text fields).
 | | Hidden items | Cmd+Shift+. | Fn+Shift+. | View > Show > Hidden Items |
 | Alt, F10 | Access keys on the command bar | Option tapped alone | Cmd tapped alone | window |
 | | Folder Options | Cmd+Option+, | Cmd+Option+, | View > Options... |
+| | Folder Options, as the Mac's app settings | Cmd+, | Fn+, | Folio > Settings... |
 
 ## The navigation pane
 

@@ -16,6 +16,9 @@ enum MainMenu {
         add(name, to: main, [
             item("About \(name)", #selector(NSApplication.orderFrontStandardAboutPanel(_:))),
             .separator(),
+            // The Mac's place and key for an app's settings: Folder Options (also View > Options...).
+            item("Settings...", #selector(AppDelegate.showSettings(_:)), ","),
+            .separator(),
             // Milestone 9: Folio and macOS (also in View > Options > General).
             item("Open Folders in Folio Instead of Finder", #selector(AppDelegate.toggleFolderHandler(_:))),
             item("Launch at Login", #selector(AppDelegate.toggleLaunchAtLogin(_:))),
