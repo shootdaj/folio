@@ -180,7 +180,8 @@ final class VolumeCenter {
 
     /// At launch: every mapped share that is not mounted yet, quietly (Keychain passwords only).
     func remountMappedShares() {
-        let mounted = Set(volumes.map(\.path))
+        // At launch `volumes` is still being read: ask the mount table itself (no disk read).
+        let mounted = Set((FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: nil, options: []) ?? []).map(\.path))
         for raw in MappedShares(defaults: .standard).urls {
             guard let target = ServerAddress.parse(raw) else { continue }
             let name = target.share.lastPathComponent

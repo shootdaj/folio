@@ -820,7 +820,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         selection.adopt(rows, focus: rows.first)
         applyingSelection = true
         tableView.reloadData()
-        grid.reloadData()
+        // The grid is hidden in Details: it reloads when an icon view shows it (applyViewMode).
+        if !viewMode.usesTable { grid.reloadData() }
         tableView.selectRowIndexes(tableRows(of: rows), byExtendingSelection: false)
         applyingSelection = false
         header.filtered = Set(filters.columns)
@@ -996,7 +997,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate,
         chassis.sidePaneKind = ListOptions.sidePane
         if !entries.isEmpty {
             tableView.reloadData(forRowIndexes: IndexSet(integersIn: 0..<layout.rows.count), columnIndexes: IndexSet(tableView.tableColumns.indices))
-            grid.reloadData()
+            if !viewMode.usesTable { grid.reloadData() }
         }
         updateStatus()
         selectionDidChange()
