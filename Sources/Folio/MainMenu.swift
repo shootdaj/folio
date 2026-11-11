@@ -20,6 +20,7 @@ enum MainMenu {
             item("Open Folders in Folio Instead of Finder", #selector(AppDelegate.toggleFolderHandler(_:))),
             item("Launch at Login", #selector(AppDelegate.toggleLaunchAtLogin(_:))),
             item("Keep Running When the Last Window Closes", #selector(AppDelegate.toggleKeepRunning(_:))),
+            item("Full Disk Access…", #selector(AppDelegate.openFullDiskAccess(_:))),
             .separator(),
             servicesItem,
             .separator(),
