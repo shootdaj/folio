@@ -23,6 +23,8 @@
 #   copy-2gb        Cmd+C a 2 GB file, Cmd+V onto another APFS volume (a disk image): job done, MB/s
 #   memory-50       after opening 50 folders of 1,000 files one after another: footprint and RSS
 #   churn-cpu       a tab on a folder while 100 files a second are written below it for 20 s: Folio's CPU
+#   bench           (builds that have it) `Folio --bench` on the 50k and 200k folders: each step of opening
+#                   them timed on its own (list, arrange, keys, tree, search walk), printed under the table
 # ~/folio/perf.conf may set RUNS=n and ONLY="launch open sort ..." (moment groups) for a quicker pass.
 # Fixtures are made once under /private/tmp/folio-tests/perf-fixtures (about 460,000 small sparse files, 300
 # JPEGs and a 2 GB file) and kept for the next run. The vm-test helper brings back only ~/folio/shots/*.png,
@@ -38,7 +40,7 @@ MARKS="$RUN/marks.log"
 RAW="$RUN/raw.tsv"
 TOOL="$HOME/folio/folio-perftool"
 RUNS=3
-ONLY="launch open sort filter selectall scroll view thumbs search copy memory churn"
+ONLY="launch open sort filter selectall scroll view thumbs search copy memory churn bench"
 # A perf.conf counts for one run only.
 [ -f "$HOME/folio/perf.conf" ] && { . "$HOME/folio/perf.conf"; rm -f "$HOME/folio/perf.conf"; }
 fails=0
@@ -611,6 +613,12 @@ fi
 
 quit_folio
 
+# --- the steps on their own (Folio --bench, VM only; older builds do not have it) --------------------------
+: > "$RUN/bench.txt"
+if wants bench && grep -q "Folio --bench" "$APP/Contents/MacOS/Folio"; then
+    for n in 50k 200k; do "$APP/Contents/MacOS/Folio" --bench "$FLAT/f$n" 5 >> "$RUN/bench.txt" 2>&1; done
+fi
+
 # --- the table ---------------------------------------------------------------------------------------------------
 {
     printf '%-30s %3s %9s %9s %9s  %s\n' moment n median min max unit
@@ -622,6 +630,7 @@ quit_folio
         med=$(echo "$sorted" | awk -v n="$n" 'NR == int((n + 1) / 2)')
         printf '%-30s %3s %9s %9s %9s  %s\n' "$name" "$n" "$med" "$(echo "$sorted" | head -1)" "$(echo "$sorted" | tail -1)" "$unit"
     done
+    cat "$RUN/bench.txt"
 } > "$RUN/results.txt"
 cat "$RUN/results.txt"
 cp "$RUN/results.txt" "$SHOTS/perf-results.txt.png"
