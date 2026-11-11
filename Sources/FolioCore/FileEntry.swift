@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// One row of a folder listing. A plain value so it can cross threads.
@@ -17,9 +18,13 @@ public struct FileEntry: Sendable, Hashable {
     public let isHidden: Bool
     /// An alias or a symbolic link (its icon gets Explorer's shortcut arrow).
     public let isLink: Bool
+    /// Finder flags (custom icon, alias, bundle) and BSD flags (locked, compressed), when the listing
+    /// read them with the item (BulkListing); nil means not known, so ask the disk.
+    public let finderFlags: UInt16?
+    public let bsdFlags: UInt32?
 
     public init(url: URL, name: String, isFolder: Bool, modified: Date?, size: Int64?, kind: String, isCloudOnly: Bool = false,
-                isHidden: Bool = false, isLink: Bool = false) {
+                isHidden: Bool = false, isLink: Bool = false, finderFlags: UInt16? = nil, bsdFlags: UInt32? = nil) {
         self.url = url
         self.name = name
         self.isFolder = isFolder
@@ -29,6 +34,16 @@ public struct FileEntry: Sendable, Hashable {
         self.isCloudOnly = isCloudOnly
         self.isHidden = isHidden
         self.isLink = isLink
+        self.finderFlags = finderFlags
+        self.bsdFlags = bsdFlags
+    }
+
+    /// Finder's "has custom icon" flag: false when known to be off, true when on or not read.
+    public var mayHaveCustomIcon: Bool { finderFlags.map { $0 & FolderIcon.hasCustomIconFlag != 0 } ?? true }
+
+    /// Locked (uchg, schg) or compressed, from the listing's flags; nil when they were not read.
+    public var isLockedOrCompressed: Bool? {
+        bsdFlags.map { $0 & UInt32(UF_IMMUTABLE | UF_COMPRESSED | SF_IMMUTABLE) != 0 }
     }
 
     /// The name as listed: without its extension when View > File name extensions is off (folders and

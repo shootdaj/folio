@@ -93,6 +93,23 @@ import Testing
         #expect(shown.first { $0.name == "BundleBit" }?.isFolder == false, "the bundle bit makes a package")
     }
 
+    @Test func rowsKnowLockedAndCustomIconFromTheListing() throws {
+        let t = try makeFixture()
+        defer { close(t) }
+        try t.folder("fx/Iconned")
+        try setFinderFlags(FolderIcon.hasCustomIconFlag, t.url("fx/Iconned"))
+        var kinds: [String: String] = [:]
+        let rows = try #require(BulkListing.entries(t.url("fx"), includeHidden: true, hideProtected: false, kinds: &kinds))
+        func row(_ name: String) -> FileEntry? { rows.first { $0.name == name } }
+        #expect(row("locked.txt")?.isLockedOrCompressed == true)
+        #expect(row("notes.txt")?.isLockedOrCompressed == false)
+        #expect(row("Iconned")?.mayHaveCustomIcon == true)
+        #expect(row("Plain Folder")?.mayHaveCustomIcon == false, "no disk read for a folder without the flag")
+        let unknown = try FolderListing.listByURL(t.url("fx"), includeHidden: true, hideProtected: false, kinds: &kinds)
+        #expect(unknown.first { $0.name == "locked.txt" }?.isLockedOrCompressed == nil, "the URL way leaves it to the disk")
+        #expect(unknown.first { $0.name == "Plain Folder" }?.mayHaveCustomIcon == true)
+    }
+
     @Test func aFolderNeedingSeveralKernelCallsReadsEveryItem() throws {
         // 3,000 entries with long names fill the 256 KB buffer more than once.
         let t = try TestTree()

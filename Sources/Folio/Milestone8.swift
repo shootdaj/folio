@@ -39,8 +39,10 @@ final class ItemDecorCache {
         return colors
     }
 
-    /// Locked (uchg) or compressed (APFS/HFS compression).
-    func lockedOrCompressed(_ url: URL) -> Bool {
+    /// Locked (uchg) or compressed (APFS/HFS compression). The listing's flags answer without a disk read.
+    func lockedOrCompressed(_ entry: FileEntry) -> Bool {
+        if let known = entry.isLockedOrCompressed { return known }
+        let url = entry.url
         if let known = flags[url.path] { return known }
         var st = stat()
         let on = lstat(url.path, &st) == 0 && st.st_flags & UInt32(UF_IMMUTABLE | UF_COMPRESSED | SF_IMMUTABLE) != 0
@@ -48,7 +50,10 @@ final class ItemDecorCache {
         return on
     }
 
-    func customIcon(_ url: URL) -> NSImage? {
+    /// A folder's own icon. The listing's Finder flags rule out most folders without a disk read.
+    func customIcon(_ entry: FileEntry) -> NSImage? {
+        guard entry.mayHaveCustomIcon else { return nil }
+        let url = entry.url
         if let known = icons[url.path] { return known }
         let icon = FolderIcon.hasCustomIcon(url) ? NSWorkspace.shared.icon(forFile: url.path) : nil
         icons[url.path] = icon
@@ -82,8 +87,8 @@ extension BrowserWindowController {
         let real = !isInZip
         cell.tagColors = real ? decor.tagColors(entry.url) : []
         cell.underline = o.singleClickOpens ? o.underline : nil
-        cell.isFlagDimmed = real && o.showCompressedInColour && decor.lockedOrCompressed(entry.url)
-        cell.customIcon = real && entry.isFolder ? decor.customIcon(entry.url) : nil
+        cell.isFlagDimmed = real && o.showCompressedInColour && decor.lockedOrCompressed(entry)
+        cell.customIcon = real && entry.isFolder ? decor.customIcon(entry) : nil
         cell.tip = o.showPopupDescriptions ? { [weak self] in self?.infoTip(entry) } : nil
     }
 
@@ -92,7 +97,7 @@ extension BrowserWindowController {
         let decor = ItemDecorCache.shared
         cell.showsTypeBadge = o.fileIconOnThumbnails
         cell.tagColors = isInZip ? [] : decor.tagColors(entry.url)
-        cell.isFlagDimmed = !isInZip && o.showCompressedInColour && decor.lockedOrCompressed(entry.url)
+        cell.isFlagDimmed = !isInZip && o.showCompressedInColour && decor.lockedOrCompressed(entry)
         cell.tip = o.showPopupDescriptions ? { [weak self] in self?.infoTip(entry) } : nil
     }
 
