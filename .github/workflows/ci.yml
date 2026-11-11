@@ -36,10 +36,12 @@ jobs:
     needs: build
     runs-on: [self-hosted, ultra]
     timeout-minutes: 90
-    # One VM: two runs never use it at the same time.
+    # One VM: tools/ci/vm-tests.sh holds the shared VM lock, and the single runner takes one job at a time.
+    # A repo-wide group here would let GitHub cancel every pending run but the newest (one pending per
+    # group), so the group is per branch: a new push to a PR replaces that PR's older run only.
     concurrency:
-      group: folio-vm
-      cancel-in-progress: false
+      group: folio-vm-${{ github.ref }}
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v7
 
